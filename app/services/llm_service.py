@@ -3,12 +3,70 @@ import os
 import json
 import time
 from dotenv import load_dotenv
-from google.api_core import exceptions
 from openai import OpenAI
+from app.utils.layout import normalize_template
+from app.utils.template_library import build_layout_from_template
 
 load_dotenv()
 
 PROMPTS_DIR = "prompts"
+
+
+def strip_code_fence(text: str, language: str = None) -> str:
+    text = text.strip()
+    fence = f"```{language}" if language else "```"
+    if language and fence in text:
+        return text.split(fence, 1)[1].split("```", 1)[0].strip()
+    if "```" in text:
+        return text.split("```", 1)[1].split("```", 1)[0].strip()
+    return text
+
+
+def extract_json_payload(text: str, opening: str, closing: str) -> str:
+    text = strip_code_fence(text, "json")
+    if opening in text and closing in text:
+        return text[text.find(opening):text.rfind(closing) + 1]
+    return text
+
+
+def extract_json_objects(text: str) -> list:
+    decoder = json.JSONDecoder()
+    objects = []
+    index = 0
+    while index < len(text):
+        start = text.find("{", index)
+        if start == -1:
+            break
+        try:
+            value, end = decoder.raw_decode(text[start:])
+            if isinstance(value, dict):
+                objects.append(value)
+            index = start + max(end, 1)
+        except json.JSONDecodeError:
+            index = start + 1
+    return objects
+
+
+def normalize_metric_value(value):
+    if value is None:
+        return "N/A"
+    if isinstance(value, float) and value != value:
+        return "N/A"
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, raw_value in value.items():
+            normalized_value = normalize_metric_value(raw_value)
+            if normalized_value != "N/A":
+                cleaned[str(key)] = normalized_value
+        return cleaned or "N/A"
+    if isinstance(value, list):
+        cleaned = [normalize_metric_value(v) for v in value]
+        cleaned = [v for v in cleaned if v != "N/A"]
+        return cleaned or "N/A"
+    if isinstance(value, str):
+        value = value.strip()
+        return value if value and "Error" not in value else "N/A"
+    return value
 
 def load_prompt(filename: str) -> str:
     path = os.path.join(PROMPTS_DIR, filename)
@@ -56,18 +114,22 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
                     continue
             raise e
 
-def generate_artifacts(all_metadata: str, prompt: str, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", settings: dict = None) -> list:
+def generate_artifacts(all_metadata: str, prompt: str, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", settings: dict = None, template_context: dict = None) -> list:
     system_instruction = load_prompt("GENERATE_ARTIFACTS.md")
     lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
-    user_prompt = f"Target Language: {lang}\nData Artifacts:\n{all_metadata}\n\nUser's Initial Prompt: {prompt}"
+    layout_constraints = ""
+    if template_context:
+        layout_constraints = (
+            "Selected Layout Template:\n"
+            f"{json.dumps(template_context, indent=2)}\n\n"
+            "Hard constraint: generate visible text and graphic artifacts that fit this exact template. "
+            "Metric artifacts can exceed the visual slot counts because they are not directly rendered.\n\n"
+        )
+    user_prompt = f"Target Language: {lang}\n{layout_constraints}Data Artifacts:\n{all_metadata}\n\nUser's Initial Prompt: {prompt}"
     
     for attempt in range(3):
         text = call_llm(provider, model_name, system_instruction, user_prompt)
-        text = text.strip()
-        
-        if "```json" in text: text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text: text = text.split("```")[1].split("```")[0].strip()
-        if "[" in text and "]" in text: text = text[text.find("["):text.rfind("]")+1]
+        text = extract_json_payload(text, "[", "]")
             
         try:
             artifacts = json.loads(text)
@@ -78,33 +140,17 @@ def generate_artifacts(all_metadata: str, prompt: str, provider: str = "gemini",
             
     return []
 
-def generate_template(artifacts: list, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview") -> list:
-    from app.utils.template_library import BLUEPRINTS
-    system_instruction = load_prompt("GENERATE_TEMPLATE.md").replace("{blueprints_json}", json.dumps(BLUEPRINTS, indent=2))
-    
-    artifacts_simple = [{"id": a["id"], "type": a["type"], "name": a["indicator"]} for a in artifacts]
-    user_prompt = f"List of Indicators to Position:\n{json.dumps(artifacts_simple, indent=2)}"
-    
-    for attempt in range(3):
-        text = call_llm(provider, model_name, system_instruction, user_prompt)
-        text = text.strip()
-        if "```json" in text: text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text: text = text.split("```")[1].split("```")[0].strip()
-        if "[" in text and "]" in text: text = text[text.find("["):text.rfind("]")+1]
+def generate_template(artifacts: list, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", template_id: str = None) -> list:
+    return normalize_template(build_layout_from_template(artifacts, template_id))
 
-        try:
-            template = json.loads(text)
-            if isinstance(template, list) and len(template) > 0:
-                return template
-        except:
-            time.sleep(2)
 
-    # Fallback vertical stack (A4 aware)
-    # Starting at y=30 to leave space for Title (10mm) + Margin (15mm) + buffer
-    total_h = 250 
-    n = len(artifacts)
-    h_per_item = min(50, total_h // n) if n > 0 else 50
-    return [{"id": a["id"], "x": 10, "y": 30 + i*(h_per_item + 5), "w": 190, "h": h_per_item} for i, a in enumerate(artifacts)]
+def dataframe_load_line(original_name: str, path: str, indent: str = "") -> str:
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.csv':
+        return f"{indent}dataframes[{json.dumps(original_name)}] = pd.read_csv(r'{path}')"
+    if ext in ['.xls', '.xlsx']:
+        return f"{indent}dataframes[{json.dumps(original_name)}] = pd.read_excel(r'{path}')"
+    return ""
 
 def calculate_metric_value(all_metadata: str, artifact: dict, files_map: dict, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview") -> any:
     """
@@ -117,15 +163,14 @@ def calculate_metric_value(all_metadata: str, artifact: dict, files_map: dict, p
     setup_code = ["import pandas as pd", "import json", "import os", "dataframes = {}"]
     for original_name, path in files_map.items():
         abs_path = os.path.abspath(path)
-        ext = os.path.splitext(abs_path)[1].lower()
-        if ext == '.csv': setup_code.append(f"dataframes['{original_name}'] = pd.read_csv(r'{abs_path}')")
-        else: setup_code.append(f"dataframes['{original_name}'] = pd.read_excel(r'{abs_path}')")
+        line = dataframe_load_line(original_name, abs_path)
+        if line:
+            setup_code.append(line)
     
     for attempt in range(3):
         try:
             code = call_llm(provider, model_name, system_instruction, f"{user_prompt}\n\nAttempt: {attempt+1}").strip()
-            if "```python" in code: code = code.split("```python")[1].split("```")[0].strip()
-            elif "```" in code: code = code.split("```")[1].split("```")[0].strip()
+            code = strip_code_fence(code, "python")
 
             full_script = "\n".join(setup_code) + "\n\n" + code
             
@@ -138,10 +183,9 @@ def calculate_metric_value(all_metadata: str, artifact: dict, files_map: dict, p
                 
                 if result["success"]:
                     output = result["stdout"].strip()
-                    if "{" in output:
-                        json_str = output[output.rfind("{"):output.rfind("}")+1]
-                        val = json.loads(json_str).get("value")
-                        if val is not None and val != "N/A" and "Error" not in str(val):
+                    for payload in reversed(extract_json_objects(output)):
+                        val = normalize_metric_value(payload.get("value"))
+                        if val != "N/A":
                             return val
                 
                 # Se falhou, logamos o erro para debug (interno)
@@ -172,10 +216,7 @@ def generate_component_code(all_metadata: str, artifact: dict, provider: str = "
     user_prompt = "\n\n".join(context)
     
     text = call_llm(provider, model_name, system_instruction, user_prompt)
-    text = text.strip()
-    if "```python" in text: text = text.split("```python")[1].split("```")[0].strip()
-    elif "```" in text: text = text.split("```")[1].split("```")[0].strip()
-    return text
+    return strip_code_fence(text, "python")
 
 def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metrics: dict, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", settings: dict = None) -> dict:
     system_instruction = load_prompt("GENERATE_ALL_TEXTS.md")
@@ -184,10 +225,7 @@ def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metri
     
     for attempt in range(3):
         text = call_llm(provider, model_name, system_instruction, user_prompt)
-        text = text.strip()
-        if "```json" in text: text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text: text = text.split("```")[1].split("```")[0].strip()
-        if "{" in text and "}" in text: text = text[text.find("{"):text.rfind("}")+1]
+        text = extract_json_payload(text, "{", "}")
 
         try:
             return json.loads(text)
@@ -195,11 +233,43 @@ def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metri
             time.sleep(2)
     return {}
 
+def generate_report_title(all_metadata: str, prompt: str, artifacts: list, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", settings: dict = None) -> str:
+    system_instruction = load_prompt("GENERATE_REPORT_TITLE.md")
+    lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
+    user_prompt = (
+        f"Target Language: {lang}\n"
+        f"User Goal:\n{prompt}\n\n"
+        f"Data Artifacts:\n{all_metadata}\n\n"
+        f"Selected Artifacts:\n{json.dumps(artifacts, indent=2, ensure_ascii=False)}"
+    )
+
+    try:
+        title = call_llm(provider, model_name, system_instruction, user_prompt).strip()
+        title = strip_code_fence(title).strip().strip('"').strip("'")
+        title = " ".join(title.split())
+        if title:
+            return title[:80]
+    except Exception as e:
+        print(f"DEBUG: title generation failed: {str(e)}")
+
+    return fallback_report_title(prompt)
+
+
+def fallback_report_title(prompt: str) -> str:
+    clean_prompt = " ".join((prompt or "").split())
+    if not clean_prompt:
+        return "Relatório Analítico"
+    return clean_prompt[:80]
+
 def assemble_script(components: dict, template: list, files_map: dict, output_pdf_path: str, settings: dict = None) -> str:
+    template = sorted(
+        normalize_template(template),
+        key=lambda item: (item.get("page", 1), item.get("y", 0), item.get("x", 0))
+    )
     # Default settings if none provided
     if not settings:
         settings = {
-            "title": "Relatório Analítico Inteligente",
+            "title": "Relatório Analítico",
             "font": "Arial",
             "font_size": 10,
             "alignment": "L",
@@ -211,18 +281,36 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
     if font_family == 'arial': font_family = 'helvetica'
     
     script = [
+        "import os", "os.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')",
         "import pandas as pd", "import numpy as np", "import matplotlib.pyplot as plt", "import seaborn as sns",
-        "from fpdf import FPDF", "import tempfile", "import os", "",
+        "from fpdf import FPDF, XPos, YPos", "import tempfile", "import textwrap", "",
         "sns.set_theme(style='whitegrid')", "",
-        f"def render_text_block(pdf, text, x, y, w, h, title=None):",
+        "def _fit_text_to_box(text, w, h, font_size, line_height):",
+        "    max_chars = max(12, int(w * 0.55))",
+        "    max_lines = max(1, int(h / max(line_height, 1)))",
+        "    lines = []",
+        "    for paragraph in str(text).splitlines() or ['']:",
+        "        wrapped = textwrap.wrap(paragraph, width=max_chars) or ['']",
+        "        lines.extend(wrapped)",
+        "    if len(lines) > max_lines:",
+        "        lines = lines[:max_lines]",
+        "        lines[-1] = lines[-1].rstrip()[:max(0, max_chars - 3)] + '...'",
+        "    return '\\n'.join(lines)",
+        "",
+        "def render_text_block(pdf, text, x, y, w, h, title=None):",
+        f"    font_size = {settings.get('font_size', 10)}",
+        f"    line_height = {settings.get('line_height', 5)}",
+        "    body_height = h",
         f"    pdf.set_xy(x, y)",
         f"    if title:",
-        f"        pdf.set_font('{font_family}', 'B', {settings.get('font_size', 10)})",
-        f"        pdf.cell(w, 7, title, ln=True)",
+        f"        pdf.set_font('{font_family}', 'B', font_size)",
+        f"        pdf.cell(w, 7, title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)",
+        f"        body_height = max(1, h - 8)",
         f"        pdf.set_xy(x, pdf.get_y())",
         f"    ",
-        f"    pdf.set_font('{font_family}', '', {settings.get('font_size', 10)})",
-        f"    pdf.multi_cell(w, {settings.get('line_height', 5)}, text, align='{settings.get('alignment', 'L')}')",
+        f"    pdf.set_font('{font_family}', '', font_size)",
+        f"    fitted_text = _fit_text_to_box(text, w, body_height, font_size, line_height)",
+        f"    pdf.multi_cell(w, line_height, fitted_text, align='{settings.get('alignment', 'L')}')",
         ""
     ]
     for comp_id, func_code in components.items():
@@ -231,20 +319,27 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
     script.append("def generate_report():")
     script.append("    dataframes = {}")
     for original_name, path in files_map.items():
-        ext = os.path.splitext(path)[1].lower()
-        if ext == '.csv':
-            script.append(f"    dataframes['{original_name}'] = pd.read_csv(r'{path}')")
-        else:
-            script.append(f"    dataframes['{original_name}'] = pd.read_excel(r'{path}')")
+        line = dataframe_load_line(original_name, path, indent="    ")
+        if line:
+            script.append(line)
 
     script.append("    pdf = FPDF()")
-    script.append("    pdf.add_page()")
-    script.append("    pdf.set_auto_page_break(auto=True, margin=15)")
-    script.append(f"    pdf.set_font('{font_family}', 'B', 16)")
-    script.append(f"    pdf.cell(0, 10, {json.dumps(settings.get('title', 'Relatório Analítico Inteligente'))}, ln=True, align='C')")
-    script.append("    pdf.ln(5)")
+    script.append("    pdf.set_auto_page_break(auto=False)")
+    script.append("    current_page = 0")
+    script.append("    def ensure_page(page):")
+    script.append("        nonlocal current_page")
+    script.append("        while current_page < page:")
+    script.append("            pdf.add_page()")
+    script.append("            current_page += 1")
+    script.append("            if current_page == 1:")
+    script.append(f"                pdf.set_font('{font_family}', 'B', 16)")
+    script.append(f"                pdf.cell(0, 10, {json.dumps(settings.get('title') or 'Relatório Analítico')}, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')")
+    script.append("                pdf.ln(5)")
+    script.append("    ensure_page(1)")
     for item in template:
-        script.append(f"    try: ")
+        page = item.get("page", 1)
+        script.append(f"    ensure_page({page})")
+        script.append(f"    try:")
         script.append(f"        # Provide a default 'df' for backward compatibility with older prompts/scripts")
         script.append(f"        primary_df = list(dataframes.values())[0] if dataframes else None")
         script.append(f"        render_{item['id']}(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']}, df=primary_df)")
@@ -267,10 +362,7 @@ def fix_script(current_script: str, error: str, all_metadata: str, provider: str
     user_prompt = f"Reported Error: {error}\n\nCurrent Failing Script:\n{current_script}\n\nData Artifacts:\n{all_metadata}"
     
     text = call_llm(provider, model_name, system_instruction, user_prompt)
-    text = text.strip()
-    if "```python" in text: text = text.split("```python")[1].split("```")[0].strip()
-    elif "```" in text: text = text.split("```")[1].split("```")[0].strip()
-    return text
+    return strip_code_fence(text, "python")
 
 def generate_exploration_script(all_metadata: str, query: str, files_map: dict, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", history: list = None) -> str:
     system_instruction = load_prompt("EXPLORE_DATA.md")
@@ -282,9 +374,7 @@ def generate_exploration_script(all_metadata: str, query: str, files_map: dict, 
     user_prompt = f"{history_str}\nData Artifacts:\n{all_metadata}\n\nUser Query: {query}"
     
     text = call_llm(provider, model_name, system_instruction, user_prompt)
-    text = text.strip()
-    if "```python" in text: text = text.split("```python")[1].split("```")[0].strip()
-    elif "```" in text: text = text.split("```")[1].split("```")[0].strip()
+    text = strip_code_fence(text, "python")
     
     # Injetar carregamento dos dataframes
     setup_code = [
@@ -292,11 +382,9 @@ def generate_exploration_script(all_metadata: str, query: str, files_map: dict, 
         "dataframes = {}"
     ]
     for original_name, path in files_map.items():
-        ext = os.path.splitext(path)[1].lower()
-        if ext == '.csv':
-            setup_code.append(f"dataframes['{original_name}'] = pd.read_csv('{path}')")
-        else:
-            setup_code.append(f"dataframes['{original_name}'] = pd.read_excel('{path}')")
+        line = dataframe_load_line(original_name, path)
+        if line:
+            setup_code.append(line)
     
     full_script = "\n".join(setup_code) + "\n\n" + text
     return full_script
@@ -316,10 +404,7 @@ def translate_workspace(session: dict, target_lang: str) -> dict:
     
     for attempt in range(3):
         text = call_llm(provider, model_name, system_instruction, user_prompt)
-        text = text.strip()
-        if "```json" in text: text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text: text = text.split("```")[1].split("```")[0].strip()
-        if "{" in text and "}" in text: text = text[text.find("{"):text.rfind("}")+1]
+        text = extract_json_payload(text, "{", "}")
         
         try:
             res = json.loads(text)
@@ -348,28 +433,25 @@ def refine_session_modular(session: dict, new_prompt: str) -> dict:
         refine_instruction = f"Target Language: {lang}\nUpdate the FUNCTION render_{target} based on: {new_prompt}\n\nCurrent Code:\n{session['components'][target]}\n\nData Artifacts:\n{all_metadata}"
         
         new_func = call_llm(provider, model_name, "Expert Python Developer specialized in report components.", refine_instruction).strip()
-        if "```python" in new_func: new_func = new_func.split("```python")[1].split("```")[0].strip()
-        elif "```" in new_func: new_func = new_func.split("```")[1].split("```")[0].strip()
+        new_func = strip_code_fence(new_func, "python")
         session['components'][target] = new_func
         session['needs_script_update'] = True
     elif target == "LAYOUT":
         refine_instruction = f"Target Language: {lang}\nUpdate the layout JSON based on: {new_prompt}\n\nCurrent Layout: {json.dumps(session['template'], indent=2)}"
         res = call_llm(provider, model_name, "Expert Information Designer specialized in JSON layouts.", refine_instruction).strip()
-        if "```json" in res: res = res.split("```json")[1].split("```")[0].strip()
-        if "[" in res and "]" in res: res = res[res.find("["):res.rfind("]")+1]
+        res = extract_json_payload(res, "[", "]")
         try:
-            session['template'] = json.loads(res)
+            session['template'] = normalize_template(json.loads(res))
             session['needs_script_update'] = True
         except: pass
     elif target == "SETTINGS":
         refine_instruction = f"Update the report settings JSON based on: {new_prompt}\n\nCurrent Settings: {json.dumps(settings, indent=2)}\n\nFormat: {{\"title\": str, \"font\": str, \"font_size\": int, \"alignment\": \"L\"|\"C\"|\"R\"|\"J\", \"line_height\": int, \"language\": str}}"
         res = call_llm(provider, model_name, "Expert Designer specialized in document settings.", refine_instruction).strip()
-        if "```json" in res: res = res.split("```json")[1].split("```")[0].strip()
-        if "{" in res and "}" in res: res = res[res.find("{"):res.rfind("}")+1]
+        res = extract_json_payload(res, "{", "}")
         try:
             new_settings = json.loads(res)
             current_settings = session.get('settings', {
-                "title": "Relatório Analítico Inteligente",
+                "title": "Relatório Analítico",
                 "font": "Arial",
                 "font_size": 10,
                 "alignment": "L",

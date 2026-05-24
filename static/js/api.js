@@ -6,6 +6,7 @@ const API = {
 
     async getSession(jobId) {
         const res = await fetch(`/api/sessions/${jobId}`);
+        if (!res.ok) throw new Error(`Session ${jobId} not found`);
         return await res.json();
     },
 
@@ -46,6 +47,11 @@ const API = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(settings)
         });
+        return await res.json();
+    },
+
+    async getLayoutTemplates() {
+        const res = await fetch('/api/layout-templates');
         return await res.json();
     },
 

@@ -308,6 +308,13 @@ select, input[type="file"], input[type="text"] {
     min-height: 900px;
 }
 
+.layout-canvas {
+    display: flex;
+    flex-direction: column;
+    gap: 3rem;
+    align-items: center;
+}
+
 .a4-page {
     width: 595px;
     height: 842px;
@@ -318,7 +325,7 @@ select, input[type="file"], input[type="text"] {
 }
 
 .a4-page::after {
-    content: "Fim da Página 1";
+    content: var(--page-label, "Fim da Página");
     position: absolute;
     bottom: 0;
     left: 0;
@@ -345,6 +352,13 @@ select, input[type="file"], input[type="text"] {
     font-weight: 600;
     text-align: center;
     border-radius: 4px;
+}
+
+.layout-block small {
+    margin-top: 0.25rem;
+    font-size: 0.65rem;
+    opacity: 0.75;
+    text-transform: uppercase;
 }
 
 .layout-block .resizer {
@@ -410,4 +424,105 @@ iframe {
     height: 100%;
     border: none;
     border-radius: 8px;
+}
+
+/* Template Library Editor */
+.template-editor-body {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.template-panel {
+    width: 360px;
+    background: var(--md-sys-color-surface);
+    border-right: 1px solid var(--md-sys-color-outline);
+    padding: 1.5rem;
+    overflow-y: auto;
+    box-sizing: border-box;
+}
+
+.template-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.template-panel-header h2 {
+    margin: 0;
+    color: var(--md-sys-color-primary);
+}
+
+.template-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+
+.template-save-btn {
+    width: 100%;
+}
+
+.template-description {
+    height: 70px;
+}
+
+.template-workspace {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #444;
+}
+
+.template-toolbar {
+    color: white;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+
+.template-canvas {
+    flex: 1;
+    overflow: auto;
+    padding: 3rem;
+}
+
+.template-slot-text {
+    background: rgba(83, 95, 112, 0.18);
+    border-color: var(--md-sys-color-secondary);
+}
+
+.template-slot-graphic {
+    background: rgba(0, 97, 164, 0.15);
+    border-color: var(--md-sys-color-primary);
+}
+
+.template-slot.selected {
+    outline: 3px solid var(--md-sys-color-error);
+    outline-offset: 2px;
+}
+
+.slot-inspector {
+    display: none;
+    border-top: 1px solid var(--md-sys-color-outline);
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+}
+
+.slot-inspector h3 {
+    color: var(--md-sys-color-primary);
+    margin-top: 0;
+}
+
+.slot-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.slot-grid .form-group {
+    margin-bottom: 0;
 }

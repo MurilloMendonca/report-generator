@@ -1,0 +1,324 @@
+[
+  {
+    "case_id": "sales_ops",
+    "job_id": "canonical-sales_ops-5404b907",
+    "pdf_path": null,
+    "passed": false,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": false,
+        "detail": "missing"
+      },
+      {
+        "name": "status_completed",
+        "passed": false,
+        "detail": "Erro na pipeline: Connection error."
+      },
+      {
+        "name": "has_title",
+        "passed": false,
+        "detail": ""
+      },
+      {
+        "name": "has_artifacts",
+        "passed": false,
+        "detail": 0
+      },
+      {
+        "name": "has_template",
+        "passed": false,
+        "detail": 0
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": false,
+        "detail": {}
+      },
+      {
+        "name": "metadata_column_revenue",
+        "passed": true,
+        "detail": "revenue"
+      },
+      {
+        "name": "metadata_column_region",
+        "passed": true,
+        "detail": "region"
+      },
+      {
+        "name": "metadata_column_product",
+        "passed": true,
+        "detail": "product"
+      },
+      {
+        "name": "report_keyword_revenue",
+        "passed": true,
+        "detail": "revenue"
+      },
+      {
+        "name": "report_keyword_region",
+        "passed": true,
+        "detail": "region"
+      },
+      {
+        "name": "report_keyword_target",
+        "passed": true,
+        "detail": "target"
+      }
+    ]
+  },
+  {
+    "case_id": "hr_retention",
+    "job_id": "canonical-hr_retention-dc28ca24",
+    "pdf_path": null,
+    "passed": false,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": false,
+        "detail": "missing"
+      },
+      {
+        "name": "status_completed",
+        "passed": false,
+        "detail": "Erro na pipeline: Connection error."
+      },
+      {
+        "name": "has_title",
+        "passed": false,
+        "detail": ""
+      },
+      {
+        "name": "has_artifacts",
+        "passed": false,
+        "detail": 0
+      },
+      {
+        "name": "has_template",
+        "passed": false,
+        "detail": 0
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": false,
+        "detail": {}
+      },
+      {
+        "name": "metadata_column_department",
+        "passed": true,
+        "detail": "department"
+      },
+      {
+        "name": "metadata_column_engagement",
+        "passed": true,
+        "detail": "engagement"
+      },
+      {
+        "name": "metadata_column_left_company",
+        "passed": true,
+        "detail": "left_company"
+      },
+      {
+        "name": "report_keyword_retention",
+        "passed": true,
+        "detail": "retention"
+      },
+      {
+        "name": "report_keyword_department",
+        "passed": true,
+        "detail": "department"
+      },
+      {
+        "name": "report_keyword_engagement",
+        "passed": true,
+        "detail": "engagement"
+      }
+    ]
+  },
+  {
+    "case_id": "logistics_quality",
+    "job_id": "canonical-logistics_quality-6279dba6",
+    "pdf_path": null,
+    "passed": false,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": false,
+        "detail": "missing"
+      },
+      {
+        "name": "status_completed",
+        "passed": false,
+        "detail": "Erro na pipeline: Connection error."
+      },
+      {
+        "name": "has_title",
+        "passed": false,
+        "detail": ""
+      },
+      {
+        "name": "has_artifacts",
+        "passed": false,
+        "detail": 0
+      },
+      {
+        "name": "has_template",
+        "passed": false,
+        "detail": 0
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": false,
+        "detail": {}
+      },
+      {
+        "name": "metadata_column_warehouse",
+        "passed": true,
+        "detail": "warehouse"
+      },
+      {
+        "name": "metadata_column_carrier",
+        "passed": true,
+        "detail": "carrier"
+      },
+      {
+        "name": "metadata_column_late_pct",
+        "passed": true,
+        "detail": "late_pct"
+      },
+      {
+        "name": "metadata_column_damage_pct",
+        "passed": true,
+        "detail": "damage_pct"
+      },
+      {
+        "name": "report_keyword_warehouse",
+        "passed": true,
+        "detail": "warehouse"
+      },
+      {
+        "name": "report_keyword_carrier",
+        "passed": true,
+        "detail": "carrier"
+      },
+      {
+        "name": "report_keyword_late",
+        "passed": true,
+        "detail": "late"
+      }
+    ]
+  },
+  {
+    "case_id": "education_outcomes",
+    "job_id": "canonical-education_outcomes-9619d50d",
+    "pdf_path": null,
+    "passed": false,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": false,
+        "detail": "missing"
+      },
+      {
+        "name": "status_completed",
+        "passed": false,
+        "detail": "Erro na pipeline: Connection error."
+      },
+      {
+        "name": "has_title",
+        "passed": false,
+        "detail": ""
+      },
+      {
+        "name": "has_artifacts",
+        "passed": false,
+        "detail": 0
+      },
+      {
+        "name": "has_template",
+        "passed": false,
+        "detail": 0
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": false,
+        "detail": {}
+      },
+      {
+        "name": "metadata_column_campus",
+        "passed": true,
+        "detail": "campus"
+      },
+      {
+        "name": "metadata_column_program",
+        "passed": true,
+        "detail": "program"
+      },
+      {
+        "name": "metadata_column_completion_rate",
+        "passed": true,
+        "detail": "completion_rate"
+      },
+      {
+        "name": "metadata_column_placement_rate",
+        "passed": true,
+        "detail": "placement_rate"
+      },
+      {
+        "name": "report_keyword_campus",
+        "passed": true,
+        "detail": "campus"
+      },
+      {
+        "name": "report_keyword_completion",
+        "passed": true,
+        "detail": "completion"
+      },
+      {
+        "name": "report_keyword_placement",
+        "passed": true,
+        "detail": "placement"
+      }
+    ]
+  }
+]

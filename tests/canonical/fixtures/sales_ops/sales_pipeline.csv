@@ -1,0 +1,9 @@
+month,region,product,revenue,units,discount_pct,channel
+2026-01,North,Alpha,124000,410,7,Direct
+2026-01,South,Beta,91000,360,11,Partner
+2026-02,North,Alpha,138000,445,6,Direct
+2026-02,West,Gamma,76000,250,13,Online
+2026-03,South,Alpha,147500,470,8,Partner
+2026-03,West,Beta,99000,330,10,Online
+2026-04,North,Gamma,83000,270,12,Direct
+2026-04,South,Beta,112000,390,9,Partner

@@ -2,14 +2,49 @@ const App = {
     currentSession: null,
     pollInterval: null,
     lastPdfVersion: 0,
+    layoutTemplates: [],
     models: {
         gemini: [{ id: "models/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" }],
         deepseek: [{ id: "deepseek-chat", label: "DeepSeek-V3" }]
     },
 
-    init() {
+    async init() {
         this.updateModels();
         this.setupEventListeners();
+        await this.loadLayoutTemplates();
+        await this.loadSessionFromUrl();
+    },
+
+    getSessionIdFromUrl() {
+        const match = window.location.pathname.match(/^\/session\/([^/]+)$/);
+        return match ? decodeURIComponent(match[1]) : null;
+    },
+
+    async loadSessionFromUrl() {
+        const jobId = this.getSessionIdFromUrl();
+        if (!jobId) return;
+
+        try {
+            const session = await API.getSession(jobId);
+            this.currentSession = session;
+            this.showWorkspace();
+            this.lastPdfVersion = 0;
+            this.updateUI(session);
+
+            if (session.status && !session.status.includes("concluído") && !session.status.includes("Falha") && session.status !== "Concluído") {
+                this.startPolling();
+            }
+        } catch (error) {
+            document.getElementById('chat-history').innerHTML += `
+                <div class="message ai"><b>Studio:</b> Sessão não encontrada: ${jobId}</div>
+            `;
+        }
+    },
+
+    async loadLayoutTemplates() {
+        const data = await API.getLayoutTemplates();
+        this.layoutTemplates = data.templates || [];
+        UI.renderTemplateOptions(this.layoutTemplates);
     },
 
     updateModels() {
@@ -31,13 +66,17 @@ const App = {
         e.preventDefault();
         const data = await API.startSession(new FormData(e.target));
         this.currentSession = { job_id: data.job_id };
+        window.history.replaceState({}, '', `/session/${data.job_id}`);
+        this.showWorkspace();
         
+        this.startPolling();
+    },
+
+    showWorkspace() {
         document.getElementById('initial-form').style.display = 'none';
         document.getElementById('file-workspace').style.display = 'block';
         document.getElementById('header-progress').style.display = 'block';
         document.getElementById('chat-form').style.display = 'block';
-        
-        this.startPolling();
     },
 
     startPolling() {
@@ -62,6 +101,7 @@ const App = {
         UI.renderLayoutCanvas(session);
         UI.renderDataArtifacts(session);
         UI.renderFullScript(session.script);
+        UI.renderTemplateOptions(this.layoutTemplates);
         UI.updateSettingsForm(session.settings);
 
         if (session.pdf_version > this.lastPdfVersion) {
@@ -172,17 +212,32 @@ const App = {
 
     async handleSaveVisualLayout() {
         const template = [];
+        const pages = Array.from(document.querySelectorAll('.a4-page'));
         document.querySelectorAll('.layout-block').forEach(el => {
+            const blockRect = el.getBoundingClientRect();
+            const blockCenterY = blockRect.top + blockRect.height / 2;
+            const pageEl = pages.find(page => {
+                const pageRect = page.getBoundingClientRect();
+                return blockCenterY >= pageRect.top && blockCenterY <= pageRect.bottom;
+            }) || el.closest('.a4-page');
+            const pageRect = pageEl.getBoundingClientRect();
             template.push({
                 id: el.id.replace('block-', ''),
-                x: Math.round(el.offsetLeft / MM_TO_PX),
-                y: Math.round(el.offsetTop / MM_TO_PX),
+                page: parseInt(pageEl.dataset.page || "1"),
+                x: Math.round((blockRect.left - pageRect.left) / MM_TO_PX),
+                y: Math.round((blockRect.top - pageRect.top) / MM_TO_PX),
                 w: Math.round(el.offsetWidth / MM_TO_PX),
                 h: Math.round(el.offsetHeight / MM_TO_PX)
             });
         });
         await API.saveLayout(this.currentSession.job_id, template);
         this.startPolling();
+    },
+
+    addLayoutPage() {
+        const canvas = document.getElementById('layout-canvas');
+        const pageCount = canvas.querySelectorAll('.a4-page').length;
+        canvas.appendChild(UI.createLayoutPage(pageCount + 1));
     },
 
     async handleSaveSettings(e) {
@@ -193,7 +248,8 @@ const App = {
             font_size: parseInt(document.getElementById('s-font-size').value),
             alignment: document.getElementById('s-alignment').value,
             line_height: parseInt(document.getElementById('s-line-height').value),
-            language: document.getElementById('s-language').value
+            language: document.getElementById('s-language').value,
+            selected_template_id: document.getElementById('s-layout-template').value
         };
         await API.updateSettings(this.currentSession.job_id, settings);
         this.startPolling();

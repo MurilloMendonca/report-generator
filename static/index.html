@@ -24,6 +24,7 @@
 <body>
     <div class="sidebar">
         <h2>Visual Workspace</h2>
+        <a href="/templates" class="btn btn-outline" style="margin-bottom: 1rem; text-align: center; text-decoration: none;">Editar Templates</a>
         
         <div id="file-workspace" style="display:none">
             <label>Arquivos:</label>
@@ -97,9 +98,10 @@
             <div class="canvas-area">
                 <div style="margin-bottom: 1.5rem; color: white; display: flex; gap: 1.5rem; align-items: center;">
                     <span style="font-size: 1rem; opacity: 0.9;">📐 Organize os blocos na página A4 para o PDF final.</span>
+                    <button class="btn btn-secondary" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" onclick="App.addLayoutPage()">+ Página</button>
                     <button class="btn btn-secondary" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" onclick="App.handleSaveVisualLayout()">💾 Aplicar Layout & Renderizar</button>
                 </div>
-                <div class="a4-page" id="layout-canvas"></div>
+                <div class="layout-canvas" id="layout-canvas"></div>
             </div>
         </div>
 
@@ -164,6 +166,10 @@
                             <option value="Spanish">Español</option>
                             <option value="French">Français</option>
                         </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Template de Layout:</label>
+                        <select id="s-layout-template" name="selected_template_id"></select>
                     </div>
                     <button type="submit" class="btn" style="margin-top: 1rem;">Salvar e Aplicar</button>
                 </form>

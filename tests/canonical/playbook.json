@@ -1,0 +1,86 @@
+[
+  {
+    "id": "sales_ops",
+    "name": "Sales operations performance",
+    "provider": "deepseek",
+    "model_name": "deepseek-chat",
+    "template_id": "executive_hero_chart",
+    "files": [
+      "fixtures/sales_ops/sales_pipeline.csv",
+      "fixtures/sales_ops/regional_targets.xlsx",
+      "fixtures/sales_ops/sales_context.pdf"
+    ],
+    "initial_prompt": "Create an executive sales performance report covering revenue by region, product mix, target attainment, and discount discipline. Use the PDF context as business guidance.",
+    "refinement_prompts": [
+      "Make the conclusion more action oriented and highlight which region should get management attention first.",
+      "Prefer charts that compare regions and products instead of showing raw rows."
+    ],
+    "expected": {
+      "columns": ["revenue", "region", "product"],
+      "keywords": ["revenue", "region", "target"]
+    }
+  },
+  {
+    "id": "hr_retention",
+    "name": "HR retention risk",
+    "provider": "deepseek",
+    "model_name": "deepseek-chat",
+    "template_id": "narrative_left_insights_right",
+    "files": [
+      "fixtures/hr_retention/employee_retention.xlsx",
+      "fixtures/hr_retention/hiring_pipeline.csv",
+      "fixtures/hr_retention/people_notes.pdf"
+    ],
+    "initial_prompt": "Analyze employee retention risk by department, connecting attrition, engagement, tenure, manager score, and hiring pressure. Recommend where HR should act first.",
+    "refinement_prompts": [
+      "Emphasize early-tenure attrition and explain the operational cost of open roles.",
+      "Keep the tone suitable for an executive people review."
+    ],
+    "expected": {
+      "columns": ["department", "engagement", "left_company"],
+      "keywords": ["retention", "department", "engagement"]
+    }
+  },
+  {
+    "id": "logistics_quality",
+    "name": "Logistics quality and cost",
+    "provider": "deepseek",
+    "model_name": "deepseek-chat",
+    "template_id": "four_quadrant_dashboard",
+    "files": [
+      "fixtures/logistics_quality/shipment_quality.csv",
+      "fixtures/logistics_quality/incident_log.xlsx",
+      "fixtures/logistics_quality/operations_brief.pdf"
+    ],
+    "initial_prompt": "Build a logistics performance report that compares cost, late delivery rate, damage rate, and incident concentration by warehouse and carrier.",
+    "refinement_prompts": [
+      "Call out the warehouse-carrier pair that needs immediate operational review.",
+      "Make sure cost is not interpreted without service quality context."
+    ],
+    "expected": {
+      "columns": ["warehouse", "carrier", "late_pct", "damage_pct"],
+      "keywords": ["warehouse", "carrier", "late"]
+    }
+  },
+  {
+    "id": "education_outcomes",
+    "name": "Education outcomes and investment",
+    "provider": "deepseek",
+    "model_name": "deepseek-chat",
+    "template_id": "deep_dive_two_pages",
+    "files": [
+      "fixtures/education_outcomes/student_outcomes.xlsx",
+      "fixtures/education_outcomes/campus_budget.csv",
+      "fixtures/education_outcomes/academic_context.pdf"
+    ],
+    "initial_prompt": "Create an academic outcomes report comparing completion, placement, satisfaction, and investment by campus and program. Identify where budget appears most effective.",
+    "refinement_prompts": [
+      "Use the second page for deeper interpretation of campus differences.",
+      "Make the final recommendation explicit for the provost."
+    ],
+    "expected": {
+      "columns": ["campus", "program", "completion_rate", "placement_rate"],
+      "keywords": ["campus", "completion", "placement"]
+    }
+  }
+]

@@ -36,6 +36,7 @@ def render_{id}(pdf, dataframes, x, y, w, h):
       pdf.image(tmp.name, x=x, y=y, w=w, h=h)
       os.unlink(tmp.name)
   ```
+- The report renderer uses absolute layout coordinates with automatic page breaks disabled. Never call `pdf.add_page()`, `pdf.set_auto_page_break()`, or change global page layout inside a component.
 
 ## Mandatory Constraints
 1. **NO Imports**: Assume `pandas as pd`, `numpy as np`, `matplotlib.pyplot as plt`, `seaborn as sns`, `FPDF`, `tempfile`, and `os` are already imported.

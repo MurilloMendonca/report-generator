@@ -1,0 +1,7 @@
+week,warehouse,carrier,shipments,late_pct,damage_pct,cost
+2026-W01,A,FastShip,520,4.2,0.8,28400
+2026-W01,B,RoadMax,430,7.9,1.4,24100
+2026-W02,A,FastShip,545,3.8,0.7,29200
+2026-W02,C,AirSwift,310,2.1,0.5,35100
+2026-W03,B,RoadMax,470,8.4,1.7,26000
+2026-W03,C,AirSwift,330,2.4,0.6,36500

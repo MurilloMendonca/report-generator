@@ -45,20 +45,31 @@ const UI = {
 
     renderLayoutCanvas(session, onUpdate) {
         const canvas = document.getElementById('layout-canvas');
+        const templateSignature = JSON.stringify(session.template || []);
         if (canvas.getAttribute('data-job-id') === session.job_id && 
-            canvas.getAttribute('data-pdf-v') === String(session.pdf_version)) return;
+            canvas.getAttribute('data-template') === templateSignature) return;
         
         canvas.setAttribute('data-job-id', session.job_id);
-        canvas.setAttribute('data-pdf-v', session.pdf_version);
+        canvas.setAttribute('data-template', templateSignature);
         canvas.innerHTML = '';
 
-        (session.template || []).forEach(item => {
+        const template = session.template || [];
+        const pageCount = Math.max(1, ...template.map(item => item.page || 1));
+        for (let page = 1; page <= pageCount; page++) {
+            canvas.appendChild(UI.createLayoutPage(page));
+        }
+
+        template.forEach(item => {
             const art = session.artifacts.find(a => a.id === item.id);
             if (!art) return;
+            const page = item.page || 1;
+            const pageEl = canvas.querySelector(`.a4-page[data-page="${page}"]`);
+            if (!pageEl) return;
             
             const block = document.createElement('div');
             block.className = 'layout-block';
             block.id = `block-${item.id}`;
+            block.dataset.page = page;
             block.style.left = (item.x * MM_TO_PX) + 'px';
             block.style.top = (item.y * MM_TO_PX) + 'px';
             block.style.width = (item.w * MM_TO_PX) + 'px';
@@ -69,8 +80,16 @@ const UI = {
                 <div class="resizer"></div>
             `;
             Utils.makeDraggable(block);
-            canvas.appendChild(block);
+            pageEl.appendChild(block);
         });
+    },
+
+    createLayoutPage(page) {
+        const pageEl = document.createElement('div');
+        pageEl.className = 'a4-page';
+        pageEl.dataset.page = page;
+        pageEl.style.setProperty('--page-label', `"Fim da Página ${page}"`);
+        return pageEl;
     },
 
     renderDataArtifacts(session) {
@@ -108,5 +127,15 @@ const UI = {
         document.getElementById('s-alignment').value = settings.alignment || "L";
         document.getElementById('s-line-height').value = settings.line_height || 5;
         document.getElementById('s-language').value = settings.language || "Portuguese";
+        document.getElementById('s-layout-template').value = settings.selected_template_id || "";
+    },
+
+    renderTemplateOptions(templates) {
+        const select = document.getElementById('s-layout-template');
+        const currentValue = select.value;
+        select.innerHTML = (templates || []).map(template => `
+            <option value="${template.id}">${template.name}</option>
+        `).join('');
+        if (currentValue) select.value = currentValue;
     }
 };

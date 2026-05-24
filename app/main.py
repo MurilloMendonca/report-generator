@@ -14,6 +14,15 @@ import json
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.utils.data_analyzer import extract_metadata
+from app.utils.layout import normalize_template
+from app.utils.template_library import (
+    delete_layout_template,
+    fit_artifacts_to_template,
+    load_layout_templates,
+    select_layout_template,
+    template_constraints,
+    upsert_layout_template,
+)
 from app.services.llm_service import (
     generate_artifacts, 
     generate_template, 
@@ -24,6 +33,7 @@ from app.services.llm_service import (
     generate_exploration_script,
     calculate_metric_value,
     generate_all_texts,
+    generate_report_title,
     translate_workspace
 )
 from app.services.executor_service import execute_script
@@ -34,6 +44,15 @@ app = FastAPI(title="AI PDF Report Generator v3")
 UPLOAD_DIR = "workspace/uploads"
 SCRIPT_DIR = "workspace/scripts"
 REPORT_DIR = "workspace/reports"
+VISUAL_TYPES = {'graphic', 'bar', 'line', 'pie', 'scatter', 'table', 'chart'}
+DEFAULT_SETTINGS = {
+    "title": "",
+    "font": "Arial",
+    "font_size": 10,
+    "alignment": "L",
+    "line_height": 5,
+    "language": "Portuguese"
+}
 for d in [UPLOAD_DIR, SCRIPT_DIR, REPORT_DIR]:
     os.makedirs(d, exist_ok=True)
 
@@ -44,11 +63,64 @@ async def read_index():
     with open("static/index.html", "r", encoding="utf-8") as f:
         return f.read()
 
+
+@app.get("/templates", response_class=HTMLResponse)
+async def read_template_editor():
+    with open("static/templates.html", "r", encoding="utf-8") as f:
+        return f.read()
+
+
+@app.get("/session/{job_id}", response_class=HTMLResponse)
+async def read_session_workspace(job_id: str):
+    require_session(job_id)
+    with open("static/index.html", "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def require_session(job_id: str) -> dict:
+    session = get_session(job_id)
+    if not session:
+        raise HTTPException(status_code=404)
+    return session
+
+
+def save_uploaded_files(files: List[UploadFile]) -> list:
+    saved_files = []
+    for file in files:
+        file_ext = os.path.splitext(file.filename)[1]
+        data_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}{file_ext}")
+        with open(data_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        saved_files.append({
+            "original_filename": file.filename,
+            "path": data_path,
+            "artifact": None
+        })
+    return saved_files
+
+
+def build_files_map(session: dict) -> dict:
+    return {f['original_filename']: os.path.abspath(f['path']) for f in session.get('files', [])}
+
+
+def metadata_json(session: dict) -> str:
+    return json.dumps([f['artifact'] for f in session.get('files', []) if f.get('artifact')], indent=2)
+
+
+def text_component_code(artifact: dict, text_content: str) -> str:
+    safe_text = json.dumps(text_content)
+    safe_title = json.dumps(artifact.get('indicator', ''))
+    return (
+        f"def render_{artifact['id']}(pdf, dataframes, x, y, w, h):\n"
+        f"    render_text_block(pdf, {safe_text}, x, y, w, h, title={safe_title})"
+    )
+
+
 def run_pipeline(job_id: str):
     session = get_session(job_id)
     provider = session.get('provider')
     model_name = session.get('model_name')
-    files_map = {f['original_filename']: os.path.abspath(f['path']) for f in session['files']}
+    files_map = build_files_map(session)
     
     try:
         # 1. Metadados
@@ -60,19 +132,54 @@ def run_pipeline(job_id: str):
                 files[i]['artifact'] = artifact
                 any_new_artifact = True
         if any_new_artifact: update_session(job_id, {"files": files})
-        all_metadata = json.dumps([f['artifact'] for f in files if f.get('artifact')], indent=2)
+        all_metadata = metadata_json({"files": files})
 
         # 2. Indicadores (Artifacts)
         artifacts = session.get('artifacts', [])
+        settings = session.get('settings', {})
+        selected_template_id = settings.get('selected_template_id')
+        selected_template = None
+
         if not artifacts or any_new_artifact:
             max_artifacts_retries = 3
+            if selected_template_id:
+                selected_template = select_layout_template([], selected_template_id)
             for attempt in range(max_artifacts_retries):
                 add_log(job_id, f"Planejando indicadores (Metric, Graphic, Text) - T{attempt+1}...")
-                artifacts = generate_artifacts(all_metadata, session.get('current_goal', session['initial_prompt']), provider, model_name, settings=session.get('settings'))
+                artifacts = generate_artifacts(
+                    all_metadata,
+                    session.get('current_goal', session['initial_prompt']),
+                    provider,
+                    model_name,
+                    settings=settings,
+                    template_context=template_constraints(selected_template) if selected_template else None
+                )
                 if isinstance(artifacts, list) and len(artifacts) > 0:
                     break
                 time.sleep(2)
+
+        visible_artifacts = [a for a in artifacts if a.get('type') in VISUAL_TYPES or a.get('type') == 'text']
+        selected_template = select_layout_template(visible_artifacts, selected_template_id)
+        if selected_template:
+            selected_template_id = selected_template.get("id")
+            settings["selected_template_id"] = selected_template_id
+            artifacts = fit_artifacts_to_template(artifacts, selected_template)
+            update_session(job_id, {"artifacts": artifacts, "settings": settings})
+        elif not session.get('artifacts') or any_new_artifact:
             update_session(job_id, {"artifacts": artifacts})
+
+        if not settings.get("title"):
+            add_log(job_id, "Gerando título do relatório...")
+            title = generate_report_title(
+                all_metadata,
+                session.get('current_goal', session['initial_prompt']),
+                artifacts,
+                provider,
+                model_name,
+                settings=settings
+            )
+            settings["title"] = title
+            update_session(job_id, {"settings": settings})
 
         # 3. Cálculo de Métricas (Macro-tipo 1)
         metrics_store = session.get('calculated_metrics', {})
@@ -85,19 +192,19 @@ def run_pipeline(job_id: str):
         update_session(job_id, {"calculated_metrics": metrics_store})
 
         # 4. Layout (Template)
-        visual_types = ['graphic', 'bar', 'line', 'pie', 'scatter', 'table', 'chart']
-        visible_artifacts = [a for a in artifacts if a.get('type') in visual_types + ['text']]
+        visible_artifacts = [a for a in artifacts if a.get('type') in VISUAL_TYPES or a.get('type') == 'text']
         template = session.get('template', [])
         if not template or len(template) != len(visible_artifacts):
-            add_log(job_id, "Organizando layout visual...")
-            template = generate_template(visible_artifacts, provider, model_name)
-            update_session(job_id, {"template": template})
+            template_name = selected_template.get("name") if selected_template else "fallback"
+            add_log(job_id, f"Aplicando template de layout: {template_name}...")
+            template = generate_template(visible_artifacts, provider, model_name, template_id=selected_template_id)
+            update_session(job_id, {"template": normalize_template(template)})
 
         # 5. Geração de Código
         components = session.get('components', {})
         
         # Gráficos
-        graphic_artifacts = [a for a in artifacts if a.get('type') in visual_types]
+        graphic_artifacts = [a for a in artifacts if a.get('type') in VISUAL_TYPES]
         for art in graphic_artifacts:
             if art['id'] not in components:
                 add_log(job_id, f"Gerando gráfico: {art['indicator']}...")
@@ -121,10 +228,7 @@ def run_pipeline(job_id: str):
             
             for art in text_artifacts:
                 text_content = texts_map.get(art['id'], "Conteúdo não disponível.")
-                # Usar json.dumps para garantir que a string seja segura (escapa aspas e novas linhas)
-                safe_text = json.dumps(text_content)
-                code = f"def render_{art['id']}(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, {safe_text}, x, y, w, h, title='{art['indicator']}')"
-                components[art['id']] = code
+                components[art['id']] = text_component_code(art, text_content)
             
         update_session(job_id, {"components": components})
         run_script_generation(job_id)
@@ -139,11 +243,11 @@ def run_script_generation(job_id: str):
     
     script_path = os.path.join(SCRIPT_DIR, f"{job_id}.py")
     output_pdf_path = os.path.abspath(os.path.join(REPORT_DIR, f"{job_id}.pdf"))
-    files_map = {f['original_filename']: os.path.abspath(f['path']) for f in session['files']}
+    files_map = build_files_map(session)
     
     script_content = assemble_script(
         session['components'],
-        session['template'],
+        normalize_template(session['template']),
         files_map,
         output_pdf_path,
         settings=session.get('settings')
@@ -169,7 +273,7 @@ def run_execution(job_id: str):
     else:
         if retries < max_retries - 1:
             add_log(job_id, f"Erro detectado. Autocorreção iniciada...")
-            all_metadata = json.dumps([f['artifact'] for f in session['files'] if f.get('artifact')], indent=2)
+            all_metadata = metadata_json(session)
             fixed_code = fix_script(session['script'], result['stderr'], all_metadata, session.get('provider'), session.get('model_name'))
             update_session(job_id, {"script": fixed_code, "retry_count": retries + 1})
             run_execution(job_id)
@@ -185,18 +289,7 @@ async def start_session(
     model_name: str = Form("models/gemini-3.1-flash-lite-preview")
 ):
     job_id = str(uuid.uuid4())
-    session_files = []
-    
-    for file in files:
-        file_ext = os.path.splitext(file.filename)[1]
-        data_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}{file_ext}")
-        with open(data_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        session_files.append({
-            "original_filename": file.filename,
-            "path": data_path,
-            "artifact": None
-        })
+    session_files = save_uploaded_files(files)
     
     create_session(job_id, {
         "job_id": job_id,
@@ -210,14 +303,7 @@ async def start_session(
         "template": [],
         "components": {},
         "calculated_metrics": {},
-        "settings": {
-            "title": "Relatório Analítico Inteligente",
-            "font": "Arial",
-            "font_size": 10,
-            "alignment": "L",
-            "line_height": 5,
-            "language": "Portuguese"
-        },
+        "settings": DEFAULT_SETTINGS.copy(),
         "script": "",
         "provider": provider,
         "model_name": model_name,
@@ -235,20 +321,10 @@ async def add_files_to_session(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...)
 ):
-    session = get_session(job_id)
-    if not session: raise HTTPException(status_code=404)
+    session = require_session(job_id)
     
     session_files = session.get("files", [])
-    for file in files:
-        file_ext = os.path.splitext(file.filename)[1]
-        data_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}{file_ext}")
-        with open(data_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        session_files.append({
-            "original_filename": file.filename,
-            "path": data_path,
-            "artifact": None
-        })
+    session_files.extend(save_uploaded_files(files))
     
     update_session(job_id, {"files": session_files})
     add_log(job_id, f"Adicionados {len(files)} novos arquivos.")
@@ -257,14 +333,11 @@ async def add_files_to_session(
 
 @app.get("/api/sessions/{job_id}")
 async def get_session_status(job_id: str):
-    session = get_session(job_id)
-    if not session: raise HTTPException(status_code=404)
-    return session
+    return require_session(job_id)
 
 @app.post("/api/sessions/{job_id}/chat")
 async def chat_refinement(job_id: str, background_tasks: BackgroundTasks, prompt: str = Form(...)):
-    session = get_session(job_id)
-    if not session: raise HTTPException(status_code=404)
+    session = require_session(job_id)
     
     history = session.get('refinement_history', [])
     history.append(prompt)
@@ -293,8 +366,7 @@ async def chat_refinement(job_id: str, background_tasks: BackgroundTasks, prompt
 
 @app.put("/api/sessions/{job_id}/artifacts")
 async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTasks, payload: dict = Body(...)):
-    session = get_session(job_id)
-    if not session: raise HTTPException(status_code=404)
+    session = require_session(job_id)
     
     new_artifacts = payload.get("artifacts", [])
     new_components = payload.get("components", {})
@@ -338,21 +410,21 @@ async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTas
 
 @app.put("/api/sessions/{job_id}/template")
 async def update_template_manually(job_id: str, background_tasks: BackgroundTasks, template: list = Body(...)):
-    session = get_session(job_id)
-    if not session: raise HTTPException(status_code=404)
+    session = require_session(job_id)
     
-    update_session(job_id, {"template": template})
+    update_session(job_id, {"template": normalize_template(template)})
     add_log(job_id, "Layout visual atualizado pelo usuário. Re-renderizando...")
     background_tasks.add_task(run_script_generation, job_id)
     return {"status": "OK"}
 
 @app.put("/api/sessions/{job_id}/settings")
 async def update_settings(job_id: str, background_tasks: BackgroundTasks, settings: dict = Body(...)):
-    session = get_session(job_id)
-    if not session: raise HTTPException(status_code=404)
+    session = require_session(job_id)
     
     old_lang = session.get('settings', {}).get('language')
     new_lang = settings.get('language')
+    old_template_id = session.get('settings', {}).get('selected_template_id')
+    new_template_id = settings.get('selected_template_id')
     
     if old_lang and new_lang and old_lang != new_lang:
         add_log(job_id, f"Mudança de idioma detectada: {old_lang} -> {new_lang}. Traduzindo workspace...")
@@ -368,8 +440,42 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
     else:
         update_session(job_id, {"settings": settings})
     
-    add_log(job_id, "Configurações do relatório atualizadas. Re-renderizando...")
-    background_tasks.add_task(run_script_generation, job_id)
+    if new_template_id and old_template_id != new_template_id:
+        add_log(job_id, "Template de layout alterado. Regenerando relatório para ajustar componentes...")
+        update_session(job_id, {
+            "settings": settings,
+            "artifacts": [],
+            "template": [],
+            "components": {},
+            "calculated_metrics": {}
+        })
+        background_tasks.add_task(run_pipeline, job_id)
+    else:
+        add_log(job_id, "Configurações do relatório atualizadas. Re-renderizando...")
+        background_tasks.add_task(run_script_generation, job_id)
+    return {"status": "OK"}
+
+
+@app.get("/api/layout-templates")
+async def list_layout_templates():
+    return {"templates": load_layout_templates()}
+
+
+@app.post("/api/layout-templates")
+async def create_layout_template(payload: dict = Body(...)):
+    return upsert_layout_template(payload)
+
+
+@app.put("/api/layout-templates/{template_id}")
+async def update_layout_template(template_id: str, payload: dict = Body(...)):
+    payload["id"] = template_id
+    return upsert_layout_template(payload)
+
+
+@app.delete("/api/layout-templates/{template_id}")
+async def remove_layout_template(template_id: str):
+    if not delete_layout_template(template_id):
+        raise HTTPException(status_code=404)
     return {"status": "OK"}
 
 @app.get("/api/sessions/{job_id}/pdf")
@@ -380,12 +486,11 @@ async def get_pdf(job_id: str):
 
 @app.post("/api/sessions/{job_id}/explore")
 async def explore_data(job_id: str, prompt: str = Form(...)):
-    session = get_session(job_id)
-    if not session: raise HTTPException(status_code=404)
+    session = require_session(job_id)
     
     history = session.get('explore_history', [])
-    all_metadata = json.dumps([f['artifact'] for f in session['files'] if f.get('artifact')], indent=2)
-    files_map = {f['original_filename']: os.path.abspath(f['path']) for f in session['files']}
+    all_metadata = metadata_json(session)
+    files_map = build_files_map(session)
     
     script_content = generate_exploration_script(
         all_metadata, prompt, files_map, session.get('provider'), session.get('model_name'), history=history

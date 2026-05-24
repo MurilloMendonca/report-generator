@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Layout Template Library</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="template-editor-body">
+    <aside class="template-panel">
+        <div class="template-panel-header">
+            <h2>Layout Templates</h2>
+            <a href="/" class="btn btn-outline">Report Studio</a>
+        </div>
+
+        <div class="form-group">
+            <label>Template</label>
+            <select id="template-select"></select>
+        </div>
+
+        <div class="template-actions">
+            <button class="btn" id="new-template-btn">New</button>
+            <button class="btn btn-outline" id="duplicate-template-btn">Duplicate</button>
+            <button class="btn btn-danger" id="delete-template-btn">Delete</button>
+        </div>
+
+        <form id="template-form">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="template-name" required>
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="template-description" class="template-description"></textarea>
+            </div>
+            <div class="template-actions">
+                <button type="button" class="btn btn-secondary" id="add-text-btn">Add Text</button>
+                <button type="button" class="btn btn-secondary" id="add-graphic-btn">Add Graphic</button>
+                <button type="button" class="btn btn-outline" id="add-page-btn">Add Page</button>
+            </div>
+            <button type="submit" class="btn template-save-btn">Save Template</button>
+        </form>
+
+        <div class="slot-inspector" id="slot-inspector">
+            <h3>Selected Slot</h3>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="slot-name" placeholder="Introduction, Main chart, Conclusion">
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="slot-description" class="template-description" placeholder="What kind of content fits best here"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select id="slot-type">
+                    <option value="text">Text</option>
+                    <option value="graphic">Graphic</option>
+                </select>
+            </div>
+            <div class="slot-grid">
+                <div class="form-group">
+                    <label>Page</label>
+                    <input type="number" id="slot-page" min="1">
+                </div>
+                <div class="form-group">
+                    <label>X</label>
+                    <input type="number" id="slot-x" min="0">
+                </div>
+                <div class="form-group">
+                    <label>Y</label>
+                    <input type="number" id="slot-y" min="0">
+                </div>
+                <div class="form-group">
+                    <label>W</label>
+                    <input type="number" id="slot-w" min="10">
+                </div>
+                <div class="form-group">
+                    <label>H</label>
+                    <input type="number" id="slot-h" min="10">
+                </div>
+            </div>
+            <button class="btn btn-danger" id="remove-slot-btn">Remove Slot</button>
+        </div>
+    </aside>
+
+    <main class="template-workspace">
+        <div class="template-toolbar">
+            <span id="save-status">Changes are saved to workspace/layout_templates.json</span>
+        </div>
+        <div class="layout-canvas template-canvas" id="template-canvas"></div>
+    </main>
+
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/templates.js"></script>
+</body>
+</html>
