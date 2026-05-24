@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Report Generator v3.6 - Visual Studio</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono&display=swap" rel="stylesheet">
+    
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <!-- Highlight.js -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="sidebar">
+        <h2>Visual Workspace</h2>
+        
+        <div id="file-workspace" style="display:none">
+            <label>Arquivos:</label>
+            <div class="file-tray" id="file-tray"></div>
+            <button class="btn btn-outline" style="width:100%; margin-bottom: 1.5rem;" onclick="document.getElementById('add-file-input').click()">+ Adicionar Dados</button>
+            <input type="file" id="add-file-input" style="display:none" multiple onchange="App.handleUploadMore(this)">
+        </div>
+
+        <div class="chat-history" id="chat-history">
+            <div class="message ai"><b>Studio v3.6:</b> Pronto para criar seu relatório visual. Qual o objetivo hoje?</div>
+        </div>
+        
+        <form id="chat-form" style="display:none">
+            <textarea id="chat-input" placeholder="Peça uma mudança global ou ajuste fino..."></textarea>
+            <button type="submit" class="btn" style="width:100%; margin-top: 0.5rem;">Enviar Feedback</button>
+        </form>
+        
+        <div id="initial-form" class="upload-section">
+            <form id="upload-form">
+                <div class="form-group">
+                    <label>Provedor:</label>
+                    <select id="provider" name="provider" onchange="App.updateModels()">
+                        <option value="gemini">Google Gemini</option>
+                        <option value="deepseek">DeepSeek</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Modelo:</label>
+                    <select id="model_name" name="model_name"></select>
+                </div>
+                <div class="form-group">
+                    <label>Arquivos (CSV/Excel):</label>
+                    <input type="file" id="file" name="files" multiple required>
+                </div>
+                <div class="form-group">
+                    <label>Objetivo do Relatório:</label>
+                    <textarea name="prompt" placeholder="Ex: Analisar vendas do Q1 por região..." required></textarea>
+                </div>
+                <button type="submit" class="btn" style="width:100%; height: 48px; font-size: 1rem;">Iniciar Geração</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="header" id="header-progress" style="display:none;">
+            <div class="progress-section">
+                <div id="status-text" class="status-text" style="margin-right: 1.5rem; min-width: 150px;">Processando...</div>
+                <div class="progress-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                <button class="btn btn-secondary" id="download-btn" style="display:none; margin-left: 1.5rem;">Download PDF</button>
+            </div>
+            <div class="log-container" id="log-container"></div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="Utils.openTab('tab-pdf', event)">Visualização</button>
+            <button class="tab" onclick="Utils.openTab('tab-design', event)">Editor de Layout 🎨</button>
+            <button class="tab" onclick="Utils.openTab('tab-artifacts', event)">Componentes</button>
+            <button class="tab" onclick="Utils.openTab('tab-script', event)">Script completo 🐍</button>
+            <button class="tab" onclick="Utils.openTab('tab-settings', event)">Configurações ⚙️</button>
+            <button class="tab" onclick="Utils.openTab('tab-explore', event)">Explorador 🔍</button>
+            <button class="tab" onclick="Utils.openTab('tab-data', event)">Métricas & Dados</button>
+        </div>
+
+        <div id="tab-pdf" class="tab-content active">
+            <iframe id="pdf-viewer"></iframe>
+        </div>
+
+        <div id="tab-design" class="tab-content" style="padding:0">
+            <div class="canvas-area">
+                <div style="margin-bottom: 1.5rem; color: white; display: flex; gap: 1.5rem; align-items: center;">
+                    <span style="font-size: 1rem; opacity: 0.9;">📐 Organize os blocos na página A4 para o PDF final.</span>
+                    <button class="btn btn-secondary" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" onclick="App.handleSaveVisualLayout()">💾 Aplicar Layout & Renderizar</button>
+                </div>
+                <div class="a4-page" id="layout-canvas"></div>
+            </div>
+        </div>
+
+        <div id="tab-artifacts" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="margin:0; color: var(--md-sys-color-primary)">Arquitetura do Relatório</h3>
+                <button class="btn btn-secondary" onclick="App.handleEditIndicator(-1)">➕ Novo Indicador</button>
+            </div>
+            <div id="artifacts-visual" class="artifact-list"></div>
+        </div>
+
+        <div id="tab-script" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="color: var(--md-sys-color-primary)">Script Python Completo</h3>
+                <button class="btn btn-outline" onclick="App.copyFullScript()">📋 Copiar Código</button>
+            </div>
+            <pre style="margin:0; border-radius: 12px; overflow: hidden;"><code class="language-python" id="full-script-content"># O script aparecerá aqui após a primeira geração...</code></pre>
+        </div>
+
+        <div id="tab-settings" class="tab-content">
+            <h3 style="color: var(--md-sys-color-primary)">Configurações do Relatório</h3>
+            <div class="card" style="max-width: 600px;">
+                <form id="settings-form">
+                    <div class="form-group">
+                        <label>Título do Relatório:</label>
+                        <input type="text" id="s-title" name="title" placeholder="Ex: Relatório de Vendas">
+                    </div>
+                    <div style="display: flex; gap: 1rem;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>Fonte:</label>
+                            <select id="s-font" name="font">
+                                <option value="Arial">Arial / Helvetica</option>
+                                <option value="Times">Times New Roman</option>
+                                <option value="Courier">Courier</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>Tamanho da Fonte (pt):</label>
+                            <input type="number" id="s-font-size" name="font_size" min="6" max="24">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 1rem;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>Alinhamento do Texto:</label>
+                            <select id="s-alignment" name="alignment">
+                                <option value="L">Esquerda</option>
+                                <option value="C">Centralizado</option>
+                                <option value="R">Direita</option>
+                                <option value="J">Justificado</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>Espaçamento entre linhas:</label>
+                            <input type="number" id="s-line-height" name="line_height" min="1" max="20">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Idioma do Relatório:</label>
+                        <select id="s-language" name="language">
+                            <option value="Portuguese">Português</option>
+                            <option value="English">English</option>
+                            <option value="Spanish">Español</option>
+                            <option value="French">Français</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn" style="margin-top: 1rem;">Salvar e Aplicar</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="tab-explore" class="tab-content">
+            <h3 style="color: var(--md-sys-color-primary)">Consultas Ad-hoc (Explorador)</h3>
+            <div id="explore-chat"></div>
+            <form id="explore-form" style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+                <input type="text" id="explore-input" placeholder="Ex: Qual o valor total da coluna X?" style="flex: 1;" required>
+                <button type="submit" class="btn">Consultar</button>
+            </form>
+        </div>
+
+        <div id="tab-data" class="tab-content">
+            <div id="data-artifacts-container"></div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <dialog id="indicator-modal">
+        <h3 id="modal-title" style="margin-top:0; color: var(--md-sys-color-primary)">Editar Indicador</h3>
+        <form id="modal-form">
+            <input type="hidden" id="edit-index" value="-1">
+            <div class="form-group">
+                <label>Nome do Componente:</label>
+                <input type="text" id="m-name" required>
+            </div>
+            <div style="display: flex; gap: 1rem;">
+                <div class="form-group" style="flex: 1;">
+                    <label>Tipo:</label>
+                    <select id="m-type">
+                        <option value="bar">Gráfico de Barras</option>
+                        <option value="line">Gráfico de Linha</option>
+                        <option value="pie">Gráfico de Pizza</option>
+                        <option value="metric">Métrica (KPI)</option>
+                        <option value="text">Narrativa de Texto</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label>Colunas Alvo:</label>
+                    <input type="text" id="m-cols" placeholder="col1, col2...">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Objetivo / Lógica:</label>
+                <textarea id="m-reason" style="height: 60px;"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Código Python (Customizado):</label>
+                <textarea id="m-code" style="height: 150px; font-family: 'Roboto Mono', monospace; background: #263238; color: #80cbfe;"></textarea>
+            </div>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('indicator-modal').close()">Cancelar</button>
+                <button type="submit" class="btn">Salvar Alterações</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- Scripts -->
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/ui.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

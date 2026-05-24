@@ -1,0 +1,9 @@
+*.png
+venv
+.env
+GEMINI.md
+workspace/
+
+# Python cache
+__pycache__/
+*.py[cod]

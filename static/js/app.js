@@ -1,0 +1,209 @@
+const App = {
+    currentSession: null,
+    pollInterval: null,
+    lastPdfVersion: 0,
+    models: {
+        gemini: [{ id: "models/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" }],
+        deepseek: [{ id: "deepseek-chat", label: "DeepSeek-V3" }]
+    },
+
+    init() {
+        this.updateModels();
+        this.setupEventListeners();
+    },
+
+    updateModels() {
+        const p = document.getElementById('provider').value;
+        document.getElementById('model_name').innerHTML = this.models[p]
+            .map(m => `<option value="${m.id}">${m.label}</option>`)
+            .join('');
+    },
+
+    setupEventListeners() {
+        document.getElementById('upload-form').onsubmit = (e) => this.handleStartSession(e);
+        document.getElementById('chat-form').onsubmit = (e) => this.handleChat(e);
+        document.getElementById('explore-form').onsubmit = (e) => this.handleExplore(e);
+        document.getElementById('modal-form').onsubmit = (e) => this.handleSaveIndicator(e);
+        document.getElementById('settings-form').onsubmit = (e) => this.handleSaveSettings(e);
+    },
+
+    async handleStartSession(e) {
+        e.preventDefault();
+        const data = await API.startSession(new FormData(e.target));
+        this.currentSession = { job_id: data.job_id };
+        
+        document.getElementById('initial-form').style.display = 'none';
+        document.getElementById('file-workspace').style.display = 'block';
+        document.getElementById('header-progress').style.display = 'block';
+        document.getElementById('chat-form').style.display = 'block';
+        
+        this.startPolling();
+    },
+
+    startPolling() {
+        if (this.pollInterval) clearInterval(this.pollInterval);
+        this.pollInterval = setInterval(async () => {
+            const session = await API.getSession(this.currentSession.job_id);
+            this.currentSession = session;
+            this.updateUI(session);
+            
+            if (session.status.includes("concluído") || session.status.includes("Falha") || session.status === "Concluído") {
+                clearInterval(this.pollInterval);
+                this.pollInterval = null;
+            }
+        }, 2000);
+    },
+
+    updateUI(session) {
+        UI.updateStatus(session.status, session.status === "Concluído" ? 100 : 60);
+        UI.renderLogs(session.logs);
+        UI.renderFiles(session.files);
+        UI.renderArtifacts(session.artifacts);
+        UI.renderLayoutCanvas(session);
+        UI.renderDataArtifacts(session);
+        UI.renderFullScript(session.script);
+        UI.updateSettingsForm(session.settings);
+
+        if (session.pdf_version > this.lastPdfVersion) {
+            const url = `/api/sessions/${session.job_id}/pdf?v=${session.pdf_version}`;
+            document.getElementById('pdf-viewer').src = url;
+            const dlBtn = document.getElementById('download-btn');
+            dlBtn.style.display = 'block';
+            dlBtn.onclick = () => window.open(url);
+            this.lastPdfVersion = session.pdf_version;
+        }
+    },
+
+    async handleChat(e) {
+        e.preventDefault();
+        const input = document.getElementById('chat-input');
+        const q = input.value;
+        if (!q) return;
+
+        document.getElementById('chat-history').innerHTML += `
+            <div class="message user"><b>Você:</b> ${q}</div>
+        `;
+        input.value = '';
+        
+        await API.sendChat(this.currentSession.job_id, q);
+        this.startPolling();
+    },
+
+    async handleExplore(e) {
+        e.preventDefault();
+        const input = document.getElementById('explore-input');
+        const q = input.value;
+        if (!q) return;
+
+        const chat = document.getElementById('explore-chat');
+        chat.innerHTML += `<div class="message user"><b>Você:</b> ${q}</div>`;
+        input.value = '';
+        
+        const data = await API.exploreData(this.currentSession.job_id, q);
+        chat.innerHTML += `<div class="message ai"><b>Analista:</b> ${data.answer}</div>`;
+        chat.scrollTop = chat.scrollHeight;
+    },
+
+    async handleUploadMore(input) {
+        if (!input.files.length) return;
+        const fd = new FormData();
+        for (let f of input.files) fd.append('files', f);
+        await API.addFiles(this.currentSession.job_id, fd);
+        this.startPolling();
+    },
+
+    handleEditIndicator(index) {
+        const art = index === -1 
+            ? { indicator: "", type: "bar", columns: [], reason: "" } 
+            : this.currentSession.artifacts[index];
+        
+        document.getElementById('edit-index').value = index;
+        document.getElementById('m-name').value = art.indicator;
+        document.getElementById('m-type').value = art.type;
+        document.getElementById('m-cols').value = (art.columns || []).join(', ');
+        document.getElementById('m-reason').value = art.reason || "";
+        document.getElementById('m-code').value = index === -1 
+            ? "" 
+            : (this.currentSession.components[art.id] || "");
+        
+        document.getElementById('indicator-modal').showModal();
+    },
+
+    async handleSaveIndicator(e) {
+        e.preventDefault();
+        const idx = parseInt(document.getElementById('edit-index').value);
+        const id = idx === -1 ? `kpi_${Date.now()}` : this.currentSession.artifacts[idx].id;
+        
+        const newArt = {
+            id,
+            indicator: document.getElementById('m-name').value,
+            type: document.getElementById('m-type').value,
+            columns: document.getElementById('m-cols').value.split(',').map(s => s.trim()),
+            reason: document.getElementById('m-reason').value
+        };
+
+        if (idx === -1) {
+            this.currentSession.artifacts.push(newArt);
+        } else {
+            this.currentSession.artifacts[idx] = newArt;
+        }
+
+        const overrides = {};
+        const code = document.getElementById('m-code').value;
+        if (code) overrides[id] = code;
+
+        await API.syncArtifacts(this.currentSession.job_id, this.currentSession.artifacts, overrides);
+        document.getElementById('indicator-modal').close();
+        this.startPolling();
+    },
+
+    async handleDeleteIndicator(index) {
+        if (!confirm("Excluir este componente?")) return;
+        this.currentSession.artifacts.splice(index, 1);
+        await API.syncArtifacts(this.currentSession.job_id, this.currentSession.artifacts, {});
+        this.startPolling();
+    },
+
+    async handleDeleteIndicatorById(id, event) {
+        if (event) event.stopPropagation();
+        const index = this.currentSession.artifacts.findIndex(a => a.id === id);
+        if (index !== -1) this.handleDeleteIndicator(index);
+    },
+
+    async handleSaveVisualLayout() {
+        const template = [];
+        document.querySelectorAll('.layout-block').forEach(el => {
+            template.push({
+                id: el.id.replace('block-', ''),
+                x: Math.round(el.offsetLeft / MM_TO_PX),
+                y: Math.round(el.offsetTop / MM_TO_PX),
+                w: Math.round(el.offsetWidth / MM_TO_PX),
+                h: Math.round(el.offsetHeight / MM_TO_PX)
+            });
+        });
+        await API.saveLayout(this.currentSession.job_id, template);
+        this.startPolling();
+    },
+
+    async handleSaveSettings(e) {
+        e.preventDefault();
+        const settings = {
+            title: document.getElementById('s-title').value,
+            font: document.getElementById('s-font').value,
+            font_size: parseInt(document.getElementById('s-font-size').value),
+            alignment: document.getElementById('s-alignment').value,
+            line_height: parseInt(document.getElementById('s-line-height').value),
+            language: document.getElementById('s-language').value
+        };
+        await API.updateSettings(this.currentSession.job_id, settings);
+        this.startPolling();
+    },
+
+    copyFullScript() {
+        const script = document.getElementById('full-script-content').textContent;
+        navigator.clipboard.writeText(script);
+        alert("Script copiado para a área de transferência!");
+    }
+};
+
+window.onload = () => App.init();
