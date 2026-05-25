@@ -76,9 +76,10 @@ Create a `.env` file with at least one provider key:
 ```bash
 GEMINI_API_KEY=your_google_gemini_key
 DEEPSEEK_API_KEY=your_deepseek_key
+APP_ACCESS_SECRET=your_long_random_login_secret
 ```
 
-`GEMINI_API_KEY` is required when using the default `gemini` provider. `DEEPSEEK_API_KEY` is required only when selecting `deepseek`.
+The default provider is `deepseek`, so `DEEPSEEK_API_KEY` is required for the default path. `GEMINI_API_KEY` is required when selecting Gemini. `APP_ACCESS_SECRET` is the simple login secret used by the browser UI and API guard.
 
 ## Run
 
@@ -96,6 +97,40 @@ The module also supports direct execution:
 
 ```bash
 python app/main.py
+```
+
+## Docker Run
+
+Create `.env` as shown above, then build and run:
+
+```bash
+docker compose up -d --build
+```
+
+The app will be available at:
+
+```text
+http://localhost:8000
+```
+
+Useful commands:
+
+```bash
+docker compose logs -f
+docker compose restart
+docker compose down
+```
+
+Runtime files are persisted on the host through:
+
+```text
+./workspace:/app/workspace
+```
+
+To change the host port:
+
+```bash
+HOST_PORT=5555 docker compose up -d --build
 ```
 
 ## Main Runtime Flow
