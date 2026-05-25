@@ -24,6 +24,8 @@ from app.utils.template_library import (
     upsert_layout_template,
 )
 from app.services.llm_service import (
+    DEFAULT_MODEL_NAME,
+    DEFAULT_PROVIDER,
     generate_artifacts, 
     generate_template, 
     generate_component_code, 
@@ -118,8 +120,8 @@ def text_component_code(artifact: dict, text_content: str) -> str:
 
 def run_pipeline(job_id: str):
     session = get_session(job_id)
-    provider = session.get('provider')
-    model_name = session.get('model_name')
+    provider = session.get('provider', DEFAULT_PROVIDER)
+    model_name = session.get('model_name', DEFAULT_MODEL_NAME)
     files_map = build_files_map(session)
     
     try:
@@ -285,8 +287,8 @@ async def start_session(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     prompt: str = Form(...),
-    provider: str = Form("gemini"),
-    model_name: str = Form("models/gemini-3.1-flash-lite-preview")
+    provider: str = Form(DEFAULT_PROVIDER),
+    model_name: str = Form(DEFAULT_MODEL_NAME)
 ):
     job_id = str(uuid.uuid4())
     session_files = save_uploaded_files(files)

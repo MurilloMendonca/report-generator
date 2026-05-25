@@ -10,6 +10,12 @@ from app.utils.template_library import build_layout_from_template
 load_dotenv()
 
 PROMPTS_DIR = "prompts"
+DEFAULT_PROVIDER = "deepseek"
+DEFAULT_MODEL_BY_PROVIDER = {
+    "deepseek": "deepseek-chat",
+    "gemini": "models/gemini-3.1-flash-lite-preview",
+}
+DEFAULT_MODEL_NAME = DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER]
 
 
 def strip_code_fence(text: str, language: str = None) -> str:
@@ -88,7 +94,16 @@ def get_deepseek_client():
         raise ValueError("DEEPSEEK_API_KEY not found in environment.")
     return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
 
+def resolve_llm_config(provider: str = None, model_name: str = None) -> tuple[str, str]:
+    provider = provider or DEFAULT_PROVIDER
+    model_name = model_name or DEFAULT_MODEL_BY_PROVIDER.get(provider)
+    if not model_name:
+        raise ValueError(f"No default model configured for provider '{provider}'.")
+    return provider, model_name
+
+
 def call_llm(provider: str, model_name: str, system_instruction: str, user_prompt: str, retries=3, delay=10):
+    provider, model_name = resolve_llm_config(provider, model_name)
     for i in range(retries):
         try:
             if provider == "gemini":
@@ -114,7 +129,7 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
                     continue
             raise e
 
-def generate_artifacts(all_metadata: str, prompt: str, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", settings: dict = None, template_context: dict = None) -> list:
+def generate_artifacts(all_metadata: str, prompt: str, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, template_context: dict = None) -> list:
     system_instruction = load_prompt("GENERATE_ARTIFACTS.md")
     lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
     layout_constraints = ""
@@ -140,7 +155,7 @@ def generate_artifacts(all_metadata: str, prompt: str, provider: str = "gemini",
             
     return []
 
-def generate_template(artifacts: list, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", template_id: str = None) -> list:
+def generate_template(artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, template_id: str = None) -> list:
     return normalize_template(build_layout_from_template(artifacts, template_id))
 
 
@@ -152,7 +167,7 @@ def dataframe_load_line(original_name: str, path: str, indent: str = "") -> str:
         return f"{indent}dataframes[{json.dumps(original_name)}] = pd.read_excel(r'{path}')"
     return ""
 
-def calculate_metric_value(all_metadata: str, artifact: dict, files_map: dict, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview") -> any:
+def calculate_metric_value(all_metadata: str, artifact: dict, files_map: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME) -> any:
     """
     Generates and executes a script to calculate a metric value with automatic retries.
     """
@@ -197,7 +212,7 @@ def calculate_metric_value(all_metadata: str, artifact: dict, files_map: dict, p
         
     return "N/A"
 
-def generate_component_code(all_metadata: str, artifact: dict, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", calculated_metrics: dict = None, preceding_text: str = None, settings: dict = None) -> str:
+def generate_component_code(all_metadata: str, artifact: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, calculated_metrics: dict = None, preceding_text: str = None, settings: dict = None) -> str:
     system_instruction = load_prompt("GENERATE_COMPONENT_CODE.md")
     lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
     
@@ -218,7 +233,7 @@ def generate_component_code(all_metadata: str, artifact: dict, provider: str = "
     text = call_llm(provider, model_name, system_instruction, user_prompt)
     return strip_code_fence(text, "python")
 
-def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metrics: dict, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", settings: dict = None) -> dict:
+def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metrics: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None) -> dict:
     system_instruction = load_prompt("GENERATE_ALL_TEXTS.md")
     lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
     user_prompt = f"Target Language: {lang}\nText Artifacts:\n{json.dumps(text_artifacts, indent=2)}\n\nCalculated Metrics:\n{json.dumps(calculated_metrics, indent=2)}\n\nData Artifacts:\n{all_metadata}"
@@ -233,7 +248,7 @@ def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metri
             time.sleep(2)
     return {}
 
-def generate_report_title(all_metadata: str, prompt: str, artifacts: list, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", settings: dict = None) -> str:
+def generate_report_title(all_metadata: str, prompt: str, artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None) -> str:
     system_instruction = load_prompt("GENERATE_REPORT_TITLE.md")
     lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
     user_prompt = (
@@ -357,14 +372,14 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
     script.append("    generate_report()")
     return "\n".join(script)
 
-def fix_script(current_script: str, error: str, all_metadata: str, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview") -> str:
+def fix_script(current_script: str, error: str, all_metadata: str, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME) -> str:
     system_instruction = load_prompt("FIX_SCRIPT.md")
     user_prompt = f"Reported Error: {error}\n\nCurrent Failing Script:\n{current_script}\n\nData Artifacts:\n{all_metadata}"
     
     text = call_llm(provider, model_name, system_instruction, user_prompt)
     return strip_code_fence(text, "python")
 
-def generate_exploration_script(all_metadata: str, query: str, files_map: dict, provider: str = "gemini", model_name: str = "models/gemini-3.1-flash-lite-preview", history: list = None) -> str:
+def generate_exploration_script(all_metadata: str, query: str, files_map: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, history: list = None) -> str:
     system_instruction = load_prompt("EXPLORE_DATA.md")
     history_str = ""
     if history:
@@ -391,7 +406,7 @@ def generate_exploration_script(all_metadata: str, query: str, files_map: dict, 
 
 def translate_workspace(session: dict, target_lang: str) -> dict:
     system_instruction = load_prompt("TRANSLATE_WORKSPACE.md")
-    provider = session.get('provider', 'gemini')
+    provider = session.get('provider', DEFAULT_PROVIDER)
     model_name = session.get('model_name')
     
     workspace_data = {
@@ -415,7 +430,7 @@ def translate_workspace(session: dict, target_lang: str) -> dict:
     return None
 
 def refine_session_modular(session: dict, new_prompt: str) -> dict:
-    provider = session.get('provider', 'gemini')
+    provider = session.get('provider', DEFAULT_PROVIDER)
     model_name = session.get('model_name')
     system_instruction = load_prompt("REFINE_MODULAR.md")
     settings = session.get('settings', {})
