@@ -3,7 +3,7 @@
     "id": "sales_ops",
     "name": "Sales operations performance",
     "provider": "deepseek",
-    "model_name": "deepseek-chat",
+    "model_name": "deepseek-v4-flash",
     "template_id": "executive_hero_chart",
     "files": [
       "fixtures/sales_ops/sales_pipeline.csv",
@@ -24,7 +24,7 @@
     "id": "hr_retention",
     "name": "HR retention risk",
     "provider": "deepseek",
-    "model_name": "deepseek-chat",
+    "model_name": "deepseek-v4-flash",
     "template_id": "narrative_left_insights_right",
     "files": [
       "fixtures/hr_retention/employee_retention.xlsx",
@@ -45,7 +45,7 @@
     "id": "logistics_quality",
     "name": "Logistics quality and cost",
     "provider": "deepseek",
-    "model_name": "deepseek-chat",
+    "model_name": "deepseek-v4-flash",
     "template_id": "four_quadrant_dashboard",
     "files": [
       "fixtures/logistics_quality/shipment_quality.csv",
@@ -66,7 +66,7 @@
     "id": "education_outcomes",
     "name": "Education outcomes and investment",
     "provider": "deepseek",
-    "model_name": "deepseek-chat",
+    "model_name": "deepseek-v4-flash",
     "template_id": "deep_dive_two_pages",
     "files": [
       "fixtures/education_outcomes/student_outcomes.xlsx",

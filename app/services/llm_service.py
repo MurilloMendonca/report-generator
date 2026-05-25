@@ -12,7 +12,7 @@ load_dotenv()
 PROMPTS_DIR = "prompts"
 DEFAULT_PROVIDER = "deepseek"
 DEFAULT_MODEL_BY_PROVIDER = {
-    "deepseek": "deepseek-chat",
+    "deepseek": "deepseek-v4-flash",
     "gemini": "models/gemini-3.1-flash-lite-preview",
 }
 DEFAULT_MODEL_NAME = DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER]

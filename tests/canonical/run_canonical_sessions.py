@@ -71,7 +71,7 @@ def create_canonical_session(case: dict) -> str:
         "settings": settings,
         "script": "",
         "provider": case.get("provider", "deepseek"),
-        "model_name": case.get("model_name", "deepseek-chat"),
+        "model_name": case.get("model_name", "deepseek-v4-flash"),
         "pdf_version": 0,
         "retry_count": 0,
         "explore_history": [],

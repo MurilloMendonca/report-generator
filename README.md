@@ -198,7 +198,7 @@ Visual components are expected to render themselves as temporary matplotlib imag
 - `execute_script` has a 30-second timeout.
 - `run_execution` retries failed report scripts up to five total attempts.
 - `calculate_metric_value` retries each metric up to three times and returns `"N/A"` if no valid value is produced.
-- The default model name in backend and frontend is `models/gemini-3.1-flash-lite-preview`.
+- The default provider/model in backend and frontend is `deepseek` / `deepseek-v4-flash`.
 - Manual artifact edits invalidate generated component code only when the artifact changed and no manual code override was supplied.
 - Language changes call `translate_workspace`, which asks the LLM to preserve component IDs and Python logic while translating user-facing strings.
 
@@ -211,4 +211,4 @@ python -m compileall app
 python list_models.py
 ```
 
-`list_models.py` requires `GEMINI_API_KEY`.
+`list_models.py` lists Gemini and DeepSeek models when `GEMINI_API_KEY` and `DEEPSEEK_API_KEY` are configured.
