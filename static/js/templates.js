@@ -3,12 +3,31 @@ const TemplateEditor = {
     currentTemplate: null,
     selectedSlotId: null,
 
-    init() {
+    async init() {
         this.bindEvents();
-        this.loadTemplates();
+        const isAuthenticated = await this.ensureAuthenticated();
+        if (!isAuthenticated) return;
+        await this.loadTemplates();
+    },
+
+    async ensureAuthenticated() {
+        const loginGate = document.getElementById('login-gate');
+        const appShell = document.getElementById('app-shell');
+
+        try {
+            await API.checkLogin();
+            loginGate.style.display = 'none';
+            appShell.style.display = 'flex';
+            return true;
+        } catch (error) {
+            appShell.style.display = 'none';
+            loginGate.style.display = 'flex';
+            return false;
+        }
     },
 
     bindEvents() {
+        document.getElementById('login-form').onsubmit = (event) => this.handleLogin(event);
         document.getElementById('template-select').onchange = (event) => {
             this.selectTemplate(event.target.value);
         };
@@ -28,8 +47,24 @@ const TemplateEditor = {
         document.getElementById('remove-slot-btn').onclick = () => this.removeSelectedSlot();
     },
 
+    async handleLogin(event) {
+        event.preventDefault();
+        const input = document.getElementById('access-secret');
+        const errorEl = document.getElementById('login-error');
+        errorEl.textContent = '';
+
+        try {
+            await API.login(input.value);
+            input.value = '';
+            await this.ensureAuthenticated();
+            await this.loadTemplates();
+        } catch (error) {
+            errorEl.textContent = 'Segredo inválido.';
+        }
+    },
+
     async loadTemplates() {
-        const response = await fetch('/api/layout-templates');
+        const response = await fetch('/api/layout-templates', { headers: API.authHeaders() });
         const data = await response.json();
         this.templates = data.templates || [];
         this.renderTemplateSelect();
@@ -85,7 +120,10 @@ const TemplateEditor = {
     async deleteTemplate() {
         if (!this.currentTemplate || !this.currentTemplate.id) return;
         if (!confirm('Delete this template from the library?')) return;
-        await fetch(`/api/layout-templates/${this.currentTemplate.id}`, { method: 'DELETE' });
+        await fetch(`/api/layout-templates/${this.currentTemplate.id}`, {
+            method: 'DELETE',
+            headers: API.authHeaders()
+        });
         this.setStatus('Template deleted.');
         await this.loadTemplates();
     },
@@ -299,7 +337,7 @@ const TemplateEditor = {
         const method = payload.id ? 'PUT' : 'POST';
         const response = await fetch(url, {
             method,
-            headers: { 'Content-Type': 'application/json' },
+            headers: API.authHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify(payload)
         });
         const saved = await response.json();

@@ -1,4 +1,37 @@
 const UI = {
+    escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    },
+
+    renderRecentSessions(sessions) {
+        const el = document.getElementById('recent-sessions');
+        if (!el) return;
+
+        if (!sessions || sessions.length === 0) {
+            el.innerHTML = '<div class="recent-empty">Nenhuma sessão recente.</div>';
+            return;
+        }
+
+        el.innerHTML = sessions.map(session => {
+            const updatedAt = session.updated_at ? new Date(session.updated_at).toLocaleString() : '';
+            const prompt = session.initial_prompt || 'Sessão sem objetivo';
+            const status = session.status || 'Sem status';
+            return `
+                <a class="recent-session" href="/session/${encodeURIComponent(session.job_id)}">
+                    <div class="recent-session-title">${UI.escapeHtml(prompt)}</div>
+                    <div class="recent-session-meta">
+                        ${UI.escapeHtml(status)} · ${session.file_count || 0} arquivo(s) · ${UI.escapeHtml(updatedAt)}
+                    </div>
+                </a>
+            `;
+        }).join('');
+    },
+
     updateStatus(status, progress) {
         document.getElementById('status-text').innerText = status;
         document.getElementById('progress-bar').style.width = progress + "%";

@@ -2,6 +2,7 @@ const App = {
     currentSession: null,
     pollInterval: null,
     lastPdfVersion: 0,
+    pdfObjectUrl: null,
     layoutTemplates: [],
     models: {
         gemini: [{ id: "models/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite" }],
@@ -11,8 +12,27 @@ const App = {
     async init() {
         this.updateModels();
         this.setupEventListeners();
+        const isAuthenticated = await this.ensureAuthenticated();
+        if (!isAuthenticated) return;
         await this.loadLayoutTemplates();
+        await this.loadRecentSessions();
         await this.loadSessionFromUrl();
+    },
+
+    async ensureAuthenticated() {
+        const loginGate = document.getElementById('login-gate');
+        const appShell = document.getElementById('app-shell');
+
+        try {
+            await API.checkLogin();
+            loginGate.style.display = 'none';
+            appShell.style.display = 'flex';
+            return true;
+        } catch (error) {
+            appShell.style.display = 'none';
+            loginGate.style.display = 'flex';
+            return false;
+        }
     },
 
     getSessionIdFromUrl() {
@@ -47,6 +67,11 @@ const App = {
         UI.renderTemplateOptions(this.layoutTemplates);
     },
 
+    async loadRecentSessions() {
+        const data = await API.getRecentSessions();
+        UI.renderRecentSessions(data.sessions || []);
+    },
+
     updateModels() {
         const p = document.getElementById('provider').value;
         document.getElementById('model_name').innerHTML = this.models[p]
@@ -55,11 +80,30 @@ const App = {
     },
 
     setupEventListeners() {
+        document.getElementById('login-form').onsubmit = (e) => this.handleLogin(e);
         document.getElementById('upload-form').onsubmit = (e) => this.handleStartSession(e);
         document.getElementById('chat-form').onsubmit = (e) => this.handleChat(e);
         document.getElementById('explore-form').onsubmit = (e) => this.handleExplore(e);
         document.getElementById('modal-form').onsubmit = (e) => this.handleSaveIndicator(e);
         document.getElementById('settings-form').onsubmit = (e) => this.handleSaveSettings(e);
+    },
+
+    async handleLogin(e) {
+        e.preventDefault();
+        const input = document.getElementById('access-secret');
+        const errorEl = document.getElementById('login-error');
+        errorEl.textContent = '';
+
+        try {
+            await API.login(input.value);
+            input.value = '';
+            await this.ensureAuthenticated();
+            await this.loadLayoutTemplates();
+            await this.loadRecentSessions();
+            await this.loadSessionFromUrl();
+        } catch (error) {
+            errorEl.textContent = 'Segredo inválido.';
+        }
     },
 
     async handleStartSession(e) {
@@ -105,13 +149,19 @@ const App = {
         UI.updateSettingsForm(session.settings);
 
         if (session.pdf_version > this.lastPdfVersion) {
-            const url = `/api/sessions/${session.job_id}/pdf?v=${session.pdf_version}`;
-            document.getElementById('pdf-viewer').src = url;
-            const dlBtn = document.getElementById('download-btn');
-            dlBtn.style.display = 'block';
-            dlBtn.onclick = () => window.open(url);
-            this.lastPdfVersion = session.pdf_version;
+            this.refreshPdf(session);
         }
+    },
+
+    async refreshPdf(session) {
+        const url = await API.getPdfObjectUrl(session.job_id, session.pdf_version);
+        if (this.pdfObjectUrl) URL.revokeObjectURL(this.pdfObjectUrl);
+        this.pdfObjectUrl = url;
+        document.getElementById('pdf-viewer').src = url;
+        const dlBtn = document.getElementById('download-btn');
+        dlBtn.style.display = 'block';
+        dlBtn.onclick = () => window.open(url);
+        this.lastPdfVersion = session.pdf_version;
     },
 
     async handleChat(e) {

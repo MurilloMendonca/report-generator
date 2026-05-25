@@ -7,6 +7,20 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body class="template-editor-body">
+    <div id="login-gate" class="login-gate">
+        <form id="login-form" class="login-panel">
+            <h1>Layout Templates</h1>
+            <p>Informe o segredo de acesso para continuar.</p>
+            <div class="form-group">
+                <label>Segredo:</label>
+                <input type="password" id="access-secret" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn" style="width: 100%;">Entrar</button>
+            <div id="login-error" class="login-error"></div>
+        </form>
+    </div>
+
+    <div id="app-shell" class="app-shell" style="display:none">
     <aside class="template-panel">
         <div class="template-panel-header">
             <h2>Layout Templates</h2>
@@ -90,7 +104,9 @@
         </div>
         <div class="layout-canvas template-canvas" id="template-canvas"></div>
     </main>
+    </div>
 
+    <script src="/static/js/api.js"></script>
     <script src="/static/js/utils.js"></script>
     <script src="/static/js/templates.js"></script>
 </body>

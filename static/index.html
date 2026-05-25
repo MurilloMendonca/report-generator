@@ -22,6 +22,20 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
+    <div id="login-gate" class="login-gate">
+        <form id="login-form" class="login-panel">
+            <h1>Visual Workspace</h1>
+            <p>Informe o segredo de acesso para continuar.</p>
+            <div class="form-group">
+                <label>Segredo:</label>
+                <input type="password" id="access-secret" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn" style="width: 100%;">Entrar</button>
+            <div id="login-error" class="login-error"></div>
+        </form>
+    </div>
+
+    <div id="app-shell" class="app-shell" style="display:none">
     <div class="sidebar">
         <h2>Visual Workspace</h2>
         <a href="/templates" class="btn btn-outline" style="margin-bottom: 1rem; text-align: center; text-decoration: none;">Editar Templates</a>
@@ -65,6 +79,12 @@
                 </div>
                 <button type="submit" class="btn" style="width:100%; height: 48px; font-size: 1rem;">Iniciar Geração</button>
             </form>
+            <div class="recent-section">
+                <h3>Recentes</h3>
+                <div id="recent-sessions" class="recent-sessions">
+                    <div class="recent-empty">Nenhuma sessão recente.</div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -229,6 +249,7 @@
             </div>
         </form>
     </dialog>
+    </div>
 
     <!-- Scripts -->
     <script src="/static/js/api.js"></script>

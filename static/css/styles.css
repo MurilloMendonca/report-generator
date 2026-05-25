@@ -19,10 +19,52 @@
 body {
     font-family: 'Roboto', sans-serif;
     margin: 0;
-    display: flex;
     height: 100vh;
     background: var(--md-sys-color-surface);
     color: var(--md-sys-color-on-surface);
+}
+
+.app-shell {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+}
+
+.login-gate {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: var(--md-sys-color-surface-variant);
+    z-index: 1000;
+}
+
+.login-panel {
+    width: min(360px, calc(100vw - 2rem));
+    background: var(--md-sys-color-surface);
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: 8px;
+    padding: 2rem;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.14);
+}
+
+.login-panel h1 {
+    margin: 0 0 0.5rem;
+    color: var(--md-sys-color-primary);
+    font-size: 1.5rem;
+}
+
+.login-panel p {
+    margin: 0 0 1.5rem;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.login-error {
+    min-height: 1.25rem;
+    margin-top: 0.75rem;
+    color: var(--md-sys-color-error);
+    font-size: 0.85rem;
 }
 
 /* Sidebar */
@@ -248,6 +290,67 @@ select, input[type="file"], input[type="text"] {
     border-radius: 8px;
     box-sizing: border-box;
     background: white;
+}
+
+input[type="password"] {
+    width: 100%;
+    padding: 0.6rem;
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: 8px;
+    box-sizing: border-box;
+    background: white;
+}
+
+.recent-section {
+    margin-top: 1.5rem;
+    border-top: 1px solid var(--md-sys-color-surface-variant);
+    padding-top: 1rem;
+}
+
+.recent-section h3 {
+    margin: 0 0 0.75rem;
+    color: var(--md-sys-color-primary);
+    font-size: 1rem;
+}
+
+.recent-sessions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.recent-session {
+    display: block;
+    padding: 0.75rem;
+    border: 1px solid var(--md-sys-color-surface-variant);
+    border-radius: 8px;
+    color: var(--md-sys-color-on-surface);
+    text-decoration: none;
+    background: white;
+}
+
+.recent-session:hover {
+    border-color: var(--md-sys-color-primary);
+    background: var(--md-sys-color-primary-container);
+}
+
+.recent-session-title {
+    font-weight: 500;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.recent-session-meta {
+    margin-top: 0.35rem;
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: 0.75rem;
+}
+
+.recent-empty {
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: 0.85rem;
 }
 
 /* File Tray */

@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timezone
 
 SESSION_DIR = "workspace/sessions"
 
@@ -21,10 +22,41 @@ def get_session(job_id: str) -> dict:
 def update_session(job_id: str, updates: dict):
     session = get_session(job_id)
     if session:
+        updates.setdefault("updated_at", datetime.now(timezone.utc).isoformat())
         session.update(updates)
         create_session(job_id, session)
         return session
     return None
+
+def list_recent_sessions(limit: int = 12) -> list:
+    if not os.path.isdir(SESSION_DIR):
+        return []
+
+    sessions = []
+    for filename in os.listdir(SESSION_DIR):
+        if not filename.endswith(".json"):
+            continue
+
+        path = os.path.join(SESSION_DIR, filename)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                session = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        stat = os.stat(path)
+        sessions.append({
+            "job_id": session.get("job_id") or filename[:-5],
+            "initial_prompt": session.get("initial_prompt", ""),
+            "status": session.get("status", ""),
+            "file_count": len(session.get("files", [])),
+            "pdf_version": session.get("pdf_version", 0),
+            "created_at": session.get("created_at") or datetime.fromtimestamp(stat.st_ctime, timezone.utc).isoformat(),
+            "updated_at": session.get("updated_at") or datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+        })
+
+    sessions.sort(key=lambda item: item["updated_at"], reverse=True)
+    return sessions[:limit]
 
 def add_log(job_id: str, message: str):
     session = get_session(job_id)

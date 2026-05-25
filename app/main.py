@@ -1,5 +1,5 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Body
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Body, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from typing import List
 import shutil
@@ -9,6 +9,8 @@ import uuid
 import time
 import traceback
 import json
+import hmac
+from datetime import datetime, timezone
 
 # Permite rodar o script diretamente da raiz do projeto
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -39,9 +41,11 @@ from app.services.llm_service import (
     translate_workspace
 )
 from app.services.executor_service import execute_script
-from app.services.session_manager import create_session, get_session, update_session, add_log
+from app.services.session_manager import create_session, get_session, update_session, add_log, list_recent_sessions
 
 app = FastAPI(title="AI PDF Report Generator v3")
+
+APP_ACCESS_SECRET = os.getenv("APP_ACCESS_SECRET") or os.getenv("PDF_REPORT_ACCESS_SECRET") or "change-me"
 
 UPLOAD_DIR = "workspace/uploads"
 SCRIPT_DIR = "workspace/scripts"
@@ -59,6 +63,31 @@ for d in [UPLOAD_DIR, SCRIPT_DIR, REPORT_DIR]:
     os.makedirs(d, exist_ok=True)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+def is_valid_access_token(token: str) -> bool:
+    return bool(token) and hmac.compare_digest(token, APP_ACCESS_SECRET)
+
+
+@app.middleware("http")
+async def require_api_access(request: Request, call_next):
+    if request.url.path.startswith("/api/") and request.url.path != "/api/auth/login":
+        token = request.headers.get("x-access-token", "")
+        if not is_valid_access_token(token):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return await call_next(request)
+
+
+@app.post("/api/auth/login")
+async def login(payload: dict = Body(...)):
+    if not is_valid_access_token(payload.get("secret", "")):
+        raise HTTPException(status_code=401, detail="Invalid access secret")
+    return {"status": "OK"}
+
+
+@app.get("/api/auth/check")
+async def check_login():
+    return {"status": "OK"}
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -292,9 +321,12 @@ async def start_session(
 ):
     job_id = str(uuid.uuid4())
     session_files = save_uploaded_files(files)
+    now = datetime.now(timezone.utc).isoformat()
     
     create_session(job_id, {
         "job_id": job_id,
+        "created_at": now,
+        "updated_at": now,
         "status": "Iniciando...",
         "logs": ["Iniciando pipeline v3.0 (Multi-data)..."],
         "files": session_files,
@@ -316,6 +348,11 @@ async def start_session(
     
     background_tasks.add_task(run_pipeline, job_id)
     return {"job_id": job_id}
+
+
+@app.get("/api/sessions")
+async def recent_sessions():
+    return {"sessions": list_recent_sessions()}
 
 @app.post("/api/sessions/{job_id}/files")
 async def add_files_to_session(
