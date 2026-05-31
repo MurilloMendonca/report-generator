@@ -3,6 +3,7 @@ const App = {
     pollInterval: null,
     lastPdfVersion: 0,
     pdfObjectUrl: null,
+    filePreviewUrl: null,
     layoutTemplates: [],
     models: {
         gemini: [
@@ -101,6 +102,20 @@ const App = {
             .join('');
     },
 
+    updateSettingsModels(selectedModel = null) {
+        const providerEl = document.getElementById('s-provider');
+        const modelEl = document.getElementById('s-model-name');
+        if (!providerEl || !modelEl) return;
+
+        const models = this.models[providerEl.value] || [];
+        modelEl.innerHTML = models
+            .map(m => `<option value="${m.id}">${m.label}</option>`)
+            .join('');
+        if (selectedModel && models.some(m => m.id === selectedModel)) {
+            modelEl.value = selectedModel;
+        }
+    },
+
     setupEventListeners() {
         document.getElementById('login-form').onsubmit = (e) => this.handleLogin(e);
         document.getElementById('upload-form').onsubmit = (e) => this.handleStartSession(e);
@@ -108,6 +123,38 @@ const App = {
         document.getElementById('explore-form').onsubmit = (e) => this.handleExplore(e);
         document.getElementById('modal-form').onsubmit = (e) => this.handleSaveIndicator(e);
         document.getElementById('settings-form').onsubmit = (e) => this.handleSaveSettings(e);
+        document.getElementById('s-provider').onchange = () => this.updateSettingsModels();
+        this.setupFileDropzone();
+        document.getElementById('file-preview-modal').addEventListener('close', () => {
+            if (this.filePreviewUrl) {
+                URL.revokeObjectURL(this.filePreviewUrl);
+                this.filePreviewUrl = null;
+            }
+        });
+    },
+
+    setupFileDropzone() {
+        const dropzone = document.getElementById('file-dropzone');
+        if (!dropzone) return;
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (event) => {
+                event.preventDefault();
+                dropzone.classList.add('drag-over');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropzone.addEventListener(eventName, (event) => {
+                event.preventDefault();
+                dropzone.classList.remove('drag-over');
+            });
+        });
+
+        dropzone.addEventListener('drop', (event) => {
+            const files = event.dataTransfer.files;
+            if (files && files.length) this.uploadFiles(files);
+        });
     },
 
     async handleLogin(e) {
@@ -143,6 +190,7 @@ const App = {
         document.getElementById('file-workspace').style.display = 'block';
         document.getElementById('header-progress').style.display = 'block';
         document.getElementById('chat-form').style.display = 'block';
+        document.getElementById('new-session-link').style.display = 'block';
     },
 
     startPolling() {
@@ -168,7 +216,10 @@ const App = {
         UI.renderDataArtifacts(session);
         UI.renderFullScript(session.script);
         UI.renderTemplateOptions(this.layoutTemplates);
-        UI.updateSettingsForm(session.settings);
+        const settingsProvider = document.getElementById('s-provider');
+        if (settingsProvider) settingsProvider.value = session.provider || 'deepseek';
+        this.updateSettingsModels(session.model_name);
+        UI.updateSettingsForm(session.settings, session);
 
         if (session.pdf_version > this.lastPdfVersion) {
             this.refreshPdf(session);
@@ -218,10 +269,106 @@ const App = {
 
     async handleUploadMore(input) {
         if (!input.files.length) return;
+        await this.uploadFiles(input.files);
+        input.value = '';
+    },
+
+    async uploadFiles(files) {
+        if (!this.currentSession || !this.currentSession.job_id || !files.length) return;
         const fd = new FormData();
-        for (let f of input.files) fd.append('files', f);
+        for (let f of files) fd.append('files', f);
         await API.addFiles(this.currentSession.job_id, fd);
         this.startPolling();
+    },
+
+    async previewFile(index) {
+        const file = this.currentSession.files[index];
+        if (!file) return;
+
+        const modal = document.getElementById('file-preview-modal');
+        const title = document.getElementById('file-preview-title');
+        const meta = document.getElementById('file-preview-meta');
+        const body = document.getElementById('file-preview-body');
+        const downloadBtn = document.getElementById('file-preview-download');
+        const filename = file.original_filename || `arquivo-${index + 1}`;
+        const kind = UI.fileKind(filename);
+
+        title.textContent = filename;
+        meta.textContent = [UI.formatBytes(file.size_bytes || (file.artifact && file.artifact.size_bytes)), file.mime_type]
+            .filter(Boolean)
+            .join(' · ');
+        body.innerHTML = '<div class="preview-loading">Carregando preview...</div>';
+        downloadBtn.onclick = () => this.downloadFile(index);
+        modal.showModal();
+
+        try {
+            const blob = await API.getFileBlob(this.currentSession.job_id, index, 'preview');
+            if (this.filePreviewUrl) URL.revokeObjectURL(this.filePreviewUrl);
+            this.filePreviewUrl = URL.createObjectURL(blob);
+
+            if (kind === 'image') {
+                body.innerHTML = `<img class="preview-image" alt="${UI.escapeHtml(filename)}" src="${this.filePreviewUrl}">`;
+            } else if (kind === 'pdf') {
+                body.innerHTML = `<iframe class="preview-frame" title="${UI.escapeHtml(filename)}" src="${this.filePreviewUrl}"></iframe>`;
+            } else if (kind === 'text' || kind === 'data') {
+                if (filename.toLowerCase().match(/\.(xlsx|xls|ods)$/)) {
+                    this.renderMetadataPreview(body, file, 'Planilhas podem ser baixadas ou usadas pelo gerador, mas nao abrem como texto no navegador.');
+                    return;
+                }
+                const text = await blob.text();
+                body.innerHTML = `<pre class="preview-text">${UI.escapeHtml(text.slice(0, 200000))}</pre>`;
+            } else {
+                this.renderMetadataPreview(body, file, 'Preview direto indisponivel para este formato.');
+            }
+        } catch (error) {
+            body.innerHTML = '<div class="preview-empty">Nao foi possivel abrir o preview deste arquivo.</div>';
+        }
+    },
+
+    renderMetadataPreview(container, file, message) {
+        container.innerHTML = `
+            <div class="preview-empty">
+                <strong>${UI.escapeHtml(message)}</strong>
+                <pre>${UI.escapeHtml(Utils.formatJson(file.artifact || {}))}</pre>
+            </div>
+        `;
+    },
+
+    closeFilePreview() {
+        const modal = document.getElementById('file-preview-modal');
+        modal.close();
+        if (this.filePreviewUrl) {
+            URL.revokeObjectURL(this.filePreviewUrl);
+            this.filePreviewUrl = null;
+        }
+    },
+
+    async downloadFile(index) {
+        const file = this.currentSession.files[index];
+        if (!file) return;
+
+        const blob = await API.getFileBlob(this.currentSession.job_id, index, 'download');
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.original_filename || `arquivo-${index + 1}`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    },
+
+    async deleteFile(index) {
+        const file = this.currentSession.files[index];
+        if (!file) return;
+        if (!confirm(`Excluir "${file.original_filename}" desta sessao?`)) return;
+
+        await API.deleteFile(this.currentSession.job_id, index);
+        const session = await API.getSession(this.currentSession.job_id);
+        this.currentSession = session;
+        this.lastPdfVersion = 0;
+        this.updateUI(session);
+        if (session.files && session.files.length) this.startPolling();
     },
 
     handleEditIndicator(index) {
@@ -312,18 +459,35 @@ const App = {
         canvas.appendChild(UI.createLayoutPage(pageCount + 1));
     },
 
-    async handleSaveSettings(e) {
-        e.preventDefault();
-        const settings = {
+    collectSettings() {
+        return {
             title: document.getElementById('s-title').value,
             font: document.getElementById('s-font').value,
             font_size: parseInt(document.getElementById('s-font-size').value),
             alignment: document.getElementById('s-alignment').value,
             line_height: parseInt(document.getElementById('s-line-height').value),
             language: document.getElementById('s-language').value,
-            selected_template_id: document.getElementById('s-layout-template').value
+            selected_template_id: document.getElementById('s-layout-template').value,
+            provider: document.getElementById('s-provider').value,
+            model_name: document.getElementById('s-model-name').value
         };
+    },
+
+    async handleSaveSettings(e) {
+        e.preventDefault();
+        const settings = this.collectSettings();
         await API.updateSettings(this.currentSession.job_id, settings);
+        this.startPolling();
+    },
+
+    async handleRegenerate(scope) {
+        const labels = {
+            texts: 'atualizar os textos',
+            graphics: 'atualizar os gráficos',
+            all: 'atualizar todo o relatório'
+        };
+        if (!confirm(`Deseja ${labels[scope] || 'atualizar o relatório'} com o provider e modelo atuais?`)) return;
+        await API.regenerate(this.currentSession.job_id, scope, this.collectSettings());
         this.startPolling();
     },
 

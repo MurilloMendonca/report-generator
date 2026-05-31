@@ -1,0 +1,137 @@
+from datetime import datetime, timezone
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+CURRENT_SESSION_SCHEMA_VERSION = 1
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class SessionFile(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    original_filename: str = ""
+    path: str = ""
+    size_bytes: int | None = None
+    mime_type: str | None = None
+    artifact: dict[str, Any] | None = None
+    raw_artifact: dict[str, Any] | None = None
+    filtered_path: str | None = None
+    filter_description: str | None = None
+
+    @model_validator(mode="after")
+    def migrate_artifacts(self):
+        if self.raw_artifact is None and self.artifact is not None:
+            self.raw_artifact = self.artifact
+        if self.artifact is None and self.raw_artifact is not None:
+            self.artifact = self.raw_artifact
+        return self
+
+
+class ReportSettings(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    title: str = ""
+    font: str = "Arial"
+    font_size: int = 10
+    alignment: str = "J"
+    line_height: int = 5
+    language: str = "Portuguese"
+    selected_template_id: str | None = None
+
+    @model_validator(mode="after")
+    def normalize_alignment(self):
+        if not self.alignment:
+            self.alignment = "J"
+        return self
+
+
+class DataFilterState(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    needs_filter: bool = False
+    description: str = ""
+    code: str = ""
+
+
+class ReportSession(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: int = CURRENT_SESSION_SCHEMA_VERSION
+    job_id: str = ""
+    created_at: str = Field(default_factory=utc_now_iso)
+    updated_at: str = Field(default_factory=utc_now_iso)
+    status: str = ""
+    logs: list[str] = Field(default_factory=list)
+    files: list[SessionFile] = Field(default_factory=list)
+    initial_prompt: str = ""
+    current_goal: str = ""
+    is_exploratory: bool = False
+    refinement_history: list[str] = Field(default_factory=list)
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    template: list[dict[str, Any]] = Field(default_factory=list)
+    components: dict[str, str] = Field(default_factory=dict)
+    calculated_metrics: dict[str, Any] = Field(default_factory=dict)
+    settings: ReportSettings = Field(default_factory=ReportSettings)
+    script: str = ""
+    script_path: str | None = None
+    pdf_path: str | None = None
+    provider: str = "deepseek"
+    model_name: str = "deepseek-v4-flash"
+    data_filter: DataFilterState = Field(default_factory=DataFilterState)
+    pdf_version: int = 0
+    retry_count: int = 0
+    explore_history: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_payload(cls, value):
+        if not isinstance(value, dict):
+            return value
+
+        payload = dict(value)
+        artifacts = payload.get("artifacts")
+        if isinstance(artifacts, dict):
+            payload["artifacts"] = [
+                artifact for artifact in artifacts.values()
+                if isinstance(artifact, dict)
+            ]
+
+        template = payload.get("template")
+        if isinstance(template, dict):
+            payload["template"] = [
+                item for item in template.values()
+                if isinstance(item, dict)
+            ]
+
+        if payload.get("settings") is None:
+            payload["settings"] = {}
+        if payload.get("data_filter") is None:
+            payload["data_filter"] = {}
+
+        return payload
+
+    @model_validator(mode="after")
+    def migrate_session(self):
+        self.schema_version = CURRENT_SESSION_SCHEMA_VERSION
+        if not self.current_goal:
+            self.current_goal = self.initial_prompt
+        if not self.provider:
+            self.provider = "deepseek"
+        if not self.model_name:
+            self.model_name = "deepseek-v4-flash"
+        return self
+
+
+def normalize_session(data: dict | None, job_id: str | None = None) -> dict | None:
+    if data is None:
+        return None
+    payload = dict(data)
+    if job_id and not payload.get("job_id"):
+        payload["job_id"] = job_id
+    session = ReportSession.model_validate(payload)
+    return session.model_dump(mode="json")

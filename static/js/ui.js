@@ -41,12 +41,83 @@ const UI = {
         document.getElementById('log-container').innerHTML = (logs || []).slice(-5).map(l => `<div>${l}</div>`).join('');
     },
 
+    fileKind(filename) {
+        const ext = String(filename || '').split('.').pop().toLowerCase();
+        if (['csv', 'xls', 'xlsx', 'ods'].includes(ext)) return 'data';
+        if (['pdf'].includes(ext)) return 'pdf';
+        if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) return 'image';
+        if (['txt', 'md', 'json', 'py', 'js', 'css', 'html', 'log'].includes(ext)) return 'text';
+        if (['doc', 'docx', 'ppt', 'pptx'].includes(ext)) return 'doc';
+        return 'file';
+    },
+
+    fileIcon(kind) {
+        return {
+            data: 'DB',
+            pdf: 'PDF',
+            image: 'IMG',
+            text: 'TXT',
+            doc: 'DOC',
+            file: 'FILE'
+        }[kind] || 'FILE';
+    },
+
+    formatBytes(bytes) {
+        const value = Number(bytes);
+        if (!value) return '';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = value;
+        let unit = 0;
+        while (size >= 1024 && unit < units.length - 1) {
+            size /= 1024;
+            unit += 1;
+        }
+        return `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+    },
+
     renderFiles(files) {
-        document.getElementById('file-tray').innerHTML = (files || []).map(f => `
-            <div class="file-card">
-                <b>📄 ${f.original_filename}</b>
-            </div>
-        `).join('');
+        const tray = document.getElementById('file-tray');
+        if (!tray) return;
+
+        const list = files || [];
+        const summary = document.getElementById('file-summary');
+        if (summary) summary.textContent = `${list.length} arquivo${list.length === 1 ? '' : 's'}`;
+
+        if (!list.length) {
+            tray.innerHTML = `
+                <div class="file-empty">
+                    <strong>Nenhum arquivo na sessão.</strong>
+                    <span>Arraste arquivos para cá ou use o botão de adicionar.</span>
+                </div>
+            `;
+            return;
+        }
+
+        tray.innerHTML = list.map((f, index) => {
+            const filename = f.original_filename || `arquivo-${index + 1}`;
+            const kind = UI.fileKind(filename);
+            const size = UI.formatBytes(f.size_bytes || (f.artifact && f.artifact.size_bytes));
+            const metadata = f.artifact && !f.artifact.error
+                ? `${f.artifact.rows || f.artifact.pages || ''}${f.artifact.rows ? ' linhas' : f.artifact.pages ? ' paginas' : ''}`
+                : (f.artifact && f.artifact.error ? 'nao analisado' : 'aguardando analise');
+            return `
+                <article class="file-card" data-file-index="${index}">
+                    <button class="file-open" type="button" title="Visualizar ${UI.escapeHtml(filename)}" onclick="App.previewFile(${index})">
+                        <span class="file-type file-type-${kind}">${UI.fileIcon(kind)}</span>
+                        <span class="file-name">${UI.escapeHtml(filename)}</span>
+                    </button>
+                    <div class="file-meta">
+                        <span>${UI.escapeHtml(metadata)}</span>
+                        ${size ? `<span>${UI.escapeHtml(size)}</span>` : ''}
+                    </div>
+                    <div class="file-actions">
+                        <button type="button" class="file-action-btn" onclick="App.previewFile(${index})">Abrir</button>
+                        <button type="button" class="file-action-btn" onclick="App.downloadFile(${index})">Baixar</button>
+                        <button type="button" class="file-action-btn danger" onclick="App.deleteFile(${index})">Remover</button>
+                    </div>
+                </article>
+            `;
+        }).join('');
     },
 
     renderArtifacts(artifacts, onEdit, onDelete) {
@@ -148,19 +219,29 @@ const UI = {
         hljs.highlightElement(el);
     },
 
-    updateSettingsForm(settings) {
+    updateSettingsForm(settings, session) {
         if (!settings) return;
         
         const titleEl = document.getElementById('s-title');
         // Only update if not currently focused to avoid interrupting user typing
         if (document.activeElement !== titleEl) titleEl.value = settings.title || "";
+
+        const providerEl = document.getElementById('s-provider');
+        const modelEl = document.getElementById('s-model-name');
+        if (providerEl && session && document.activeElement !== providerEl) {
+            providerEl.value = session.provider || "deepseek";
+        }
+        if (modelEl && session && session.model_name && document.activeElement !== modelEl) {
+            modelEl.value = session.model_name;
+        }
         
         document.getElementById('s-font').value = settings.font || "Arial";
         document.getElementById('s-font-size').value = settings.font_size || 10;
-        document.getElementById('s-alignment').value = settings.alignment || "L";
+        document.getElementById('s-alignment').value = settings.alignment || "J";
         document.getElementById('s-line-height').value = settings.line_height || 5;
         document.getElementById('s-language').value = settings.language || "Portuguese";
         document.getElementById('s-layout-template').value = settings.selected_template_id || "";
+        UI.updateSelectedTemplatePreview(settings.selected_template_id || "");
     },
 
     renderTemplateOptions(templates) {
@@ -170,5 +251,80 @@ const UI = {
             <option value="${template.id}">${template.name}</option>
         `).join('');
         if (currentValue) select.value = currentValue;
+        UI.renderTemplatePreviews(templates, select.value);
+        select.onchange = () => UI.updateSelectedTemplatePreview(select.value);
+    },
+
+    renderTemplatePreviews(templates, selectedId) {
+        const container = document.getElementById('layout-template-previews');
+        if (!container) return;
+
+        const list = templates || [];
+        if (!list.length) {
+            container.innerHTML = '<div class="template-preview-empty">Nenhum template disponível.</div>';
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="template-preview-legend" aria-hidden="true">
+                <span><i class="template-preview-swatch text"></i>Texto</span>
+                <span><i class="template-preview-swatch graphic"></i>Gráfico</span>
+            </div>
+        ` + list.map(template => `
+            <button
+                type="button"
+                class="template-preview-card${template.id === selectedId ? ' selected' : ''}"
+                data-template-id="${UI.escapeHtml(template.id)}"
+                onclick="UI.selectTemplatePreview('${UI.escapeHtml(template.id)}')"
+                title="${UI.escapeHtml(template.description || template.name)}"
+            >
+                ${UI.templatePreviewSvg(template)}
+                <span class="template-preview-name">${UI.escapeHtml(template.name)}</span>
+            </button>
+        `).join('');
+    },
+
+    selectTemplatePreview(templateId) {
+        const select = document.getElementById('s-layout-template');
+        if (!select) return;
+        select.value = templateId;
+        UI.updateSelectedTemplatePreview(templateId);
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+    },
+
+    updateSelectedTemplatePreview(templateId) {
+        document.querySelectorAll('.template-preview-card').forEach(card => {
+            card.classList.toggle('selected', card.dataset.templateId === templateId);
+        });
+    },
+
+    templatePreviewSvg(template) {
+        const slots = template.slots || [];
+        const pages = slots.map(slot => Number(slot.page || 1)).filter(Boolean);
+        const page = pages.length ? Math.min(...pages) : 1;
+        const pageSlots = slots.filter(slot => Number(slot.page || 1) === page);
+        const width = 74;
+        const height = 104;
+        const scaleX = width / 210;
+        const scaleY = height / 297;
+        const blocks = pageSlots.map(slot => {
+            const type = slot.type === 'text' ? 'text' : 'graphic';
+            const x = Math.max(0, Math.min(width, Number(slot.x || 0) * scaleX));
+            const y = Math.max(0, Math.min(height, Number(slot.y || 0) * scaleY));
+            const w = Math.max(2, Math.min(width - x, Number(slot.w || 10) * scaleX));
+            const h = Math.max(2, Math.min(height - y, Number(slot.h || 10) * scaleY));
+            return `<rect class="template-preview-${type}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5"></rect>`;
+        }).join('');
+        const extraPages = new Set(slots.map(slot => Number(slot.page || 1))).size > 1
+            ? '<text x="67" y="99" text-anchor="end" class="template-preview-page-count">+p</text>'
+            : '';
+
+        return `
+            <svg class="template-preview-svg" viewBox="0 0 ${width} ${height}" role="img" aria-hidden="true">
+                <rect class="template-preview-page" x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="2"></rect>
+                ${blocks}
+                ${extraPages}
+            </svg>
+        `;
     }
 };

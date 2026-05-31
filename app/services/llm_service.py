@@ -1,6 +1,7 @@
 import google.generativeai as genai
 import os
 import json
+import re
 import time
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -159,6 +160,37 @@ def generate_template(artifacts: list, provider: str = DEFAULT_PROVIDER, model_n
     return normalize_template(build_layout_from_template(artifacts, template_id))
 
 
+def generate_data_filter(all_metadata: str, prompt: str, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None) -> dict:
+    system_instruction = load_prompt("GENERATE_DATA_FILTER.md")
+    lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
+    user_prompt = (
+        f"Target Language: {lang}\n"
+        f"User Goal:\n{prompt}\n\n"
+        f"Raw Data Artifacts:\n{all_metadata}"
+    )
+
+    for attempt in range(3):
+        text = call_llm(provider, model_name, system_instruction, user_prompt)
+        text = extract_json_payload(text, "{", "}")
+        try:
+            payload = json.loads(text)
+            if isinstance(payload, dict):
+                if not payload.get("needs_filter"):
+                    return {"needs_filter": False, "description": "", "code": ""}
+                code = strip_code_fence(str(payload.get("code", "")), "python")
+                if "def filter_dataframes" in code:
+                    return {
+                        "needs_filter": True,
+                        "description": str(payload.get("description", "")).strip(),
+                        "code": code.strip(),
+                    }
+        except Exception as e:
+            print(f"DEBUG: data filter generation attempt {attempt + 1} failed: {str(e)}")
+            time.sleep(2)
+
+    return {"needs_filter": False, "description": "", "code": ""}
+
+
 def dataframe_load_line(original_name: str, path: str, indent: str = "") -> str:
     ext = os.path.splitext(path)[1].lower()
     if ext == '.csv':
@@ -212,7 +244,90 @@ def calculate_metric_value(all_metadata: str, artifact: dict, files_map: dict, p
         
     return "N/A"
 
-def generate_component_code(all_metadata: str, artifact: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, calculated_metrics: dict = None, preceding_text: str = None, settings: dict = None) -> str:
+VISUAL_COMPONENT_TYPES = {'graphic', 'bar', 'line', 'pie', 'scatter', 'table', 'chart'}
+
+
+def chart_code_has_layout_risk(code: str) -> bool:
+    lowered = str(code or "").lower()
+    has_x_label = bool(re.search(r"\.set_xlabel\(\s*['\"][^'\"]+['\"]", lowered))
+    has_bottom_legend = bool(re.search(r"bbox_to_anchor\s*=\s*\([^)]*-\d*\.?\d+", lowered))
+    if has_x_label and has_bottom_legend:
+        return True
+
+    has_data_annotation = any(token in lowered for token in [
+        "ax.annotate",
+        "plt.annotate",
+        "ax.text(",
+        "plt.text(",
+    ])
+    if not has_data_annotation:
+        return False
+
+    has_inside_upper_legend = any(token in lowered for token in [
+        "legend(loc='upper right'",
+        'legend(loc="upper right"',
+        "legend(loc='upper left'",
+        'legend(loc="upper left"',
+        "legend(loc='best'",
+        'legend(loc="best"',
+    ])
+    if not has_inside_upper_legend:
+        return False
+
+    return "bbox_to_anchor" not in lowered
+
+
+def slot_by_artifact_id(template: list) -> dict:
+    return {item.get("id"): item for item in normalize_template(template or []) if item.get("id")}
+
+
+def visual_slot_guidance(block: dict | None) -> dict | None:
+    if not block:
+        return None
+    width = block.get("w") or 0
+    height = block.get("h") or 0
+    compact = width < 110 or height < 75
+    return {
+        "page": block.get("page", 1),
+        "x_mm": block.get("x"),
+        "y_mm": block.get("y"),
+        "w_mm": width,
+        "h_mm": height,
+        "compact": compact,
+        "guidance": (
+            "Compact chart block: prioritize a simple chart, small title, no non-essential data labels, "
+            "and avoid bottom legend plus x-axis label."
+            if compact else
+            "Larger chart block: reserve explicit margins for title, tick labels, and legend."
+        ),
+    }
+
+
+def text_layout_guidance(text_artifacts: list, template: list, settings: dict = None) -> list:
+    blocks_by_id = slot_by_artifact_id(template)
+    guidance = []
+    for artifact in text_artifacts:
+        artifact_id = artifact.get("id")
+        block = blocks_by_id.get(artifact_id)
+        if not block:
+            continue
+        capacity = estimate_text_block_capacity(block, settings)
+        guidance.append({
+            "id": artifact_id,
+            "indicator": artifact.get("indicator", artifact_id),
+            "slot": {
+                "page": block.get("page", 1),
+                "w_mm": block.get("w"),
+                "h_mm": block.get("h"),
+            },
+            "target_words": capacity["target_words"],
+            "soft_max_words": capacity["soft_max_words"],
+            "max_lines": capacity["max_lines"],
+        })
+    return guidance
+
+
+def generate_component_code(all_metadata: str, artifact: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, calculated_metrics: dict = None, preceding_text: str = None, settings: dict = None, layout_slot: dict = None) -> str:
     system_instruction = load_prompt("GENERATE_COMPONENT_CODE.md")
     lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
     
@@ -227,16 +342,46 @@ def generate_component_code(all_metadata: str, artifact: dict, provider: str = D
     
     if preceding_text:
         context.append(f"Preceding Report Text (for context/conclusion):\n{preceding_text}")
+
+    slot_guidance = visual_slot_guidance(layout_slot)
+    if slot_guidance:
+        context.append(f"Layout Slot Constraints:\n{json.dumps(slot_guidance, indent=2, ensure_ascii=False)}")
         
     user_prompt = "\n\n".join(context)
-    
-    text = call_llm(provider, model_name, system_instruction, user_prompt)
-    return strip_code_fence(text, "python")
 
-def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metrics: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None) -> dict:
+    last_code = ""
+    for attempt in range(3):
+        attempt_prompt = user_prompt
+        if attempt > 0:
+            attempt_prompt += (
+                "\n\nPrevious attempt violated chart layout safety: it combined data labels "
+                "or annotations with an inside upper-corner legend. Regenerate the function "
+                "with the legend outside the axes using bbox_to_anchor, or remove non-essential "
+                "data labels/annotations."
+            )
+
+        text = call_llm(provider, model_name, system_instruction, attempt_prompt)
+        code = strip_code_fence(text, "python")
+        last_code = code
+        if artifact.get("type") not in VISUAL_COMPONENT_TYPES or not chart_code_has_layout_risk(code):
+            return code
+        time.sleep(1)
+
+    return last_code
+
+def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metrics: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, template: list = None) -> dict:
     system_instruction = load_prompt("GENERATE_ALL_TEXTS.md")
     lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
-    user_prompt = f"Target Language: {lang}\nText Artifacts:\n{json.dumps(text_artifacts, indent=2)}\n\nCalculated Metrics:\n{json.dumps(calculated_metrics, indent=2)}\n\nData Artifacts:\n{all_metadata}"
+    layout_guidance = text_layout_guidance(text_artifacts, template or [], settings)
+    context = [
+        f"Target Language: {lang}",
+        f"Text Artifacts:\n{json.dumps(text_artifacts, indent=2, ensure_ascii=False)}",
+        f"Calculated Metrics:\n{json.dumps(calculated_metrics, indent=2, ensure_ascii=False)}",
+    ]
+    if layout_guidance:
+        context.append(f"Layout Slots:\n{json.dumps(layout_guidance, indent=2, ensure_ascii=False)}")
+    context.append(f"Data Artifacts:\n{all_metadata}")
+    user_prompt = "\n\n".join(context)
     
     for attempt in range(3):
         text = call_llm(provider, model_name, system_instruction, user_prompt)
@@ -247,6 +392,94 @@ def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metri
         except:
             time.sleep(2)
     return {}
+
+
+def estimate_text_block_capacity(block: dict, settings: dict = None) -> dict:
+    settings = settings or {}
+    font_size = settings.get("font_size", 10) or 10
+    line_height = settings.get("line_height", 5) or 5
+    title_reserve = 6 if (block.get("h") or 0) < 55 else 7
+    body_height = max(1, (block.get("h") or 0) - title_reserve)
+    chars_per_line = max(18, int((block.get("w") or 0) * 0.62 * (10 / font_size)))
+    max_lines = max(1, int(body_height / max(line_height, 1)))
+    raw_words = chars_per_line * max_lines / 6.2
+    target_words = max(24, int(raw_words * 0.92))
+    soft_max_words = max(target_words + 8, int(raw_words * 1.08))
+    return {
+        "chars_per_line": chars_per_line,
+        "max_lines": max_lines,
+        "max_chars": int(chars_per_line * max_lines * 1.02),
+        "target_words": target_words,
+        "soft_max_words": soft_max_words,
+    }
+
+
+def estimated_line_count(text: str, chars_per_line: int) -> int:
+    total = 0
+    for paragraph in str(text or "").splitlines() or [""]:
+        total += max(1, len(paragraph.strip()) // max(chars_per_line, 1) + 1)
+    return total
+
+
+def condense_texts_to_fit(texts_map: dict, text_artifacts: list, template: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None) -> dict:
+    texts_map = dict(texts_map or {})
+    blocks_by_id = {item.get("id"): item for item in normalize_template(template)}
+    overflow_items = []
+
+    for artifact in text_artifacts:
+        artifact_id = artifact.get("id")
+        block = blocks_by_id.get(artifact_id)
+        text = texts_map.get(artifact_id)
+        if not block or not text:
+            continue
+        capacity = estimate_text_block_capacity(block, settings)
+        lines = estimated_line_count(text, capacity["chars_per_line"])
+        overflow_threshold = max(capacity["max_lines"] + 1, int(capacity["max_lines"] * 1.18))
+        if lines > overflow_threshold:
+            overflow_items.append({
+                "id": artifact_id,
+                "indicator": artifact.get("indicator", artifact_id),
+                "slot": {"w_mm": block.get("w"), "h_mm": block.get("h")},
+                "estimated_lines": lines,
+                "max_lines": capacity["max_lines"],
+                "overflow_threshold_lines": overflow_threshold,
+                "target_words": capacity["target_words"],
+                "soft_max_words": capacity["soft_max_words"],
+                "text": text,
+            })
+
+    if not overflow_items:
+        return texts_map
+
+    lang = settings.get("language", "Portuguese") if settings else "Portuguese"
+    system_instruction = (
+        "You are an executive editor for PDF report text blocks. Rewrite only the provided "
+        "overflowing text components so they fit their exact PDF slots. Preserve the most "
+        "important metrics, conclusions, and analytical meaning. Return only valid JSON."
+    )
+    user_prompt = (
+        f"Target Language: {lang}\n"
+        "Each item below overflowed its assigned PDF text block. Condense each text to no more "
+        "than its soft_max_words, and only go down to target_words if strictly necessary. "
+        "Use complete sentences, no markdown, no bullet lists, and no ellipses. "
+        "Return a JSON object mapping each id to the condensed string.\n\n"
+        f"Overflowing Text Blocks:\n{json.dumps(overflow_items, indent=2, ensure_ascii=False)}"
+    )
+
+    for attempt in range(3):
+        try:
+            response = call_llm(provider, model_name, system_instruction, user_prompt)
+            payload = json.loads(extract_json_payload(response, "{", "}"))
+            for key, value in payload.items():
+                if key in texts_map and isinstance(value, str) and value.strip():
+                    texts_map[key] = value.strip()
+            return texts_map
+        except Exception as e:
+            print(f"DEBUG: text condensation attempt {attempt + 1} failed: {str(e)}")
+            time.sleep(2)
+
+    return texts_map
+
 
 def generate_report_title(all_metadata: str, prompt: str, artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None) -> str:
     system_instruction = load_prompt("GENERATE_REPORT_TITLE.md")
@@ -263,7 +496,7 @@ def generate_report_title(all_metadata: str, prompt: str, artifacts: list, provi
         title = strip_code_fence(title).strip().strip('"').strip("'")
         title = " ".join(title.split())
         if title:
-            return title[:80]
+            return title
     except Exception as e:
         print(f"DEBUG: title generation failed: {str(e)}")
 
@@ -274,7 +507,7 @@ def fallback_report_title(prompt: str) -> str:
     clean_prompt = " ".join((prompt or "").split())
     if not clean_prompt:
         return "Relatório Analítico"
-    return clean_prompt[:80]
+    return clean_prompt
 
 def assemble_script(components: dict, template: list, files_map: dict, output_pdf_path: str, settings: dict = None) -> str:
     template = sorted(
@@ -287,7 +520,7 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
             "title": "Relatório Analítico",
             "font": "Arial",
             "font_size": 10,
-            "alignment": "L",
+            "alignment": "J",
             "line_height": 5
         }
     
@@ -300,21 +533,80 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
         "import pandas as pd", "import numpy as np", "import matplotlib.pyplot as plt", "import seaborn as sns",
         "from fpdf import FPDF, XPos, YPos", "import tempfile", "import textwrap", "",
         "sns.set_theme(style='whitegrid')", "",
-        "def _fit_text_to_box(text, w, h, font_size, line_height):",
-        "    max_chars = max(12, int(w * 0.55))",
-        "    max_lines = max(1, int(h / max(line_height, 1)))",
+        "def _safe_pdf_text(value):",
+        "    replacements = {",
+        "        '\\u2013': '-', '\\u2014': '-', '\\u2015': '-',",
+        "        '\\u2018': \"'\", '\\u2019': \"'\", '\\u201c': '\"', '\\u201d': '\"',",
+        "        '\\u2022': '-', '\\u00a0': ' ', '\\u2026': '...'",
+        "    }",
+        "    text = str(value or '')",
+        "    for source, target in replacements.items():",
+        "        text = text.replace(source, target)",
+        "    return text.encode('latin-1', 'replace').decode('latin-1')",
+        "",
+        "def _wrap_lines(text, max_chars):",
         "    lines = []",
         "    for paragraph in str(text).splitlines() or ['']:",
-        "        wrapped = textwrap.wrap(paragraph, width=max_chars) or ['']",
+        "        wrapped = textwrap.wrap(paragraph.strip(), width=max_chars) or ['']",
         "        lines.extend(wrapped)",
-        "    if len(lines) > max_lines:",
-        "        lines = lines[:max_lines]",
-        "        lines[-1] = lines[-1].rstrip()[:max(0, max_chars - 3)] + '...'",
-        "    return '\\n'.join(lines)",
+        "    return lines",
+        "",
+        "def _sentence_chunks(text):",
+        "    normalized = ' '.join(str(text).split())",
+        "    chunks, current = [], []",
+        "    for token in normalized.split(' '):",
+        "        current.append(token)",
+        "        if token.rstrip().endswith(('.', '!', '?', ';')):",
+        "            chunks.append(' '.join(current))",
+        "            current = []",
+        "    if current:",
+        "        chunks.append(' '.join(current))",
+        "    return chunks or [normalized]",
+        "",
+        "def _fit_text_to_box(text, w, h, font_size, line_height):",
+        "    max_chars = max(14, int(w * 0.55 * (10 / max(font_size, 1))))",
+        "    max_lines = max(1, int(h / max(line_height, 1)))",
+        "    if len(_wrap_lines(text, max_chars)) <= max_lines:",
+        "        return text",
+        "    selected = []",
+        "    for sentence in _sentence_chunks(text):",
+        "        candidate = ' '.join(selected + [sentence]).strip()",
+        "        if not candidate:",
+        "            continue",
+        "        if len(_wrap_lines(candidate, max_chars)) <= max_lines:",
+        "            selected.append(sentence)",
+        "        elif selected:",
+        "            break",
+        "        else:",
+        "            words = sentence.split()",
+        "            compact = []",
+        "            for word in words:",
+        "                candidate = ' '.join(compact + [word])",
+        "                if len(_wrap_lines(candidate, max_chars)) > max_lines:",
+        "                    break",
+        "                compact.append(word)",
+        "            selected.append(' '.join(compact))",
+        "            break",
+        "    fitted = ' '.join(selected).strip()",
+        "    return fitted",
+        "",
+        "def _write_report_title(pdf, title, font_family):",
+        "    clean_title = ' '.join(_safe_pdf_text(title or 'Relatório Analítico').split())",
+        "    for size in range(16, 10, -1):",
+        "        max_chars = max(28, int(58 * (16 / size)))",
+        "        lines = textwrap.wrap(clean_title, width=max_chars) or [clean_title]",
+        "        if len(lines) <= 2:",
+        "            pdf.set_font(font_family, 'B', size)",
+        "            pdf.multi_cell(0, 8, '\\n'.join(lines), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')",
+        "            return",
+        "    pdf.set_font(font_family, 'B', 11)",
+        "    pdf.multi_cell(0, 7, '\\n'.join(textwrap.wrap(clean_title, width=84)), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')",
         "",
         "def render_text_block(pdf, text, x, y, w, h, title=None):",
         f"    font_size = {settings.get('font_size', 10)}",
         f"    line_height = {settings.get('line_height', 5)}",
+        "    text = _safe_pdf_text(text)",
+        "    title = _safe_pdf_text(title) if title else None",
         "    body_height = h",
         f"    pdf.set_xy(x, y)",
         f"    if title:",
@@ -323,9 +615,9 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
         f"        body_height = max(1, h - 8)",
         f"        pdf.set_xy(x, pdf.get_y())",
         f"    ",
-        f"    pdf.set_font('{font_family}', '', font_size)",
         f"    fitted_text = _fit_text_to_box(text, w, body_height, font_size, line_height)",
-        f"    pdf.multi_cell(w, line_height, fitted_text, align='{settings.get('alignment', 'L')}')",
+        f"    pdf.set_font('{font_family}', '', font_size)",
+        f"    pdf.multi_cell(w, line_height, fitted_text, align='{settings.get('alignment', 'J')}')",
         ""
     ]
     for comp_id, func_code in components.items():
@@ -347,9 +639,8 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
     script.append("            pdf.add_page()")
     script.append("            current_page += 1")
     script.append("            if current_page == 1:")
-    script.append(f"                pdf.set_font('{font_family}', 'B', 16)")
-    script.append(f"                pdf.cell(0, 10, {json.dumps(settings.get('title') or 'Relatório Analítico')}, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')")
-    script.append("                pdf.ln(5)")
+    script.append(f"                _write_report_title(pdf, {json.dumps(settings.get('title') or 'Relatório Analítico')}, '{font_family}')")
+    script.append("                pdf.ln(3)")
     script.append("    ensure_page(1)")
     for item in template:
         page = item.get("page", 1)
@@ -469,7 +760,7 @@ def refine_session_modular(session: dict, new_prompt: str) -> dict:
                 "title": "Relatório Analítico",
                 "font": "Arial",
                 "font_size": 10,
-                "alignment": "L",
+                "alignment": "J",
                 "line_height": 5,
                 "language": "Portuguese"
             })

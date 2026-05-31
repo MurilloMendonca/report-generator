@@ -1,0 +1,203 @@
+{
+  "case_id": "sales_ops_exploratory",
+  "job_id": "canonical-sales_ops_exploratory-21178f48",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_exploratory-21178f48.pdf",
+  "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780259993/sales_ops_exploratory",
+  "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/sales_ops_exploratory__canonical-sales_ops_exploratory-21178f48.pdf",
+  "passed": true,
+  "checks": [
+    {
+      "name": "pdf_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_exploratory-21178f48.pdf"
+    },
+    {
+      "name": "pdf_size_gt_20kb",
+      "passed": true,
+      "detail": 149073
+    },
+    {
+      "name": "pdf_pages_match_template",
+      "passed": true,
+      "detail": 2
+    },
+    {
+      "name": "status_completed",
+      "passed": true,
+      "detail": "Relatório concluído em 1.6s"
+    },
+    {
+      "name": "has_title",
+      "passed": true,
+      "detail": "Relatório Exploratório do Pipeline de Vendas: Receita, Descontos e Metas"
+    },
+    {
+      "name": "has_artifacts",
+      "passed": true,
+      "detail": 10
+    },
+    {
+      "name": "has_template",
+      "passed": true,
+      "detail": 5
+    },
+    {
+      "name": "template_in_bounds",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_intro",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_main_trend",
+          "page": 1,
+          "x": 10,
+          "y": 70,
+          "w": 190,
+          "h": 105
+        },
+        {
+          "id": "g_support_region_target",
+          "page": 1,
+          "x": 10,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "g_support_channel_dist",
+          "page": 1,
+          "x": 110,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "t_conclusion",
+          "page": 1,
+          "x": 10,
+          "y": 250,
+          "w": 190,
+          "h": 35
+        }
+      ]
+    },
+    {
+      "name": "template_no_overlap",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_intro",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_main_trend",
+          "page": 1,
+          "x": 10,
+          "y": 70,
+          "w": 190,
+          "h": 105
+        },
+        {
+          "id": "g_support_region_target",
+          "page": 1,
+          "x": 10,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "g_support_channel_dist",
+          "page": 1,
+          "x": 110,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "t_conclusion",
+          "page": 1,
+          "x": 10,
+          "y": 250,
+          "w": 190,
+          "h": 35
+        }
+      ]
+    },
+    {
+      "name": "has_non_na_metrics",
+      "passed": true,
+      "detail": {
+        "m_total_revenue": 870500.0,
+        "m_growth_rate": -0.09302325581395349,
+        "m_avg_discount": 9.5,
+        "m_top_product": "Alpha",
+        "m_target_attainment": 1.0241176470588236
+      }
+    },
+    {
+      "name": "chart_annotations_do_not_overlap_legends",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "metadata_column_revenue",
+      "passed": true,
+      "detail": "revenue"
+    },
+    {
+      "name": "metadata_column_region",
+      "passed": true,
+      "detail": "region"
+    },
+    {
+      "name": "metadata_column_product",
+      "passed": true,
+      "detail": "product"
+    },
+    {
+      "name": "pdf_text_min_chars",
+      "passed": true,
+      "detail": 836
+    },
+    {
+      "name": "pdf_text_no_cut_ellipsis",
+      "passed": true,
+      "detail": "ok"
+    },
+    {
+      "name": "pdf_text_title_present",
+      "passed": true,
+      "detail": "Relatório Exploratório do Pipeline de Vendas: Receita, Descontos e Metas"
+    },
+    {
+      "name": "page_1_png_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780259993/sales_ops_exploratory/page-1.png"
+    },
+    {
+      "name": "page_1_png_size_gt_10kb",
+      "passed": true,
+      "detail": 195576
+    },
+    {
+      "name": "report_keyword_revenue",
+      "passed": true,
+      "detail": "revenue"
+    },
+    {
+      "name": "report_keyword_region",
+      "passed": true,
+      "detail": "region"
+    }
+  ]
+}

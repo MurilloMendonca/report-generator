@@ -1,0 +1,14 @@
+Relatório Exploratório de Vendas: Tendências, Metas e
+Insights Regionais
+Resumo Executivo
+Este relatório analisa o desempenho da receita no primeiro trimestre de 2026, com base nos dados do pipeline de
+vendas e nas metas regionais. A receita total atingiu R$ 870.500, com desconto médio de 9,5%. Nas regiões, Norte e
+Sul superaram as metas trimestrais, com taxas de atingimento de 104,5% e 113,1%, respectivamente, enquanto a
+região Oeste ficou abaixo da meta, alcançando apenas 83,3%.
+
+Conclusão e Recomendações
+A região Sul superou a meta em mais de 13%, enquanto a Oeste requer atenção imediata. Recomenda-se revisar a
+estratégia de canais e descontos na Oeste atualmente 13% e intensificar os produtos Alpha e Beta no Sul. Manter
+descontos moderados em 9,5% para equilíbrio entre margem e volume.
+
+

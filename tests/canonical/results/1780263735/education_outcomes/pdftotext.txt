@@ -1,0 +1,65 @@
+Efetividade do Orçamento em Resultados Acadêmicos por
+Campus e Programa
+Resumo Executivo
+Este relatório analisa o desempenho de 660 alunos distribuídos em três campi, com taxa média de conclusão de
+80,2%, colocação de 72,7% e satisfação de 8,27 em 10. O orçamento total de instrução é de R$ 1.910.000,00,
+resultando em um custo por aluno de R$ 3.628,79. A questão central é avaliar a efetividade desse investimento por
+campus e programa, identificando onde os recursos geram melhores resultados acadêmicos e profissionais.
+
+Síntese Executiva
+Os dados indicam variações significativas entre os campi. O campus West, com maior orçamento (R$ 710.000),
+apresenta taxas de conclusão e colocação acima da média em seu programa de Business (84% e 78%,
+respectivamente), além da maior satisfação (8,6). O campus East, com orçamento intermediário (R$ 620.000), mostra
+desempenho sólido em Data (82% conclusão, 74% colocação), mas resultados inferiores em Design. Já o campus
+Central, com menor orçamento (R$ 580.000), registra as menores taxas (72% conclusão, 63% colocação, satisfação
+7,7).
+
+Análise Detalhada
+A análise aprofundada revela que o desempenho não
+depende apenas do orçamento total, mas de sua
+distribuição e dos contextos de cada programa. O
+programa Business, ofertado apenas no West,
+destaca-se
+com
+os
+melhores
+indicadores,
+possivelmente devido a maiores investimentos em
+serviços de carreira (R$ 175.000 no West, contra R$
+160.000 no East e R$ 150.000 no Central). No entanto,
+o programa Data do East (82% conclusão, 74%
+colocação) supera o mesmo programa no West (79%
+conclusão, 71% colocação), mesmo com orçamento
+total menor. Isso sugere que a eficiência na gestão dos
+recursos é tão relevante quanto o montante investido. O
+programa Design, presente no East e Central,
+apresenta resultados inferiores (76% e 72% conclusão,
+respectivamente), indicando necessidade de revisão
+pedagógica ou de alocação. Uma ressalva importante:
+a satisfação é medida em escala de 1 a 10, enquanto
+as taxas são percentuais - isso não invalida as
+comparações, mas deve ser considerado na
+interpretação. A relação entre orçamento e resultados
+não é direta: o campus Central, com menor orçamento
+por aluno (R$ 3.650), tem desempenho abaixo da
+média, enquanto o East, com maior orçamento por
+aluno (R$ 3.714), não é o melhor em todos os
+programas. Assim, recomenda-se uma análise granular
+por programa para identificar melhores práticas e
+realocar recursos com base em evidências.
+
+Conclusão e Recomendação
+A análise dos dados demonstra que o orçamento é mais efetivo quando alinhado às necessidades específicas de cada
+programa. O campus West obtém o melhor retorno sobre investimento no programa Business, com altas taxas de
+conclusão e colocação, além da maior satisfação. Isso sugere que a combinação de orçamento de instrução robusto
+(R$ 710.000) e investimento em serviços de carreira (R$ 175.000) potencializa os resultados. No entanto, o mesmo
+campus não repete o desempenho no programa Data, onde o East, com menos recursos, alcança índices superiores. O
+campus Central, com menor orçamento, precisa de atenção especial, pois seus resultados são os mais baixos.
+Recomenda-se: (1) investigar as práticas do programa Business no West para replicá-las em outros programas; (2)
+revisar a alocação de recursos no programa Design, que apresenta desempenho abaixo da média em ambos os campi;
+(3) considerar um aumento direcionado de orçamento para o Central, especialmente em serviços de carreira, para
+elevar a colocação profissional; e (4) adotar uma gestão orçamentária baseada em desempenho, vinculando recursos a
+metas de conclusão, colocação e satisfação. Essas medidas devem maximizar o retorno do investimento educacional e
+garantir equidade entre os campi.
+
+

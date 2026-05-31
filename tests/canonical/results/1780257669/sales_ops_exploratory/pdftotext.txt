@@ -1,0 +1,16 @@
+Relatório Exploratório de Vendas: Tendências, Metas e
+Descontos
+Resumo Executivo
+A receita total no primeiro trimestre foi de R$ 870.500, representando uma queda de 9,3% em relação ao período
+anterior. A região Norte liderou em receita absoluta, enquanto o produto Alpha se destacou como o mais vendido. Os
+descontos médios de 9,5% sugerem uma possível correlação com a retração observada, indicando a necessidade de
+uma análise mais aprofundada sobre a estratégia comercial.
+
+Conclusão e Recomendações
+Apesar do declínio geral, as regiões Norte e Sul superaram suas metas trimestrais, com destaque para o Sul que
+atingiu 113,1% do target. Já a região Oeste ficou abaixo do esperado, alcançando apenas 83,3% da meta. A relação
+entre descontos elevados (especialmente no Oeste, com 13%) e menor receita sugere que a política de descontos
+precisa ser revisada. Recomenda-se concentrar esforços em canais diretos, que apresentaram descontos mais baixos
+e melhor desempenho, e reavaliar a abordagem para a região Oeste.
+
+

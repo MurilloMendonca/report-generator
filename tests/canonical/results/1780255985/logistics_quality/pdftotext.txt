@@ -1,0 +1,14 @@
+Relatório: Custo, Atraso, Danos e Incidentes por Armazém e
+Transportadora
+Resumo de Performance Logística
+No período analisado, foram processadas 2.605 remessas, com uma taxa média de atraso de 4,8% e de avaria de
+0,95%. O custo total registrado foi de R$179.300, e o total de incidentes chegou a 65 ocorrências. Os gráficos a seguir
+detalham a evolução desses indicadores por transportadora, armazém e semana.
+
+Síntese dos Quatro Quadrantes
+A transportadora AirSwift apresentou o maior custo total, enquanto o armazém B destacou-se pelos maiores índices de
+atraso (até 8,4%). O tipo de incidente predominante foi 'Late pickup', com 31 ocorrências, concentrado no armazém B.
+Observa-se uma relação inversa entre custo e dano: transportadoras mais caras, como a AirSwift, tenderam a registrar
+menores percentuais de avaria, sugerindo que investimentos logísticos podem reduzir perdas.
+
+

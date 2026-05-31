@@ -1,0 +1,220 @@
+{
+  "case_id": "sales_ops",
+  "job_id": "canonical-sales_ops-48e2b525",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops-48e2b525.pdf",
+  "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780258795/sales_ops",
+  "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/sales_ops__canonical-sales_ops-48e2b525.pdf",
+  "passed": true,
+  "checks": [
+    {
+      "name": "pdf_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops-48e2b525.pdf"
+    },
+    {
+      "name": "pdf_size_gt_20kb",
+      "passed": true,
+      "detail": 159196
+    },
+    {
+      "name": "pdf_pages_match_template",
+      "passed": true,
+      "detail": 2
+    },
+    {
+      "name": "status_completed",
+      "passed": true,
+      "detail": "Relatório concluído em 2.0s"
+    },
+    {
+      "name": "has_title",
+      "passed": true,
+      "detail": "Desempenho de Vendas do Q1 2026: Receita, Metas e Disciplina de Descontos"
+    },
+    {
+      "name": "has_artifacts",
+      "passed": true,
+      "detail": 10
+    },
+    {
+      "name": "has_template",
+      "passed": true,
+      "detail": 5
+    },
+    {
+      "name": "template_in_bounds",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_intro",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_revenue_trend",
+          "page": 1,
+          "x": 10,
+          "y": 70,
+          "w": 190,
+          "h": 105
+        },
+        {
+          "id": "g_revenue_by_region",
+          "page": 1,
+          "x": 10,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "g_discount_by_product",
+          "page": 1,
+          "x": 110,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "t_conclusion",
+          "page": 1,
+          "x": 10,
+          "y": 250,
+          "w": 190,
+          "h": 35
+        }
+      ]
+    },
+    {
+      "name": "template_no_overlap",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_intro",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_revenue_trend",
+          "page": 1,
+          "x": 10,
+          "y": 70,
+          "w": 190,
+          "h": 105
+        },
+        {
+          "id": "g_revenue_by_region",
+          "page": 1,
+          "x": 10,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "g_discount_by_product",
+          "page": 1,
+          "x": 110,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "t_conclusion",
+          "page": 1,
+          "x": 10,
+          "y": 250,
+          "w": 190,
+          "h": 35
+        }
+      ]
+    },
+    {
+      "name": "has_non_na_metrics",
+      "passed": true,
+      "detail": {
+        "m_total_revenue": 870500,
+        "m_revenue_by_region": {
+          "North": 345000.0,
+          "South": 350500.0,
+          "West": 175000.0
+        },
+        "m_target_attainment": {
+          "North": 1.0454545454545454,
+          "South": 1.1306451612903226,
+          "West": 0.8333333333333334
+        },
+        "m_avg_discount": 9.5,
+        "m_revenue_by_product": {
+          "Alpha": 409500.0,
+          "Beta": 302000.0,
+          "Gamma": 159000.0
+        }
+      }
+    },
+    {
+      "name": "chart_annotations_do_not_overlap_legends",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "metadata_column_revenue",
+      "passed": true,
+      "detail": "revenue"
+    },
+    {
+      "name": "metadata_column_region",
+      "passed": true,
+      "detail": "region"
+    },
+    {
+      "name": "metadata_column_product",
+      "passed": true,
+      "detail": "product"
+    },
+    {
+      "name": "pdf_text_min_chars",
+      "passed": true,
+      "detail": 810
+    },
+    {
+      "name": "pdf_text_no_cut_ellipsis",
+      "passed": true,
+      "detail": "ok"
+    },
+    {
+      "name": "pdf_text_title_present",
+      "passed": true,
+      "detail": "Desempenho de Vendas do Q1 2026: Receita, Metas e Disciplina de Descontos"
+    },
+    {
+      "name": "page_1_png_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780258795/sales_ops/page-1.png"
+    },
+    {
+      "name": "page_1_png_size_gt_10kb",
+      "passed": true,
+      "detail": 209214
+    },
+    {
+      "name": "report_keyword_revenue",
+      "passed": true,
+      "detail": "revenue"
+    },
+    {
+      "name": "report_keyword_region",
+      "passed": true,
+      "detail": "region"
+    },
+    {
+      "name": "report_keyword_target",
+      "passed": true,
+      "detail": "target"
+    }
+  ]
+}

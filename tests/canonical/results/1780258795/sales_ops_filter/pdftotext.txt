@@ -1,0 +1,14 @@
+Desempenho de Vendas por Região: Receita, Mix de Produtos
+e Metas
+Resumo Executivo
+Este relatório analisa o desempenho de vendas do primeiro trimestre de 2026, considerando os dados dos canais
+Direto e Online, com a exclusão do canal Parceiro. A receita total atingiu R$ 520.000,00. A região Norte destacou-se ao
+superar a meta trimestral em 104,55%, enquanto a região Oeste atingiu 83,33% do objetivo. O desconto médio aplicado
+foi de 9,6%.
+
+Conclusão e Recomendações
+O desempenho geral foi positivo, impulsionado pelo Norte que superou a meta, enquanto o Oeste ficou abaixo com
+83,33% de atingimento. Com desconto médio de 9,6%, recomenda-se revisar estratégia comercial no Oeste, ajustando
+descontos ou intensificando suporte para elevar a taxa no próximo trimestre.
+
+

@@ -1,0 +1,42 @@
+Desempenho Acadêmico e Eficácia do Orçamento por Campus e
+Programa
+Introdução - Enquadramento e Pergunta-Chave
+Este relatório analisa o desempenho de 660 alunos em três campi e três programas, com foco em conclusão 80,2%,
+colocação 72,7%, satisfação 8,27 e investimentos. A pergunta central: em qual campus e programa o orçamento se
+traduz em melhores resultados? Comparamos indicadores para identificar onde o investimento é mais eficaz e orientar
+futuras alocações.
+
+Síntese Executiva - Principais Insights do Gráfico Principal
+O gráfico principal revela que o campus West se destaca com a maior taxa média de conclusão (81,5%), superando os
+demais campi. Entre os programas, o de Business no campus West apresenta os melhores resultados combinados de
+conclusão (84%), colocação (78%) e satisfação (8,6). Essa combinação sugere que o campus West, apesar de ter o
+maior número de alunos (250), consegue manter um desempenho superior, especialmente no programa de Business.
+
+Análise Detalhada - Drivers, Riscos e Interpretação
+A relação entre orçamento e desempenho mostra que o
+campus West, com o maior orçamento de instrução
+(US$ 710 mil) e de serviços de carreira (US$ 175 mil),
+obtém as maiores taxas de conclusão e satisfação
+entre os programas. O campus East, com orçamento
+intermediário (US$ 620 mil em instrução), apresenta
+bons resultados no programa de Data (conclusão de
+82%, colocação de 74%), mas o programa de Design
+fica abaixo da média geral. Já o campus Central, com
+orçamento menor (US$ 580 mil), apresenta os piores
+indicadores, com destaque para o programa de Design
+(conclusão de 72%, colocação de 63%).
+Essas diferenças podem estar relacionadas ao
+tamanho do campus e ao foco do programa: campi
+maiores como West podem se beneficiar de economias
+de escala e maior especialização, enquanto programas
+como Data e Business tendem a ter maior correlação
+com o mercado de trabalho, elevando as taxas de
+colocação. O investimento em serviços de carreira
+também parece mais eficaz quando integrado a
+programas com alta demanda, como observado no
+West.
+
+Conclusão - Síntese Final e Recomendação
+Conteúdo não disponível.
+
+

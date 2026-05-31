@@ -1,0 +1,571 @@
+{
+  "schema_version": 1,
+  "job_id": "canonical-sales_ops_filter-02abbc6b",
+  "created_at": "2026-05-31T20:21:23.463632+00:00",
+  "updated_at": "2026-05-31T20:23:55.837673+00:00",
+  "status": "Relatório concluído em 2.1s",
+  "logs": [
+    "Canonical test: Sales operations with data filter",
+    "[17:21:23] Avaliando filtro de dados solicitado...",
+    "[17:21:28] Aplicando filtro de dados: Excluir linhas do canal Partner no arquivo sales_pipeline.csv.",
+    "[17:21:28] Planejando indicadores (Metric, Graphic, Text) - T1...",
+    "[17:21:48] Gerando título do relatório...",
+    "[17:22:09] Calculando métrica: Receita Total (excluindo canal Parceiro)...",
+    "[17:22:15] Calculando métrica: Atingimento da Meta – Região Norte...",
+    "[17:22:26] Calculando métrica: Atingimento da Meta – Região Oeste...",
+    "[17:22:32] Calculando métrica: Desconto Médio (%)...",
+    "[17:22:36] Aplicando template de layout: Executivo com gráfico central...",
+    "[17:22:36] Gerando gráfico: Receita por Mês...",
+    "[17:22:50] Gerando gráfico: Receita Total por Região...",
+    "[17:23:29] Gerando gráfico: Mix de Produtos – Distribuição da Receita...",
+    "[17:23:39] Gerando narrativas consistentes (2)...",
+    "[17:23:53] Condensando narrativas para caber nos blocos do layout...",
+    "[17:23:53] Montando script final modular...",
+    "[17:23:53] Renderizando PDF (Tentativa 1/5)...",
+    "[17:23:55] Relatório concluído em 2.1s"
+  ],
+  "files": [
+    {
+      "original_filename": "sales_pipeline.csv",
+      "path": "workspace/uploads/caa3d3ac-c49a-425d-a226-2c3d93d5c25f.csv",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "sales_pipeline.csv",
+        "shape": {
+          "rows": 5,
+          "columns": 7
+        },
+        "columns": [
+          {
+            "name": "month",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 4
+          },
+          {
+            "name": "region",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 2
+          },
+          {
+            "name": "product",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "revenue",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 5,
+            "stats": {
+              "mean": 104000.0,
+              "min": 76000.0,
+              "max": 138000.0
+            }
+          },
+          {
+            "name": "units",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 5,
+            "stats": {
+              "mean": 341.0,
+              "min": 250.0,
+              "max": 445.0
+            }
+          },
+          {
+            "name": "discount_pct",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 5,
+            "stats": {
+              "mean": 9.6,
+              "min": 6.0,
+              "max": 13.0
+            }
+          },
+          {
+            "name": "channel",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 2
+          }
+        ],
+        "sample": [
+          {
+            "month": "2026-01",
+            "region": "North",
+            "product": "Alpha",
+            "revenue": 124000,
+            "units": 410,
+            "discount_pct": 7,
+            "channel": "Direct"
+          },
+          {
+            "month": "2026-02",
+            "region": "North",
+            "product": "Alpha",
+            "revenue": 138000,
+            "units": 445,
+            "discount_pct": 6,
+            "channel": "Direct"
+          },
+          {
+            "month": "2026-02",
+            "region": "West",
+            "product": "Gamma",
+            "revenue": 76000,
+            "units": 250,
+            "discount_pct": 13,
+            "channel": "Online"
+          },
+          {
+            "month": "2026-03",
+            "region": "West",
+            "product": "Beta",
+            "revenue": 99000,
+            "units": 330,
+            "discount_pct": 10,
+            "channel": "Online"
+          },
+          {
+            "month": "2026-04",
+            "region": "North",
+            "product": "Gamma",
+            "revenue": 83000,
+            "units": 270,
+            "discount_pct": 12,
+            "channel": "Direct"
+          }
+        ]
+      },
+      "raw_artifact": {
+        "filename": "sales_pipeline.csv",
+        "shape": {
+          "rows": 8,
+          "columns": 7
+        },
+        "columns": [
+          {
+            "name": "month",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 4
+          },
+          {
+            "name": "region",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "product",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "revenue",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 8,
+            "stats": {
+              "mean": 108812.5,
+              "min": 76000.0,
+              "max": 147500.0
+            }
+          },
+          {
+            "name": "units",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 8,
+            "stats": {
+              "mean": 365.625,
+              "min": 250.0,
+              "max": 470.0
+            }
+          },
+          {
+            "name": "discount_pct",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 8,
+            "stats": {
+              "mean": 9.5,
+              "min": 6.0,
+              "max": 13.0
+            }
+          },
+          {
+            "name": "channel",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          }
+        ],
+        "sample": [
+          {
+            "month": "2026-01",
+            "region": "North",
+            "product": "Alpha",
+            "revenue": 124000,
+            "units": 410,
+            "discount_pct": 7,
+            "channel": "Direct"
+          },
+          {
+            "month": "2026-01",
+            "region": "South",
+            "product": "Beta",
+            "revenue": 91000,
+            "units": 360,
+            "discount_pct": 11,
+            "channel": "Partner"
+          },
+          {
+            "month": "2026-02",
+            "region": "North",
+            "product": "Alpha",
+            "revenue": 138000,
+            "units": 445,
+            "discount_pct": 6,
+            "channel": "Direct"
+          },
+          {
+            "month": "2026-02",
+            "region": "West",
+            "product": "Gamma",
+            "revenue": 76000,
+            "units": 250,
+            "discount_pct": 13,
+            "channel": "Online"
+          },
+          {
+            "month": "2026-03",
+            "region": "South",
+            "product": "Alpha",
+            "revenue": 147500,
+            "units": 470,
+            "discount_pct": 8,
+            "channel": "Partner"
+          }
+        ]
+      },
+      "filtered_path": "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_filter-02abbc6b_83783ff2108046d5874a0c7e5dce0e65.csv",
+      "filter_description": "Excluir linhas do canal Partner no arquivo sales_pipeline.csv."
+    },
+    {
+      "original_filename": "regional_targets.xlsx",
+      "path": "workspace/uploads/02fbc554-ca54-47e5-a532-ebfc264e7896.xlsx",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "regional_targets.xlsx",
+        "shape": {
+          "rows": 3,
+          "columns": 3
+        },
+        "columns": [
+          {
+            "name": "region",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "quarterly_target",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 3,
+            "stats": {
+              "mean": 283333.3333333333,
+              "min": 210000.0,
+              "max": 330000.0
+            }
+          },
+          {
+            "name": "owner",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          }
+        ],
+        "sample": [
+          {
+            "region": "North",
+            "quarterly_target": 330000,
+            "owner": "Aline"
+          },
+          {
+            "region": "South",
+            "quarterly_target": 310000,
+            "owner": "Bruno"
+          },
+          {
+            "region": "West",
+            "quarterly_target": 210000,
+            "owner": "Carla"
+          }
+        ]
+      },
+      "raw_artifact": {
+        "filename": "regional_targets.xlsx",
+        "shape": {
+          "rows": 3,
+          "columns": 3
+        },
+        "columns": [
+          {
+            "name": "region",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "quarterly_target",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 3,
+            "stats": {
+              "mean": 283333.3333333333,
+              "min": 210000.0,
+              "max": 330000.0
+            }
+          },
+          {
+            "name": "owner",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          }
+        ],
+        "sample": [
+          {
+            "region": "North",
+            "quarterly_target": 330000,
+            "owner": "Aline"
+          },
+          {
+            "region": "South",
+            "quarterly_target": 310000,
+            "owner": "Bruno"
+          },
+          {
+            "region": "West",
+            "quarterly_target": 210000,
+            "owner": "Carla"
+          }
+        ]
+      },
+      "filtered_path": "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_filter-02abbc6b_2f1608efe8c6484f94de0268922f6796.csv",
+      "filter_description": "Excluir linhas do canal Partner no arquivo sales_pipeline.csv."
+    },
+    {
+      "original_filename": "sales_context.pdf",
+      "path": "workspace/uploads/6404aac1-3cb6-49dc-9b35-6693e5b55226.pdf",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "sales_context.pdf",
+        "type": "pdf",
+        "size_bytes": 1259,
+        "pages": 1,
+        "text_preview": [
+          "_õ\u0016îýûp³ßÂVÿ±íÎ4ÝÂº\u0013ã-S Ht\u0000Ágñq`\\\"OÈ\u0007\u0014>Æ,æpa\u0019ysÉaô>^× P*GV*EéYÔüù¢n:Ó6hëæÇùRb.Qã\u0007ÏSä5úeÝç~f\u0003é¬\u001bpÈ\u0005þD\"@",
+          "D:20260524202843Z"
+        ],
+        "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe."
+      },
+      "raw_artifact": {
+        "filename": "sales_context.pdf",
+        "type": "pdf",
+        "size_bytes": 1259,
+        "pages": 1,
+        "text_preview": [
+          "_õ\u0016îýûp³ßÂVÿ±íÎ4ÝÂº\u0013ã-S Ht\u0000Ágñq`\\\"OÈ\u0007\u0014>Æ,æpa\u0019ysÉaô>^× P*GV*EéYÔüù¢n:Ó6hëæÇùRb.Qã\u0007ÏSä5úeÝç~f\u0003é¬\u001bpÈ\u0005þD\"@",
+          "D:20260524202843Z"
+        ],
+        "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe."
+      },
+      "filtered_path": null,
+      "filter_description": null
+    }
+  ],
+  "initial_prompt": "Create an executive sales performance report, but do not include Partner channel rows in the analysis. Focus on revenue by region, product mix, and target attainment.",
+  "current_goal": "Create an executive sales performance report, but do not include Partner channel rows in the analysis. Focus on revenue by region, product mix, and target attainment.",
+  "is_exploratory": false,
+  "refinement_history": [],
+  "artifacts": [
+    {
+      "id": "m_total_revenue",
+      "indicator": "Receita Total (excluindo canal Parceiro)",
+      "type": "metric",
+      "reason": "Calcular a receita total após filtrar registros do canal 'Parceiro' (se houver) para usar no texto de abertura.",
+      "columns": [
+        "sales_pipeline.csv:revenue"
+      ]
+    },
+    {
+      "id": "m_north_attainment",
+      "indicator": "Atingimento da Meta – Região Norte",
+      "type": "metric",
+      "reason": "Percentual da meta trimestral alcançada pela região Norte, com base na receita agregada do sales_pipeline e na meta de 330.000 do regional_targets.",
+      "columns": [
+        "sales_pipeline.csv:revenue",
+        "sales_pipeline.csv:region",
+        "regional_targets.xlsx:quarterly_target"
+      ]
+    },
+    {
+      "id": "m_west_attainment",
+      "indicator": "Atingimento da Meta – Região Oeste",
+      "type": "metric",
+      "reason": "Percentual da meta trimestral alcançada pela região Oeste (receita total / meta de 210.000).",
+      "columns": [
+        "sales_pipeline.csv:revenue",
+        "sales_pipeline.csv:region",
+        "regional_targets.xlsx:quarterly_target"
+      ]
+    },
+    {
+      "id": "m_avg_discount",
+      "indicator": "Desconto Médio (%)",
+      "type": "metric",
+      "reason": "Média do percentual de desconto aplicado nas vendas, útil para contextualizar a rentabilidade no texto de conclusão.",
+      "columns": [
+        "sales_pipeline.csv:discount_pct"
+      ]
+    },
+    {
+      "id": "t_intro",
+      "indicator": "Resumo Executivo",
+      "type": "text",
+      "sub_type": "kpi_resumo",
+      "reason": "Abertura do relatório com objetivo, filtro aplicado (exclusão do canal Parceiro) e descoberta principal (ex: receita total e destaque de atingimento da região Norte).",
+      "columns": []
+    },
+    {
+      "id": "t_conclusion",
+      "indicator": "Conclusão e Recomendações",
+      "type": "text",
+      "sub_type": "kpi_conclusao",
+      "reason": "Síntese final referenciando as métricas calculadas (atingimento por região, desconto médio) e os gráficos, com recomendações baseadas nos padrões observados.",
+      "columns": []
+    },
+    {
+      "id": "g_revenue_month",
+      "indicator": "Receita por Mês",
+      "type": "graphic",
+      "sub_type": "line",
+      "reason": "Gráfico principal para mostrar a evolução mensal da receita total, destacando tendências de alta ou queda.",
+      "columns": [
+        "sales_pipeline.csv:month",
+        "sales_pipeline.csv:revenue"
+      ]
+    },
+    {
+      "id": "g_revenue_region",
+      "indicator": "Receita Total por Região",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Gráfico de suporte para comparar o desempenho das regiões Norte e Oeste (únicas com dados no período).",
+      "columns": [
+        "sales_pipeline.csv:region",
+        "sales_pipeline.csv:revenue"
+      ]
+    },
+    {
+      "id": "g_revenue_product",
+      "indicator": "Mix de Produtos – Distribuição da Receita",
+      "type": "graphic",
+      "sub_type": "pie",
+      "reason": "Gráfico de suporte que mostra a participação de cada produto (Alpha, Beta, Gamma) na receita total, relevante para análise do portfólio.",
+      "columns": [
+        "sales_pipeline.csv:product",
+        "sales_pipeline.csv:revenue"
+      ]
+    }
+  ],
+  "template": [
+    {
+      "id": "t_intro",
+      "page": 1,
+      "x": 10,
+      "y": 30,
+      "w": 190,
+      "h": 35
+    },
+    {
+      "id": "g_revenue_month",
+      "page": 1,
+      "x": 10,
+      "y": 70,
+      "w": 190,
+      "h": 105
+    },
+    {
+      "id": "g_revenue_region",
+      "page": 1,
+      "x": 10,
+      "y": 185,
+      "w": 90,
+      "h": 55
+    },
+    {
+      "id": "g_revenue_product",
+      "page": 1,
+      "x": 110,
+      "y": 185,
+      "w": 90,
+      "h": 55
+    },
+    {
+      "id": "t_conclusion",
+      "page": 1,
+      "x": 10,
+      "y": 250,
+      "w": 190,
+      "h": 35
+    }
+  ],
+  "components": {
+    "g_revenue_month": "def render_g_revenue_month(pdf, dataframes, x, y, w, h):\n    # Get primary dataframe by explicit filename or fallback to first\n    df = dataframes.get('sales_pipeline.csv')\n    if df is None:\n        df = list(dataframes.values())[0] if dataframes else None\n\n    # Handle missing or empty data\n    if df is None or df.empty:\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"B\", 10)\n        pdf.cell(w, h, \"Dados indisponíveis para receita mensal\", border=0, align='C')\n        return\n\n    # Ensure required columns exist\n    if 'month' not in df.columns or 'revenue' not in df.columns:\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"B\", 10)\n        pdf.cell(w, h, \"Colunas necessárias ausentes\", border=0, align='C')\n        return\n\n    # Aggregate revenue by month (sum)\n    monthly = df.groupby('month', as_index=False)['revenue'].sum()\n    monthly['month_dt'] = pd.to_datetime(monthly['month'])\n    monthly.sort_values('month_dt', inplace=True)\n\n    # Prepare figure with correct physical dimensions (mm -> inches)\n    import matplotlib.pyplot as plt\n    import matplotlib.ticker as mticker\n    import tempfile, os\n\n    fig_width = w / 25.4\n    fig_height = h / 25.4\n    fig, ax = plt.subplots(figsize=(fig_width, fig_height), constrained_layout=True)\n\n    # Plot line with markers\n    ax.plot(monthly['month_dt'], monthly['revenue'],\n            marker='o', linestyle='-', linewidth=2, color='#2E86AB',\n            markerfacecolor='#A23B72', markersize=6)\n\n    # Title in Portuguese\n    ax.set_title('Evolução da Receita Mensal', fontsize=10, fontweight='bold', pad=8)\n\n    # Format y-axis as thousands (K)\n    def currency_fmt(x, pos):\n        return f'R$ {x/1000:.0f}K'\n    ax.yaxis.set_major_formatter(mticker.FuncFormatter(currency_fmt))\n\n    # Format x-axis dates (show month names)\n    ax.xaxis.set_major_formatter(mticker.DateFormatter('%b/%y'))\n    fig.autofmt_xdate(rotation=25, ha='right')\n\n    # Grid and labels\n    ax.grid(axis='y', linestyle='--', alpha=0.7)\n    ax.set_ylabel('Receita Total (R$)', fontsize=8)\n    ax.set_xlabel('Mês', fontsize=8)\n\n    # Annotate trend direction if enough data points\n    if len(monthly) >= 2:\n        first = monthly['revenue'].iloc[0]\n        last = monthly['revenue'].iloc[-1]\n        if last > first:\n            trend = \"tendência de alta\"\n        elif last < first:\n            trend = \"tendência de queda\"\n        else:\n            trend = \"estável\"\n        # Add annotation inside the plot area, bottom right corner\n        ax.text(0.95, 0.05, trend, transform=ax.transAxes,\n                fontsize=7, color='#555555', ha='right', va='bottom',\n                style='italic')\n\n    # Save to temporary file and insert into PDF\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_revenue_region": "def render_g_revenue_region(pdf, dataframes, x, y, w, h):\n    # Get the primary dataset\n    df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        return\n\n    # Required columns\n    if 'region' not in df.columns or 'revenue' not in df.columns:\n        return\n\n    # Aggregate revenue by region\n    region_rev = df.groupby('region', as_index=False)['revenue'].sum()\n\n    # Map region names to Portuguese if needed (they are already in English)\n    # Use the original region names as is\n\n    # Set up figure size in inches\n    fig_width = w / 25.4\n    fig_height = h / 25.4\n\n    fig, ax = plt.subplots(figsize=(fig_width, fig_height), constrained_layout=True)\n\n    # Colors\n    colors = ['#4C72B0', '#DD8452']\n\n    # Bar plot\n    bars = ax.bar(region_rev['region'], region_rev['revenue'], color=colors, edgecolor='white', linewidth=0.5)\n\n    # Title in Portuguese\n    ax.set_title('Receita Total por Região', fontsize=10, pad=8, fontweight='bold')\n\n    # Axis labels\n    ax.set_xlabel('Região', fontsize=8)\n    ax.set_ylabel('Receita (R$)', fontsize=8)\n\n    # Format y-axis with thousands separator\n    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))\n\n    # Remove top and right spines\n    ax.spines['top'].set_visible(False)\n    ax.spines['right'].set_visible(False)\n\n    # Set y-axis to start at zero\n    ax.set_ylim(0, region_rev['revenue'].max() * 1.25)  # 25% headroom\n\n    # No legend (only two categories, bars are self-explanatory)\n    # No data labels to avoid collision\n\n    # Save and insert\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_revenue_product": "def render_g_revenue_product(pdf, dataframes, x, y, w, h):\n    # Use the first (and only) dataframe from the provided files\n    df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        return\n\n    # Required columns: product and revenue\n    if 'product' not in df.columns or 'revenue' not in df.columns:\n        return\n\n    # Aggregate revenue by product\n    revenue_by_product = df.groupby('product', as_index=False)['revenue'].sum()\n\n    # Prepare data for pie chart\n    products = revenue_by_product['product'].tolist()\n    revenues = revenue_by_product['revenue'].values\n    total = revenues.sum()\n\n    # Color palette (distinct, professional)\n    colors = sns.color_palette(\"Set2\", n_colors=len(products))\n\n    # --- Matplotlib Figure ---\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4), constrained_layout=True)\n\n    # Create pie chart with percentages, show product names in legend\n    wedges, texts, autotexts = ax.pie(\n        revenues,\n        labels=None,                # no labels on slices – use legend\n        autopct='%1.1f%%',\n        startangle=90,\n        colors=colors,\n        pctdistance=0.75,\n        textprops={'fontsize': 8},\n        wedgeprops={'linewidth': 1, 'edgecolor': 'white'},\n        explode=[0.02] * len(products)  # slight spacing\n    )\n\n    # Add a legend with product names and absolute values\n    legend_labels = [f\"{p}: R$ {v:,.0f}\" for p, v in zip(products, revenues)]\n    ax.legend(\n        wedges,\n        legend_labels,\n        title=\"Produto\",\n        loc='center left',\n        bbox_to_anchor=(1, 0.5),\n        frameon=False,\n        fontsize=8,\n        title_fontsize=9\n    )\n\n    # Title\n    ax.set_title(\"Distribuição da Receita por Produto\", fontsize=11, pad=10, weight='bold')\n\n    # Remove any extra white space (tight layout already applied)\n    # Save to temporary file and insert into PDF\n    import tempfile\n    import os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        fig.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "t_intro": "def render_t_intro(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Este relat\\u00f3rio analisa o desempenho de vendas do primeiro trimestre de 2026, considerando os dados dos canais Direto e Online, com a exclus\\u00e3o do canal Parceiro. A receita total atingiu R$ 520.000,00. A regi\\u00e3o Norte destacou-se ao superar a meta trimestral em 104,55%, enquanto a regi\\u00e3o Oeste atingiu 83,33% do objetivo. O desconto m\\u00e9dio aplicado foi de 9,6%.\", x, y, w, h, title=\"Resumo Executivo\")",
+    "t_conclusion": "def render_t_conclusion(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"O desempenho geral foi positivo, impulsionado pelo Norte que superou a meta, enquanto o Oeste ficou abaixo com 83,33% de atingimento. Com desconto m\\u00e9dio de 9,6%, recomenda-se revisar estrat\\u00e9gia comercial no Oeste, ajustando descontos ou intensificando suporte para elevar a taxa no pr\\u00f3ximo trimestre.\", x, y, w, h, title=\"Conclus\\u00e3o e Recomenda\\u00e7\\u00f5es\")"
+  },
+  "calculated_metrics": {
+    "m_total_revenue": 520000.0,
+    "m_north_attainment": 104.55,
+    "m_west_attainment": 83.33,
+    "m_avg_discount": 9.6
+  },
+  "settings": {
+    "title": "Desempenho de Vendas por Região: Receita, Mix de Produtos e Metas",
+    "font": "Arial",
+    "font_size": 10,
+    "alignment": "J",
+    "line_height": 5,
+    "language": "Portuguese",
+    "selected_template_id": "executive_hero_chart"
+  },
+  "script": "import os\nos.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')\nimport pandas as pd\nimport numpy as np\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nfrom fpdf import FPDF, XPos, YPos\nimport tempfile\nimport textwrap\n\nsns.set_theme(style='whitegrid')\n\ndef _safe_pdf_text(value):\n    replacements = {\n        '\\u2013': '-', '\\u2014': '-', '\\u2015': '-',\n        '\\u2018': \"'\", '\\u2019': \"'\", '\\u201c': '\"', '\\u201d': '\"',\n        '\\u2022': '-', '\\u00a0': ' ', '\\u2026': '...'\n    }\n    text = str(value or '')\n    for source, target in replacements.items():\n        text = text.replace(source, target)\n    return text.encode('latin-1', 'replace').decode('latin-1')\n\ndef _wrap_lines(text, max_chars):\n    lines = []\n    for paragraph in str(text).splitlines() or ['']:\n        wrapped = textwrap.wrap(paragraph.strip(), width=max_chars) or ['']\n        lines.extend(wrapped)\n    return lines\n\ndef _sentence_chunks(text):\n    normalized = ' '.join(str(text).split())\n    chunks, current = [], []\n    for token in normalized.split(' '):\n        current.append(token)\n        if token.rstrip().endswith(('.', '!', '?', ';')):\n            chunks.append(' '.join(current))\n            current = []\n    if current:\n        chunks.append(' '.join(current))\n    return chunks or [normalized]\n\ndef _fit_text_to_box(text, w, h, font_size, line_height):\n    max_chars = max(14, int(w * 0.55 * (10 / max(font_size, 1))))\n    max_lines = max(1, int(h / max(line_height, 1)))\n    if len(_wrap_lines(text, max_chars)) <= max_lines:\n        return text\n    selected = []\n    for sentence in _sentence_chunks(text):\n        candidate = ' '.join(selected + [sentence]).strip()\n        if not candidate:\n            continue\n        if len(_wrap_lines(candidate, max_chars)) <= max_lines:\n            selected.append(sentence)\n        elif selected:\n            break\n        else:\n            words = sentence.split()\n            compact = []\n            for word in words:\n                candidate = ' '.join(compact + [word])\n                if len(_wrap_lines(candidate, max_chars)) > max_lines:\n                    break\n                compact.append(word)\n            selected.append(' '.join(compact))\n            break\n    fitted = ' '.join(selected).strip()\n    return fitted\n\ndef _write_report_title(pdf, title, font_family):\n    clean_title = ' '.join(_safe_pdf_text(title or 'Relatório Analítico').split())\n    for size in range(16, 10, -1):\n        max_chars = max(28, int(58 * (16 / size)))\n        lines = textwrap.wrap(clean_title, width=max_chars) or [clean_title]\n        if len(lines) <= 2:\n            pdf.set_font(font_family, 'B', size)\n            pdf.multi_cell(0, 8, '\\n'.join(lines), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')\n            return\n    pdf.set_font(font_family, 'B', 11)\n    pdf.multi_cell(0, 7, '\\n'.join(textwrap.wrap(clean_title, width=84)), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')\n\ndef render_text_block(pdf, text, x, y, w, h, title=None):\n    font_size = 10\n    line_height = 5\n    text = _safe_pdf_text(text)\n    title = _safe_pdf_text(title) if title else None\n    body_height = h\n    pdf.set_xy(x, y)\n    if title:\n        pdf.set_font('helvetica', 'B', font_size)\n        pdf.cell(w, 7, title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)\n        body_height = max(1, h - 8)\n        pdf.set_xy(x, pdf.get_y())\n    \n    fitted_text = _fit_text_to_box(text, w, body_height, font_size, line_height)\n    pdf.set_font('helvetica', '', font_size)\n    pdf.multi_cell(w, line_height, fitted_text, align='J')\n\ndef render_g_revenue_month(pdf, dataframes, x, y, w, h):\n    # Get primary dataframe by explicit filename or fallback to first\n    df = dataframes.get('sales_pipeline.csv')\n    if df is None:\n        df = list(dataframes.values())[0] if dataframes else None\n\n    # Handle missing or empty data\n    if df is None or df.empty:\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"B\", 10)\n        pdf.cell(w, h, \"Dados indisponíveis para receita mensal\", border=0, align='C')\n        return\n\n    # Ensure required columns exist\n    if 'month' not in df.columns or 'revenue' not in df.columns:\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"B\", 10)\n        pdf.cell(w, h, \"Colunas necessárias ausentes\", border=0, align='C')\n        return\n\n    # Aggregate revenue by month (sum)\n    monthly = df.groupby('month', as_index=False)['revenue'].sum()\n    monthly['month_dt'] = pd.to_datetime(monthly['month'])\n    monthly.sort_values('month_dt', inplace=True)\n\n    # Prepare figure with correct physical dimensions (mm -> inches)\n    import matplotlib.pyplot as plt\n    import matplotlib.ticker as mticker\n    import tempfile, os\n\n    fig_width = w / 25.4\n    fig_height = h / 25.4\n    fig, ax = plt.subplots(figsize=(fig_width, fig_height), constrained_layout=True)\n\n    # Plot line with markers\n    ax.plot(monthly['month_dt'], monthly['revenue'],\n            marker='o', linestyle='-', linewidth=2, color='#2E86AB',\n            markerfacecolor='#A23B72', markersize=6)\n\n    # Title in Portuguese\n    ax.set_title('Evolução da Receita Mensal', fontsize=10, fontweight='bold', pad=8)\n\n    # Format y-axis as thousands (K)\n    def currency_fmt(x, pos):\n        return f'R$ {x/1000:.0f}K'\n    ax.yaxis.set_major_formatter(mticker.FuncFormatter(currency_fmt))\n\n    # Format x-axis dates (show month names)\n    ax.xaxis.set_major_formatter(mticker.DateFormatter('%b/%y'))\n    fig.autofmt_xdate(rotation=25, ha='right')\n\n    # Grid and labels\n    ax.grid(axis='y', linestyle='--', alpha=0.7)\n    ax.set_ylabel('Receita Total (R$)', fontsize=8)\n    ax.set_xlabel('Mês', fontsize=8)\n\n    # Annotate trend direction if enough data points\n    if len(monthly) >= 2:\n        first = monthly['revenue'].iloc[0]\n        last = monthly['revenue'].iloc[-1]\n        if last > first:\n            trend = \"tendência de alta\"\n        elif last < first:\n            trend = \"tendência de queda\"\n        else:\n            trend = \"estável\"\n        # Add annotation inside the plot area, bottom right corner\n        ax.text(0.95, 0.05, trend, transform=ax.transAxes,\n                fontsize=7, color='#555555', ha='right', va='bottom',\n                style='italic')\n\n    # Save to temporary file and insert into PDF\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_revenue_region(pdf, dataframes, x, y, w, h):\n    # Get the primary dataset\n    df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        return\n\n    # Required columns\n    if 'region' not in df.columns or 'revenue' not in df.columns:\n        return\n\n    # Aggregate revenue by region\n    region_rev = df.groupby('region', as_index=False)['revenue'].sum()\n\n    # Map region names to Portuguese if needed (they are already in English)\n    # Use the original region names as is\n\n    # Set up figure size in inches\n    fig_width = w / 25.4\n    fig_height = h / 25.4\n\n    fig, ax = plt.subplots(figsize=(fig_width, fig_height), constrained_layout=True)\n\n    # Colors\n    colors = ['#4C72B0', '#DD8452']\n\n    # Bar plot\n    bars = ax.bar(region_rev['region'], region_rev['revenue'], color=colors, edgecolor='white', linewidth=0.5)\n\n    # Title in Portuguese\n    ax.set_title('Receita Total por Região', fontsize=10, pad=8, fontweight='bold')\n\n    # Axis labels\n    ax.set_xlabel('Região', fontsize=8)\n    ax.set_ylabel('Receita (R$)', fontsize=8)\n\n    # Format y-axis with thousands separator\n    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:,.0f}'))\n\n    # Remove top and right spines\n    ax.spines['top'].set_visible(False)\n    ax.spines['right'].set_visible(False)\n\n    # Set y-axis to start at zero\n    ax.set_ylim(0, region_rev['revenue'].max() * 1.25)  # 25% headroom\n\n    # No legend (only two categories, bars are self-explanatory)\n    # No data labels to avoid collision\n\n    # Save and insert\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_revenue_product(pdf, dataframes, x, y, w, h):\n    # Use the first (and only) dataframe from the provided files\n    df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        return\n\n    # Required columns: product and revenue\n    if 'product' not in df.columns or 'revenue' not in df.columns:\n        return\n\n    # Aggregate revenue by product\n    revenue_by_product = df.groupby('product', as_index=False)['revenue'].sum()\n\n    # Prepare data for pie chart\n    products = revenue_by_product['product'].tolist()\n    revenues = revenue_by_product['revenue'].values\n    total = revenues.sum()\n\n    # Color palette (distinct, professional)\n    colors = sns.color_palette(\"Set2\", n_colors=len(products))\n\n    # --- Matplotlib Figure ---\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4), constrained_layout=True)\n\n    # Create pie chart with percentages, show product names in legend\n    wedges, texts, autotexts = ax.pie(\n        revenues,\n        labels=None,                # no labels on slices – use legend\n        autopct='%1.1f%%',\n        startangle=90,\n        colors=colors,\n        pctdistance=0.75,\n        textprops={'fontsize': 8},\n        wedgeprops={'linewidth': 1, 'edgecolor': 'white'},\n        explode=[0.02] * len(products)  # slight spacing\n    )\n\n    # Add a legend with product names and absolute values\n    legend_labels = [f\"{p}: R$ {v:,.0f}\" for p, v in zip(products, revenues)]\n    ax.legend(\n        wedges,\n        legend_labels,\n        title=\"Produto\",\n        loc='center left',\n        bbox_to_anchor=(1, 0.5),\n        frameon=False,\n        fontsize=8,\n        title_fontsize=9\n    )\n\n    # Title\n    ax.set_title(\"Distribuição da Receita por Produto\", fontsize=11, pad=10, weight='bold')\n\n    # Remove any extra white space (tight layout already applied)\n    # Save to temporary file and insert into PDF\n    import tempfile\n    import os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        fig.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_t_intro(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Este relat\\u00f3rio analisa o desempenho de vendas do primeiro trimestre de 2026, considerando os dados dos canais Direto e Online, com a exclus\\u00e3o do canal Parceiro. A receita total atingiu R$ 520.000,00. A regi\\u00e3o Norte destacou-se ao superar a meta trimestral em 104,55%, enquanto a regi\\u00e3o Oeste atingiu 83,33% do objetivo. O desconto m\\u00e9dio aplicado foi de 9,6%.\", x, y, w, h, title=\"Resumo Executivo\")\n\ndef render_t_conclusion(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"O desempenho geral foi positivo, impulsionado pelo Norte que superou a meta, enquanto o Oeste ficou abaixo com 83,33% de atingimento. Com desconto m\\u00e9dio de 9,6%, recomenda-se revisar estrat\\u00e9gia comercial no Oeste, ajustando descontos ou intensificando suporte para elevar a taxa no pr\\u00f3ximo trimestre.\", x, y, w, h, title=\"Conclus\\u00e3o e Recomenda\\u00e7\\u00f5es\")\n\ndef generate_report():\n    dataframes = {}\n    dataframes[\"sales_pipeline.csv\"] = pd.read_csv(r'/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_filter-02abbc6b_83783ff2108046d5874a0c7e5dce0e65.csv')\n    dataframes[\"regional_targets.xlsx\"] = pd.read_csv(r'/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_filter-02abbc6b_2f1608efe8c6484f94de0268922f6796.csv')\n    pdf = FPDF()\n    pdf.set_auto_page_break(auto=False)\n    current_page = 0\n    def ensure_page(page):\n        nonlocal current_page\n        while current_page < page:\n            pdf.add_page()\n            current_page += 1\n            if current_page == 1:\n                _write_report_title(pdf, \"Desempenho de Vendas por Regi\\u00e3o: Receita, Mix de Produtos e Metas\", 'helvetica')\n                pdf.ln(3)\n    ensure_page(1)\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_t_intro(pdf, dataframes, 10, 30, 190, 35, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_t_intro(pdf, dataframes, 10, 30, 190, 35)\n        except Exception as e: \n            print(f'Erro no componente t_intro: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente t_intro: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_revenue_month(pdf, dataframes, 10, 70, 190, 105, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_revenue_month(pdf, dataframes, 10, 70, 190, 105)\n        except Exception as e: \n            print(f'Erro no componente g_revenue_month: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_revenue_month: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_revenue_region(pdf, dataframes, 10, 185, 90, 55, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_revenue_region(pdf, dataframes, 10, 185, 90, 55)\n        except Exception as e: \n            print(f'Erro no componente g_revenue_region: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_revenue_region: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_revenue_product(pdf, dataframes, 110, 185, 90, 55, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_revenue_product(pdf, dataframes, 110, 185, 90, 55)\n        except Exception as e: \n            print(f'Erro no componente g_revenue_product: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_revenue_product: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_t_conclusion(pdf, dataframes, 10, 250, 190, 35, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_t_conclusion(pdf, dataframes, 10, 250, 190, 35)\n        except Exception as e: \n            print(f'Erro no componente t_conclusion: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente t_conclusion: {e}')\n        import traceback; traceback.print_exc()\n    pdf.output(r'/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_filter-02abbc6b.pdf')\n\nif __name__ == '__main__':\n    generate_report()",
+  "script_path": "workspace/scripts/canonical-sales_ops_filter-02abbc6b.py",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_filter-02abbc6b.pdf",
+  "provider": "deepseek",
+  "model_name": "deepseek-v4-flash",
+  "data_filter": {
+    "needs_filter": true,
+    "description": "Excluir linhas do canal Partner no arquivo sales_pipeline.csv.",
+    "code": "def filter_dataframes(dataframes):\n    filtered = {}\n    for key, df in dataframes.items():\n        if key == \"sales_pipeline.csv\":\n            if \"channel\" in df.columns:\n                filtered[key] = df[df[\"channel\"].str.lower() != \"partner\"].copy()\n            else:\n                filtered[key] = df.copy()\n        else:\n            filtered[key] = df.copy()\n    return filtered"
+  },
+  "pdf_version": 1,
+  "retry_count": 0,
+  "explore_history": []
+}

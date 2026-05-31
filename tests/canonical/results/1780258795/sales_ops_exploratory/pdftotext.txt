@@ -1,0 +1,14 @@
+Relatório Exploratório: Tendências de Vendas, Descontos e
+Metas Regionais
+Introdução Executiva
+No primeiro trimestre de 2026, a receita totalizou R$ 870.500, com 2.925 unidades vendidas e desconto médio de
+9,5%. As regiões Norte e Sul superaram suas respectivas metas, enquanto a região Oeste ficou abaixo da meta
+estabelecida, evidenciando disparidades regionais.
+
+Conclusão e Recomendações
+A receita consolidada superou em 2,4% a soma das metas regionais. O Norte e o Sul apresentaram desempenho
+acima do previsto, com destaque para o Sul que gerou a maior receita. O Oeste, com a menor meta, não a atingiu,
+indicando desafios na execução. Recomenda-se aprofundar a análise dos canais e descontos no Oeste, bem como
+replicar as práticas bem-sucedidas das demais regiões.
+
+

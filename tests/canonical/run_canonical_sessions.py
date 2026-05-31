@@ -1,7 +1,9 @@
 import argparse
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 import time
 import uuid
@@ -12,14 +14,16 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
-from app.main import DEFAULT_SETTINGS, run_pipeline, run_script_generation
+from app.main import DEFAULT_EXPLORATORY_PROMPT, DEFAULT_SETTINGS, run_pipeline, run_script_generation
 from app.services.llm_service import refine_session_modular
+from app.services.pipeline_service import clear_data_filter_state, should_consider_data_filter
 from app.services.session_manager import add_log, create_session, get_session, update_session
 
 
 CANONICAL_DIR = Path(__file__).parent
 UPLOAD_DIR = ROOT / "workspace" / "uploads"
 RESULTS_DIR = CANONICAL_DIR / "results"
+GENERATED_PDFS_DIR = CANONICAL_DIR / "generated_pdfs"
 
 
 def load_playbook() -> list[dict]:
@@ -56,13 +60,17 @@ def create_canonical_session(case: dict) -> str:
     settings = DEFAULT_SETTINGS.copy()
     settings["selected_template_id"] = case["template_id"]
 
+    user_prompt = (case.get("initial_prompt") or "").strip()
+    effective_prompt = user_prompt or DEFAULT_EXPLORATORY_PROMPT
+
     create_session(job_id, {
         "job_id": job_id,
         "status": "Iniciando teste canônico...",
         "logs": [f"Canonical test: {case['name']}"],
         "files": files,
-        "initial_prompt": case["initial_prompt"],
-        "current_goal": case["initial_prompt"],
+        "initial_prompt": user_prompt or "Relatório exploratório dos dados",
+        "current_goal": effective_prompt,
+        "is_exploratory": not bool(user_prompt),
         "refinement_history": [],
         "artifacts": [],
         "template": [],
@@ -72,6 +80,7 @@ def create_canonical_session(case: dict) -> str:
         "script": "",
         "provider": case.get("provider", "deepseek"),
         "model_name": case.get("model_name", "deepseek-v4-flash"),
+        "data_filter": {},
         "pdf_version": 0,
         "retry_count": 0,
         "explore_history": [],
@@ -84,6 +93,22 @@ def apply_refinement(job_id: str, prompt: str):
     history = session.get("refinement_history", [])
     history.append(prompt)
     full_goal = session["initial_prompt"] + "\nRefinement History:\n- " + "\n- ".join(history)
+
+    if should_consider_data_filter(prompt):
+        add_log(job_id, f"Canonical data filter refinement: {prompt}")
+        files = clear_data_filter_state(session.get("files", []))
+        update_session(job_id, {
+            "files": files,
+            "data_filter": {},
+            "artifacts": [],
+            "template": [],
+            "components": {},
+            "calculated_metrics": {},
+            "refinement_history": history,
+            "current_goal": full_goal,
+        })
+        run_pipeline(job_id)
+        return
 
     add_log(job_id, f"Canonical refinement: {prompt}")
     new_state = refine_session_modular(session, prompt)
@@ -105,9 +130,10 @@ def apply_refinement(job_id: str, prompt: str):
             run_script_generation(job_id)
 
 
-def validate_session(job_id: str, case: dict) -> dict:
+def validate_session(job_id: str, case: dict, artifact_dir: Path | None = None, save_artifacts: bool = True) -> dict:
     session = get_session(job_id)
     checks = []
+    artifacts = {}
 
     pdf_path = session.get("pdf_path")
     pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
@@ -115,6 +141,8 @@ def validate_session(job_id: str, case: dict) -> dict:
     if pdf_exists:
         checks.append(check("pdf_size_gt_20kb", os.path.getsize(pdf_path) > 20_000, os.path.getsize(pdf_path)))
         checks.append(check("pdf_pages_match_template", pdf_page_count(pdf_path) >= max_template_page(session), pdf_page_count(pdf_path)))
+        if save_artifacts and artifact_dir:
+            artifacts = save_case_artifacts(case, job_id, session, Path(pdf_path), artifact_dir)
 
     checks.append(check("status_completed", "conclu" in session.get("status", "").lower(), session.get("status", "")))
     checks.append(check("has_title", bool(session.get("settings", {}).get("title")), session.get("settings", {}).get("title", "")))
@@ -123,26 +151,191 @@ def validate_session(job_id: str, case: dict) -> dict:
     checks.append(check("template_in_bounds", template_in_bounds(session.get("template", [])), session.get("template", [])))
     checks.append(check("template_no_overlap", not has_major_overlap(session.get("template", [])), session.get("template", [])))
     checks.append(check("has_non_na_metrics", has_non_na_metrics(session.get("calculated_metrics", {})), session.get("calculated_metrics", {})))
+    checks.extend(validate_chart_layout_safety(session.get("components", {})))
 
     metadata_text = json.dumps([f.get("artifact") for f in session.get("files", [])], ensure_ascii=False).lower()
     for column in case.get("expected", {}).get("columns", []):
         checks.append(check(f"metadata_column_{column}", column.lower() in metadata_text, column))
 
-    script_text = session.get("script", "").lower()
-    for keyword in case.get("expected", {}).get("keywords", []):
-        checks.append(check(f"report_keyword_{keyword}", keyword.lower() in script_text or keyword.lower() in metadata_text, keyword))
+    pdf_text = artifacts.get("pdf_text", "")
+    if pdf_text:
+        checks.append(check("pdf_text_min_chars", len(pdf_text.strip()) > 250, len(pdf_text.strip())))
+        checks.append(check("pdf_text_no_cut_ellipsis", "..." not in pdf_text, "found ..." if "..." in pdf_text else "ok"))
+        title = session.get("settings", {}).get("title", "")
+        checks.append(check("pdf_text_title_present", title_in_pdf_text(title, pdf_text), title))
+    elif pdf_exists and save_artifacts:
+        checks.append(check("pdf_text_extracted", False, "pdftotext unavailable or failed"))
 
-    return {
+    screenshot_path = artifacts.get("page_1_png_path")
+    if screenshot_path:
+        screenshot_size = os.path.getsize(screenshot_path)
+        checks.append(check("page_1_png_exists", True, screenshot_path))
+        checks.append(check("page_1_png_size_gt_10kb", screenshot_size > 10_000, screenshot_size))
+    elif pdf_exists and save_artifacts:
+        checks.append(check("page_1_png_exists", False, "pdftoppm unavailable or failed"))
+
+    script_text = session.get("script", "").lower()
+    searchable_report_text = " ".join([script_text, metadata_text, pdf_text.lower()])
+    for keyword in case.get("expected", {}).get("keywords", []):
+        checks.append(check(f"report_keyword_{keyword}", keyword.lower() in searchable_report_text, keyword))
+
+    if case.get("expected", {}).get("filter"):
+        checks.extend(validate_expected_filter(session))
+
+    result = {
         "case_id": case["id"],
         "job_id": job_id,
         "pdf_path": pdf_path,
+        "artifact_dir": str(artifact_dir) if artifact_dir else None,
+        "review_pdf_path": artifacts.get("review_pdf_path"),
         "passed": all(item["passed"] for item in checks),
         "checks": checks,
     }
+    if save_artifacts and artifact_dir:
+        write_json(artifact_dir / "checks.json", result)
+    return result
 
 
 def check(name: str, passed: bool, detail):
     return {"name": name, "passed": bool(passed), "detail": detail}
+
+
+def write_json(path: Path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def save_case_artifacts(case: dict, job_id: str, session: dict, pdf_path: Path, artifact_dir: Path) -> dict:
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    GENERATED_PDFS_DIR.mkdir(parents=True, exist_ok=True)
+
+    session_path = artifact_dir / "session.json"
+    report_path = artifact_dir / "report.pdf"
+    text_path = artifact_dir / "pdftotext.txt"
+    screenshot_path = artifact_dir / "page-1.png"
+    review_pdf_path = GENERATED_PDFS_DIR / f"{case['id']}__{job_id}.pdf"
+
+    write_json(session_path, session)
+    shutil.copy2(pdf_path, report_path)
+    shutil.copy2(pdf_path, review_pdf_path)
+
+    pdf_text = extract_pdf_text(report_path, text_path)
+    rendered_png = render_first_page_png(report_path, screenshot_path)
+
+    return {
+        "session_path": str(session_path),
+        "report_pdf_path": str(report_path),
+        "review_pdf_path": str(review_pdf_path),
+        "pdftotext_path": str(text_path) if text_path.exists() else None,
+        "page_1_png_path": str(rendered_png) if rendered_png else None,
+        "pdf_text": pdf_text,
+    }
+
+
+def extract_pdf_text(pdf_path: Path, output_path: Path) -> str:
+    if not shutil.which("pdftotext"):
+        return ""
+    result = subprocess.run(
+        ["pdftotext", str(pdf_path), str(output_path)],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0 or not output_path.exists():
+        return ""
+    return output_path.read_text(encoding="utf-8", errors="replace")
+
+
+def render_first_page_png(pdf_path: Path, output_path: Path) -> Path | None:
+    if not shutil.which("pdftoppm"):
+        return None
+    prefix = output_path.with_suffix("")
+    result = subprocess.run(
+        ["pdftoppm", "-png", "-f", "1", "-singlefile", str(pdf_path), str(prefix)],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return output_path if result.returncode == 0 and output_path.exists() else None
+
+
+def title_in_pdf_text(title: str, pdf_text: str) -> bool:
+    title_words = [word.lower() for word in title.split() if len(word) > 3]
+    if not title_words:
+        return False
+    pdf_text = pdf_text.lower()
+    matched = sum(1 for word in title_words[:8] if word in pdf_text)
+    return matched >= max(1, min(3, len(title_words)))
+
+
+def validate_expected_filter(session: dict) -> list[dict]:
+    checks = []
+    files = session.get("files", [])
+    data_filter = session.get("data_filter", {})
+    filtered_files = [file_info for file_info in files if file_info.get("filtered_path")]
+
+    checks.append(check("data_filter_needed", data_filter.get("needs_filter") is True, data_filter))
+    checks.append(check("data_filter_has_filtered_path", bool(filtered_files), [f.get("filtered_path") for f in files]))
+    checks.append(check("script_uses_filtered_file", "workspace/filtered" in session.get("script", ""), "workspace/filtered"))
+
+    row_changes = []
+    for file_info in filtered_files:
+        raw_rows = (file_info.get("raw_artifact") or {}).get("shape", {}).get("rows")
+        filtered_rows = (file_info.get("artifact") or {}).get("shape", {}).get("rows")
+        if raw_rows is not None and filtered_rows is not None:
+            row_changes.append({"file": file_info.get("original_filename"), "raw_rows": raw_rows, "filtered_rows": filtered_rows})
+    checks.append(check(
+        "data_filter_changed_row_count",
+        any(item["filtered_rows"] < item["raw_rows"] for item in row_changes),
+        row_changes,
+    ))
+    return checks
+
+
+def validate_chart_layout_safety(components: dict) -> list[dict]:
+    risky_components = []
+    for component_id, code in components.items():
+        lowered = str(code).lower()
+        has_x_label = bool(re.search(r"\.set_xlabel\(\s*['\"][^'\"]+['\"]", lowered))
+        has_bottom_legend = bool(re.search(r"bbox_to_anchor\s*=\s*\([^)]*-\d*\.?\d+", lowered))
+        if has_x_label and has_bottom_legend:
+            risky_components.append({
+                "id": component_id,
+                "reason": "x_label_with_bottom_legend",
+            })
+
+        has_data_annotation = any(token in lowered for token in [
+            "ax.annotate",
+            "plt.annotate",
+            "ax.text(",
+            "plt.text(",
+        ])
+        if not has_data_annotation:
+            continue
+        has_inside_upper_legend = (
+            "legend(loc='upper right'" in lowered
+            or 'legend(loc="upper right"' in lowered
+            or "legend(loc='upper left'" in lowered
+            or 'legend(loc="upper left"' in lowered
+            or "legend(loc='best'" in lowered
+            or 'legend(loc="best"' in lowered
+        )
+        has_outside_anchor = "bbox_to_anchor" in lowered
+        has_headroom = "set_ylim" in lowered
+        if has_inside_upper_legend and not has_outside_anchor:
+            risky_components.append({
+                "id": component_id,
+                "reason": "data_label_with_inside_upper_legend",
+            })
+        elif has_inside_upper_legend and not has_headroom:
+            risky_components.append({
+                "id": component_id,
+                "reason": "data_label_with_legend_without_y_headroom",
+            })
+
+    return [check("chart_annotations_do_not_overlap_legends", not risky_components, risky_components)]
 
 
 def pdf_page_count(pdf_path: str) -> int:
@@ -191,20 +384,22 @@ def has_non_na_metrics(metrics: dict) -> bool:
     return any(value not in (None, "", "N/A") and "Error" not in str(value) for value in metrics.values())
 
 
-def run_case(case: dict, apply_refinements: bool) -> dict:
+def run_case(case: dict, apply_refinements: bool, run_dir: Path, save_artifacts: bool) -> dict:
     job_id = create_canonical_session(case)
     run_pipeline(job_id)
     if apply_refinements:
         for prompt in case.get("refinement_prompts", []):
             apply_refinement(job_id, prompt)
             time.sleep(1)
-    return validate_session(job_id, case)
+    case_dir = run_dir / case["id"] if save_artifacts else None
+    return validate_session(job_id, case, case_dir, save_artifacts=save_artifacts)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run canonical DeepSeek report-generation sessions.")
     parser.add_argument("--case", action="append", help="Case id to run. Can be passed multiple times.")
     parser.add_argument("--with-refinements", action="store_true", help="Apply refinement prompts after first generation.")
+    parser.add_argument("--no-save-artifacts", action="store_true", help="Skip PDF/text/screenshot artifact capture.")
     parser.add_argument("--dry-run", action="store_true", help="Only print the playbook without LLM calls.")
     args = parser.parse_args()
 
@@ -223,11 +418,17 @@ def main():
         raise RuntimeError("DEEPSEEK_API_KEY is required for canonical sessions.")
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    results = [run_case(case, apply_refinements=args.with_refinements) for case in cases]
-    output_path = RESULTS_DIR / f"canonical_results_{int(time.time())}.json"
-    output_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
+    run_id = str(int(time.time()))
+    run_dir = RESULTS_DIR / run_id
+    if not args.no_save_artifacts:
+        run_dir.mkdir(parents=True, exist_ok=True)
+    results = [run_case(case, apply_refinements=args.with_refinements, run_dir=run_dir, save_artifacts=not args.no_save_artifacts) for case in cases]
+    output_path = run_dir / "canonical_results.json" if not args.no_save_artifacts else RESULTS_DIR / f"canonical_results_{run_id}.json"
+    write_json(output_path, results)
     print(json.dumps(results, indent=2, ensure_ascii=False))
     print(f"Saved results to {output_path}")
+    if not args.no_save_artifacts:
+        print(f"Saved review PDFs to {GENERATED_PDFS_DIR}")
 
     if not all(result["passed"] for result in results):
         raise SystemExit(1)

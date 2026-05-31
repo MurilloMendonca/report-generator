@@ -1,0 +1,207 @@
+{
+  "case_id": "sales_ops_exploratory",
+  "job_id": "canonical-sales_ops_exploratory-d9cd4603",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_exploratory-d9cd4603.pdf",
+  "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780258795/sales_ops_exploratory",
+  "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/sales_ops_exploratory__canonical-sales_ops_exploratory-d9cd4603.pdf",
+  "passed": true,
+  "checks": [
+    {
+      "name": "pdf_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_exploratory-d9cd4603.pdf"
+    },
+    {
+      "name": "pdf_size_gt_20kb",
+      "passed": true,
+      "detail": 174080
+    },
+    {
+      "name": "pdf_pages_match_template",
+      "passed": true,
+      "detail": 2
+    },
+    {
+      "name": "status_completed",
+      "passed": true,
+      "detail": "Relatório concluído em 2.4s"
+    },
+    {
+      "name": "has_title",
+      "passed": true,
+      "detail": "Relatório Exploratório: Tendências de Vendas, Descontos e Metas Regionais"
+    },
+    {
+      "name": "has_artifacts",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "name": "has_template",
+      "passed": true,
+      "detail": 5
+    },
+    {
+      "name": "template_in_bounds",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_introduction",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_revenue_trend",
+          "page": 1,
+          "x": 10,
+          "y": 70,
+          "w": 190,
+          "h": 105
+        },
+        {
+          "id": "g_revenue_by_product",
+          "page": 1,
+          "x": 10,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "g_revenue_by_region",
+          "page": 1,
+          "x": 110,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "t_conclusion",
+          "page": 1,
+          "x": 10,
+          "y": 250,
+          "w": 190,
+          "h": 35
+        }
+      ]
+    },
+    {
+      "name": "template_no_overlap",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_introduction",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_revenue_trend",
+          "page": 1,
+          "x": 10,
+          "y": 70,
+          "w": 190,
+          "h": 105
+        },
+        {
+          "id": "g_revenue_by_product",
+          "page": 1,
+          "x": 10,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "g_revenue_by_region",
+          "page": 1,
+          "x": 110,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "t_conclusion",
+          "page": 1,
+          "x": 10,
+          "y": 250,
+          "w": 190,
+          "h": 35
+        }
+      ]
+    },
+    {
+      "name": "has_non_na_metrics",
+      "passed": true,
+      "detail": {
+        "m_total_revenue": 870500.0,
+        "m_total_units": 2925,
+        "m_avg_discount": 9.5,
+        "m_revenue_north": 345000.0,
+        "m_revenue_south": 350500,
+        "m_revenue_west": 175000.0,
+        "m_target_north": 330000,
+        "m_target_south": 310000.0,
+        "m_target_west": 210000
+      }
+    },
+    {
+      "name": "chart_annotations_do_not_overlap_legends",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "metadata_column_revenue",
+      "passed": true,
+      "detail": "revenue"
+    },
+    {
+      "name": "metadata_column_region",
+      "passed": true,
+      "detail": "region"
+    },
+    {
+      "name": "metadata_column_product",
+      "passed": true,
+      "detail": "product"
+    },
+    {
+      "name": "pdf_text_min_chars",
+      "passed": true,
+      "detail": 772
+    },
+    {
+      "name": "pdf_text_no_cut_ellipsis",
+      "passed": true,
+      "detail": "ok"
+    },
+    {
+      "name": "pdf_text_title_present",
+      "passed": true,
+      "detail": "Relatório Exploratório: Tendências de Vendas, Descontos e Metas Regionais"
+    },
+    {
+      "name": "page_1_png_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780258795/sales_ops_exploratory/page-1.png"
+    },
+    {
+      "name": "page_1_png_size_gt_10kb",
+      "passed": true,
+      "detail": 214377
+    },
+    {
+      "name": "report_keyword_revenue",
+      "passed": true,
+      "detail": "revenue"
+    },
+    {
+      "name": "report_keyword_region",
+      "passed": true,
+      "detail": "region"
+    }
+  ]
+}

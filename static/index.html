@@ -38,12 +38,18 @@
     <div id="app-shell" class="app-shell" style="display:none">
     <div class="sidebar">
         <h2>Visual Workspace</h2>
+        <a id="new-session-link" href="/" class="btn btn-secondary new-session-link" style="display:none">+ Criar nova sessão</a>
         <a href="/templates" class="btn btn-outline" style="margin-bottom: 1rem; text-align: center; text-decoration: none;">Editar Templates</a>
         
-        <div id="file-workspace" style="display:none">
-            <label>Arquivos:</label>
-            <div class="file-tray" id="file-tray"></div>
-            <button class="btn btn-outline" style="width:100%; margin-bottom: 1.5rem;" onclick="document.getElementById('add-file-input').click()">+ Adicionar Dados</button>
+        <div id="file-workspace" class="file-workspace" style="display:none">
+            <div class="workspace-section-header">
+                <label>Arquivos</label>
+                <span id="file-summary">0 arquivos</span>
+            </div>
+            <div class="file-dropzone" id="file-dropzone">
+                <div class="file-tray" id="file-tray"></div>
+                <button class="btn btn-outline add-file-btn" type="button" onclick="document.getElementById('add-file-input').click()">+ Adicionar Dados</button>
+            </div>
             <input type="file" id="add-file-input" style="display:none" multiple onchange="App.handleUploadMore(this)">
         </div>
 
@@ -70,12 +76,12 @@
                     <select id="model_name" name="model_name"></select>
                 </div>
                 <div class="form-group">
-                    <label>Arquivos (CSV/Excel):</label>
+                    <label>Arquivos de dados e contexto:</label>
                     <input type="file" id="file" name="files" multiple required>
                 </div>
                 <div class="form-group">
-                    <label>Objetivo do Relatório:</label>
-                    <textarea name="prompt" placeholder="Ex: Analisar vendas do Q1 por região..." required></textarea>
+                    <label>Objetivo do Relatório (opcional):</label>
+                    <textarea name="prompt" placeholder="Deixe em branco para gerar um relatório exploratório dos dados."></textarea>
                 </div>
                 <button type="submit" class="btn" style="width:100%; height: 48px; font-size: 1rem;">Iniciar Geração</button>
             </form>
@@ -145,6 +151,19 @@
             <h3 style="color: var(--md-sys-color-primary)">Configurações do Relatório</h3>
             <div class="card" style="max-width: 600px;">
                 <form id="settings-form">
+                    <div style="display: flex; gap: 1rem;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>Provedor:</label>
+                            <select id="s-provider" name="provider">
+                                <option value="gemini">Google Gemini</option>
+                                <option value="deepseek">DeepSeek</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>Modelo:</label>
+                            <select id="s-model-name" name="model_name"></select>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label>Título do Relatório:</label>
                         <input type="text" id="s-title" name="title" placeholder="Ex: Relatório de Vendas">
@@ -190,8 +209,14 @@
                     <div class="form-group">
                         <label>Template de Layout:</label>
                         <select id="s-layout-template" name="selected_template_id"></select>
+                        <div id="layout-template-previews" class="template-preview-grid" aria-label="Prévia dos templates de layout"></div>
                     </div>
-                    <button type="submit" class="btn" style="margin-top: 1rem;">Salvar e Aplicar</button>
+                    <div class="settings-actions">
+                        <button type="submit" class="btn">Salvar e Aplicar</button>
+                        <button type="button" class="btn btn-outline" onclick="App.handleRegenerate('texts')">Atualizar textos</button>
+                        <button type="button" class="btn btn-outline" onclick="App.handleRegenerate('graphics')">Atualizar gráficos</button>
+                        <button type="button" class="btn btn-secondary" onclick="App.handleRegenerate('all')">Atualizar tudo</button>
+                    </div>
                 </form>
             </div>
         </div>
@@ -248,6 +273,20 @@
                 <button type="submit" class="btn">Salvar Alterações</button>
             </div>
         </form>
+    </dialog>
+
+    <dialog id="file-preview-modal" class="file-preview-modal">
+        <div class="file-preview-header">
+            <div>
+                <h3 id="file-preview-title">Arquivo</h3>
+                <div id="file-preview-meta" class="file-preview-meta"></div>
+            </div>
+            <div class="file-preview-actions">
+                <button type="button" class="btn btn-outline" id="file-preview-download">Baixar</button>
+                <button type="button" class="btn btn-outline" onclick="App.closeFilePreview()">Fechar</button>
+            </div>
+        </div>
+        <div id="file-preview-body" class="file-preview-body"></div>
     </dialog>
     </div>
 

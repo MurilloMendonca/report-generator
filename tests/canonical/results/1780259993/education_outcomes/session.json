@@ -1,0 +1,650 @@
+{
+  "schema_version": 1,
+  "job_id": "canonical-education_outcomes-ca1f6b6b",
+  "created_at": "2026-05-31T20:49:48.505769+00:00",
+  "updated_at": "2026-05-31T20:52:23.992406+00:00",
+  "status": "Relatório concluído em 1.7s",
+  "logs": [
+    "Canonical test: Education outcomes and investment",
+    "[17:49:48] Planejando indicadores (Metric, Graphic, Text) - T1...",
+    "[17:50:25] Gerando título do relatório...",
+    "[17:50:28] Calculando métrica: Total de Alunos...",
+    "[17:50:33] Calculando métrica: Taxa de Conclusão Média...",
+    "[17:50:43] Calculando métrica: Taxa de Colocação Média...",
+    "[17:50:47] Calculando métrica: Satisfação Média...",
+    "[17:50:52] Calculando métrica: Orçamento Total...",
+    "[17:50:56] Calculando métrica: Orçamento por Aluno...",
+    "[17:51:07] Aplicando template de layout: Análise detalhada em duas páginas...",
+    "[17:51:07] Gerando gráfico: Taxas de Conclusão e Colocação por Campus...",
+    "[17:51:19] Gerando gráfico: Distribuição de Orçamento por Campus...",
+    "[17:51:34] Gerando gráfico: Satisfação Média por Programa...",
+    "[17:51:49] Gerando gráfico: Tabela Detalhada de Resultados por Campus e Programa...",
+    "[17:52:07] Gerando narrativas consistentes (4)...",
+    "[17:52:22] Montando script final modular...",
+    "[17:52:22] Renderizando PDF (Tentativa 1/5)...",
+    "[17:52:23] Relatório concluído em 1.7s"
+  ],
+  "files": [
+    {
+      "original_filename": "student_outcomes.xlsx",
+      "path": "workspace/uploads/eb47d4f7-2803-4741-b7c1-bfd2ec1417b0.xlsx",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "student_outcomes.xlsx",
+        "shape": {
+          "rows": 6,
+          "columns": 6
+        },
+        "columns": [
+          {
+            "name": "campus",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "program",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "students",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 110.0,
+              "min": 75.0,
+              "max": 140.0
+            }
+          },
+          {
+            "name": "completion_rate",
+            "type": "float64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 0.8016666666666666,
+              "min": 0.72,
+              "max": 0.88
+            }
+          },
+          {
+            "name": "placement_rate",
+            "type": "float64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 0.7266666666666666,
+              "min": 0.63,
+              "max": 0.81
+            }
+          },
+          {
+            "name": "satisfaction",
+            "type": "float64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 8.266666666666667,
+              "min": 7.7,
+              "max": 8.8
+            }
+          }
+        ],
+        "sample": [
+          {
+            "campus": "East",
+            "program": "Data",
+            "students": 120,
+            "completion_rate": 0.82,
+            "placement_rate": 0.74,
+            "satisfaction": 8.4
+          },
+          {
+            "campus": "East",
+            "program": "Design",
+            "students": 90,
+            "completion_rate": 0.76,
+            "placement_rate": 0.69,
+            "satisfaction": 8.1
+          },
+          {
+            "campus": "West",
+            "program": "Data",
+            "students": 140,
+            "completion_rate": 0.79,
+            "placement_rate": 0.71,
+            "satisfaction": 8.0
+          },
+          {
+            "campus": "West",
+            "program": "Business",
+            "students": 110,
+            "completion_rate": 0.84,
+            "placement_rate": 0.78,
+            "satisfaction": 8.6
+          },
+          {
+            "campus": "Central",
+            "program": "Design",
+            "students": 75,
+            "completion_rate": 0.72,
+            "placement_rate": 0.63,
+            "satisfaction": 7.7
+          }
+        ]
+      },
+      "raw_artifact": {
+        "filename": "student_outcomes.xlsx",
+        "shape": {
+          "rows": 6,
+          "columns": 6
+        },
+        "columns": [
+          {
+            "name": "campus",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "program",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "students",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 110.0,
+              "min": 75.0,
+              "max": 140.0
+            }
+          },
+          {
+            "name": "completion_rate",
+            "type": "float64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 0.8016666666666666,
+              "min": 0.72,
+              "max": 0.88
+            }
+          },
+          {
+            "name": "placement_rate",
+            "type": "float64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 0.7266666666666666,
+              "min": 0.63,
+              "max": 0.81
+            }
+          },
+          {
+            "name": "satisfaction",
+            "type": "float64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 8.266666666666667,
+              "min": 7.7,
+              "max": 8.8
+            }
+          }
+        ],
+        "sample": [
+          {
+            "campus": "East",
+            "program": "Data",
+            "students": 120,
+            "completion_rate": 0.82,
+            "placement_rate": 0.74,
+            "satisfaction": 8.4
+          },
+          {
+            "campus": "East",
+            "program": "Design",
+            "students": 90,
+            "completion_rate": 0.76,
+            "placement_rate": 0.69,
+            "satisfaction": 8.1
+          },
+          {
+            "campus": "West",
+            "program": "Data",
+            "students": 140,
+            "completion_rate": 0.79,
+            "placement_rate": 0.71,
+            "satisfaction": 8.0
+          },
+          {
+            "campus": "West",
+            "program": "Business",
+            "students": 110,
+            "completion_rate": 0.84,
+            "placement_rate": 0.78,
+            "satisfaction": 8.6
+          },
+          {
+            "campus": "Central",
+            "program": "Design",
+            "students": 75,
+            "completion_rate": 0.72,
+            "placement_rate": 0.63,
+            "satisfaction": 7.7
+          }
+        ]
+      },
+      "filtered_path": null,
+      "filter_description": null
+    },
+    {
+      "original_filename": "campus_budget.csv",
+      "path": "workspace/uploads/0712aa4e-740b-4b47-94d4-6a8971090442.csv",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "campus_budget.csv",
+        "shape": {
+          "rows": 3,
+          "columns": 3
+        },
+        "columns": [
+          {
+            "name": "campus",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "instruction_budget",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 3,
+            "stats": {
+              "mean": 636666.6666666666,
+              "min": 580000.0,
+              "max": 710000.0
+            }
+          },
+          {
+            "name": "career_services_budget",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 3,
+            "stats": {
+              "mean": 161666.66666666666,
+              "min": 150000.0,
+              "max": 175000.0
+            }
+          }
+        ],
+        "sample": [
+          {
+            "campus": "East",
+            "instruction_budget": 620000,
+            "career_services_budget": 160000
+          },
+          {
+            "campus": "West",
+            "instruction_budget": 710000,
+            "career_services_budget": 175000
+          },
+          {
+            "campus": "Central",
+            "instruction_budget": 580000,
+            "career_services_budget": 150000
+          }
+        ]
+      },
+      "raw_artifact": {
+        "filename": "campus_budget.csv",
+        "shape": {
+          "rows": 3,
+          "columns": 3
+        },
+        "columns": [
+          {
+            "name": "campus",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "instruction_budget",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 3,
+            "stats": {
+              "mean": 636666.6666666666,
+              "min": 580000.0,
+              "max": 710000.0
+            }
+          },
+          {
+            "name": "career_services_budget",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 3,
+            "stats": {
+              "mean": 161666.66666666666,
+              "min": 150000.0,
+              "max": 175000.0
+            }
+          }
+        ],
+        "sample": [
+          {
+            "campus": "East",
+            "instruction_budget": 620000,
+            "career_services_budget": 160000
+          },
+          {
+            "campus": "West",
+            "instruction_budget": 710000,
+            "career_services_budget": 175000
+          },
+          {
+            "campus": "Central",
+            "instruction_budget": 580000,
+            "career_services_budget": 150000
+          }
+        ]
+      },
+      "filtered_path": null,
+      "filter_description": null
+    },
+    {
+      "original_filename": "academic_context.pdf",
+      "path": "workspace/uploads/a0e0bfd2-4787-48f0-a51d-7959594e08cc.pdf",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "academic_context.pdf",
+        "type": "pdf",
+        "size_bytes": 1262,
+        "pages": 1,
+        "text_preview": [
+          "±-ûOBß¤B¨\u0003ëÝ}wwÄÇ®\u0012µÂ²{Õ8%ä¨*è\u000eïzNRÈg¨¶\u0016RA;<¼Xãhô\u0016o10}ó#ô×oöp>BVÿáê$öërca,&pÁìiAì`ã\u0006b Ã i0F ¼ \u000eÅ°/±Ï+¬\u0019ÓTnÖÚvÉf\u0014wGê¦\u0015ªªûÙL",
+          "D:20260524202843Z"
+        ],
+        "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe."
+      },
+      "raw_artifact": {
+        "filename": "academic_context.pdf",
+        "type": "pdf",
+        "size_bytes": 1262,
+        "pages": 1,
+        "text_preview": [
+          "±-ûOBß¤B¨\u0003ëÝ}wwÄÇ®\u0012µÂ²{Õ8%ä¨*è\u000eïzNRÈg¨¶\u0016RA;<¼Xãhô\u0016o10}ó#ô×oöp>BVÿáê$öërca,&pÁìiAì`ã\u0006b Ã i0F ¼ \u000eÅ°/±Ï+¬\u0019ÓTnÖÚvÉf\u0014wGê¦\u0015ªªûÙL",
+          "D:20260524202843Z"
+        ],
+        "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe."
+      },
+      "filtered_path": null,
+      "filter_description": null
+    }
+  ],
+  "initial_prompt": "Create an academic outcomes report comparing completion, placement, satisfaction, and investment by campus and program. Identify where budget appears most effective.",
+  "current_goal": "Create an academic outcomes report comparing completion, placement, satisfaction, and investment by campus and program. Identify where budget appears most effective.",
+  "is_exploratory": false,
+  "refinement_history": [],
+  "artifacts": [
+    {
+      "id": "m_total_students",
+      "indicator": "Total de Alunos",
+      "type": "metric",
+      "reason": "Calcular o número total de alunos para ser usado no resumo e na análise de orçamento por aluno.",
+      "columns": [
+        "student_outcomes.xlsx:students"
+      ]
+    },
+    {
+      "id": "m_avg_completion",
+      "indicator": "Taxa de Conclusão Média",
+      "type": "metric",
+      "reason": "Calcular a taxa média de conclusão para comparação entre campi e programas.",
+      "columns": [
+        "student_outcomes.xlsx:completion_rate"
+      ]
+    },
+    {
+      "id": "m_avg_placement",
+      "indicator": "Taxa de Colocação Média",
+      "type": "metric",
+      "reason": "Calcular a taxa média de colocação profissional para comparação.",
+      "columns": [
+        "student_outcomes.xlsx:placement_rate"
+      ]
+    },
+    {
+      "id": "m_avg_satisfaction",
+      "indicator": "Satisfação Média",
+      "type": "metric",
+      "reason": "Calcular a satisfação média dos alunos para comparação entre campi/programas.",
+      "columns": [
+        "student_outcomes.xlsx:satisfaction"
+      ]
+    },
+    {
+      "id": "m_total_budget",
+      "indicator": "Orçamento Total",
+      "type": "metric",
+      "reason": "Somar os orçamentos de instrução e serviços de carreira para contexto financeiro.",
+      "columns": [
+        "campus_budget.csv:instruction_budget",
+        "campus_budget.csv:career_services_budget"
+      ]
+    },
+    {
+      "id": "m_budget_per_student",
+      "indicator": "Orçamento por Aluno",
+      "type": "metric",
+      "reason": "Calcular o orçamento total (instrução + carreira) dividido pelo total de alunos para medir eficiência de investimento.",
+      "columns": [
+        "campus_budget.csv:instruction_budget",
+        "campus_budget.csv:career_services_budget",
+        "student_outcomes.xlsx:students"
+      ]
+    },
+    {
+      "id": "t_intro",
+      "indicator": "Resumo Executivo",
+      "type": "text",
+      "sub_type": "kpi_resumo",
+      "reason": "Apresentar o contexto do relatório, destacando os indicadores principais de alunos, taxas e orçamento total.",
+      "columns": []
+    },
+    {
+      "id": "t_exec_synthesis",
+      "indicator": "Síntese dos Gráficos",
+      "type": "text",
+      "sub_type": "analysis",
+      "reason": "Sintetizar os achados do gráfico primário e métricas, destacando campi com melhores taxas de conclusão e colocação.",
+      "columns": []
+    },
+    {
+      "id": "t_detailed_analysis",
+      "indicator": "Análise Detalhada",
+      "type": "text",
+      "sub_type": "analysis",
+      "reason": "Explorar relações entre orçamento e resultados, identificar onde o investimento parece mais eficaz, comparando programas e campi.",
+      "columns": []
+    },
+    {
+      "id": "t_conclusion",
+      "indicator": "Conclusão e Recomendações",
+      "type": "text",
+      "sub_type": "kpi_conclusao",
+      "reason": "Sintetizar as descobertas e recomendar alocação de orçamento com base na eficácia identificada.",
+      "columns": []
+    },
+    {
+      "id": "g_primary_chart",
+      "indicator": "Taxas de Conclusão e Colocação por Campus",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Visualizar comparativo das taxas de conclusão e colocação entre os campi para identificar diferenças de desempenho.",
+      "columns": [
+        "student_outcomes.xlsx:campus",
+        "student_outcomes.xlsx:completion_rate",
+        "student_outcomes.xlsx:placement_rate"
+      ]
+    },
+    {
+      "id": "g_support_chart1",
+      "indicator": "Distribuição de Orçamento por Campus",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Mostrar como os orçamentos de instrução e serviços de carreira estão distribuídos entre os campi. Utilizar barras empilhadas para evidenciar a composição do investimento.",
+      "columns": [
+        "campus_budget.csv:campus",
+        "campus_budget.csv:instruction_budget",
+        "campus_budget.csv:career_services_budget"
+      ]
+    },
+    {
+      "id": "g_support_chart2",
+      "indicator": "Satisfação Média por Programa",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Comparar a satisfação média dos alunos entre os programas (Data, Design, Business) para identificar possíveis diferenças.",
+      "columns": [
+        "student_outcomes.xlsx:program",
+        "student_outcomes.xlsx:satisfaction"
+      ]
+    },
+    {
+      "id": "g_detailed_chart",
+      "indicator": "Tabela Detalhada de Resultados por Campus e Programa",
+      "type": "graphic",
+      "sub_type": "table",
+      "reason": "Fornecer uma visão completa com todas as variáveis (alunos, taxas, satisfação e orçamentos) para permitir análise detalhada e correlações.",
+      "columns": [
+        "student_outcomes.xlsx:campus",
+        "student_outcomes.xlsx:program",
+        "student_outcomes.xlsx:students",
+        "student_outcomes.xlsx:completion_rate",
+        "student_outcomes.xlsx:placement_rate",
+        "student_outcomes.xlsx:satisfaction",
+        "campus_budget.csv:instruction_budget",
+        "campus_budget.csv:career_services_budget"
+      ]
+    }
+  ],
+  "template": [
+    {
+      "id": "t_intro",
+      "page": 1,
+      "x": 10,
+      "y": 30,
+      "w": 190,
+      "h": 35
+    },
+    {
+      "id": "g_primary_chart",
+      "page": 1,
+      "x": 10,
+      "y": 75,
+      "w": 190,
+      "h": 95
+    },
+    {
+      "id": "t_exec_synthesis",
+      "page": 1,
+      "x": 10,
+      "y": 180,
+      "w": 190,
+      "h": 45
+    },
+    {
+      "id": "g_support_chart1",
+      "page": 1,
+      "x": 10,
+      "y": 235,
+      "w": 90,
+      "h": 50
+    },
+    {
+      "id": "g_support_chart2",
+      "page": 1,
+      "x": 110,
+      "y": 235,
+      "w": 90,
+      "h": 50
+    },
+    {
+      "id": "t_detailed_analysis",
+      "page": 2,
+      "x": 10,
+      "y": 30,
+      "w": 90,
+      "h": 160
+    },
+    {
+      "id": "g_detailed_chart",
+      "page": 2,
+      "x": 110,
+      "y": 30,
+      "w": 90,
+      "h": 110
+    },
+    {
+      "id": "t_conclusion",
+      "page": 2,
+      "x": 10,
+      "y": 200,
+      "w": 190,
+      "h": 85
+    }
+  ],
+  "components": {
+    "g_primary_chart": "def render_g_primary_chart(pdf, dataframes, x, y, w, h):\n    # Get primary dataframe (student_outcomes.xlsx)\n    df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        # Fallback: empty box with title\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"B\", 10)\n        pdf.cell(w, 10, \"Taxas de Conclusão e Colocação por Campus\", align=\"C\")\n        return\n\n    # Aggregate by campus: mean rates\n    agg = df.groupby(\"campus\", as_index=False).agg(\n        completion_rate=(\"completion_rate\", \"mean\"),\n        placement_rate=(\"placement_rate\", \"mean\")\n    )\n    # Multiply by 100 for percentage display\n    agg[\"completion_pct\"] = agg[\"completion_rate\"] * 100\n    agg[\"placement_pct\"] = agg[\"placement_rate\"] * 100\n\n    # Prepare plot\n    fig, ax = plt.subplots(figsize=(w/25.4, h/25.4))\n    campuses = agg[\"campus\"].tolist()\n    x_pos = range(len(campuses))\n    width = 0.35  # bar width\n\n    bars1 = ax.bar([p - width/2 for p in x_pos], agg[\"completion_pct\"], width,\n                   label=\"Conclusão\", color=\"#4C72B0\")\n    bars2 = ax.bar([p + width/2 for p in x_pos], agg[\"placement_pct\"], width,\n                   label=\"Colocação\", color=\"#DD8452\")\n\n    # Add value labels on bars (compact: use small font, inside if possible)\n    for bar in bars1:\n        height = bar.get_height()\n        ax.text(bar.get_x() + bar.get_width()/2., height,\n                f\"{height:.1f}%\", ha='center', va='bottom', fontsize=7)\n    for bar in bars2:\n        height = bar.get_height()\n        ax.text(bar.get_x() + bar.get_width()/2., height,\n                f\"{height:.1f}%\", ha='center', va='bottom', fontsize=7)\n\n    # Labels and ticks\n    ax.set_xticks(list(x_pos))\n    ax.set_xticklabels(campuses, fontsize=8)\n    ax.set_ylabel(\"Percentual (%)\", fontsize=8)\n    ax.set_ylim(0, 100)  # ensure headroom for labels (max < 90, so 100 is fine)\n\n    # Title\n    ax.set_title(\"Taxas de Conclusão e Colocação por Campus\", fontsize=10, pad=8)\n\n    # Legend below chart, adjust margins\n    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.22), ncol=2, frameon=False, fontsize=7)\n    fig.subplots_adjust(bottom=0.28, top=0.80)\n\n    # Save and insert\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_support_chart1": "def render_g_support_chart1(pdf, dataframes, x, y, w, h):\n    # Obtain the requested dataframe\n    df = dataframes.get('campus_budget.csv')\n    if df is None or df.empty:\n        # Fallback to first dataframe if specific one is missing\n        df = list(dataframes.values())[0]\n        if df is None or df.empty:\n            return\n\n    # Verify required columns exist\n    required_cols = ['campus', 'instruction_budget', 'career_services_budget']\n    if not all(col in df.columns for col in required_cols):\n        # Try to match columns by name similarity or use first available\n        df = df.reset_index()\n        if 'campus' not in df.columns:\n            # Attempt to find a categorical column\n            for col in df.columns:\n                if df[col].dtype == object:\n                    df = df.rename(columns={col: 'campus'})\n                    break\n        for col in ['instruction_budget', 'career_services_budget']:\n            if col not in df.columns:\n                # Fall back to first two numeric columns\n                numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns[:2]\n                if len(numeric_cols) >= 2:\n                    df[col] = df[numeric_cols[0]] if 'instruction' in col else df[numeric_cols[1]]\n    # If still missing, return gracefully\n    if 'campus' not in df.columns:\n        return\n\n    # Convert budget columns to numeric if necessary\n    instruction = pd.to_numeric(df['instruction_budget'], errors='coerce').fillna(0)\n    career = pd.to_numeric(df['career_services_budget'], errors='coerce').fillna(0)\n    campuses = df['campus'].values\n\n    # Create figure with given dimensions (mm to inches)\n    fig_width = w / 25.4\n    fig_height = h / 25.4\n    fig, ax = plt.subplots(figsize=(fig_width, fig_height))\n\n    # Plot stacked bars\n    bar_width = 0.6\n    indices = np.arange(len(campuses))\n    bars_inst = ax.bar(indices, instruction, bar_width, label='Orçamento de Instrução', color='#4C72B0')\n    bars_career = ax.bar(indices, career, bar_width, bottom=instruction, label='Orçamento de Serviços de Carreira', color='#DD8452')\n\n    # Add value labels inside each segment (if space permits)\n    for i in range(len(campuses)):\n        inst_val = instruction.values[i]\n        career_val = career.values[i]\n        # Instruction segment label (centered)\n        if inst_val > 0:\n            ax.text(indices[i], inst_val/2, f'{inst_val:,.0f}', ha='center', va='center',\n                    fontsize=6, color='white', fontweight='bold')\n        # Career segment label (centered within its box)\n        if career_val > 0:\n            ax.text(indices[i], inst_val + career_val/2, f'{career_val:,.0f}', ha='center', va='center',\n                    fontsize=6, color='white', fontweight='bold')\n\n    # Title\n    plt.title('Distribuição de Orçamento por Campus', fontsize=9, pad=8)\n\n    # X-axis labels\n    ax.set_xticks(indices)\n    ax.set_xticklabels(campuses, fontsize=7)\n\n    # Y-axis formatting\n    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))\n    ax.set_ylabel('Valor (R$)', fontsize=7)\n\n    # Legend below plot (ncol=2) – omit xlabel to avoid duplication\n    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2, frameon=False, fontsize=7)\n    fig.subplots_adjust(bottom=0.22)\n\n    # Remove top and right spines for cleaner look\n    sns.despine(ax=ax)\n\n    # Save temporary image and insert\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_support_chart2": "def render_g_support_chart2(pdf, dataframes, x, y, w, h):\n    # Access the primary dataframe by known filename\n    df = dataframes.get('student_outcomes.xlsx')\n    if df is None or df.empty:\n        return\n\n    # Required columns: program, satisfaction\n    if 'program' not in df.columns or 'satisfaction' not in df.columns:\n        return\n\n    # Aggregate mean satisfaction by program\n    program_satisfaction = df.groupby('program')['satisfaction'].mean().reset_index()\n    # Sort for consistent bar order (optional but nice)\n    program_satisfaction = program_satisfaction.sort_values('program')\n\n    programs = program_satisfaction['program'].tolist()\n    values = program_satisfaction['satisfaction'].tolist()\n\n    # Create figure with correct aspect ratio based on w and h (mm -> inches)\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4), constrained_layout=True)\n\n    # Title in Portuguese, small, with top margin\n    ax.set_title('Satisfação Média por Programa', fontsize=10, pad=8)\n\n    # Bar plot with distinct colors\n    colors = ['#4C72B0', '#DD8452', '#55A868']  # seaborn-ish\n    bars = ax.bar(programs, values, color=colors[:len(programs)], edgecolor='white', linewidth=0.5)\n\n    # Add value labels on top of bars with automatic padding\n    ax.bar_label(bars, fmt='%.1f', padding=3, fontsize=8)\n\n    # Annotations use y‑axis space – ensure headroom\n    max_val = max(values)\n    ax.set_ylim(0, max_val * 1.2)\n\n    # Remove top and right spines for cleaner look\n    ax.spines['top'].set_visible(False)\n    ax.spines['right'].set_visible(False)\n\n    # Set y‑label (short, beneath chart we may use subtitle but no)\n    ax.set_ylabel('Satisfação Média', fontsize=8)\n\n    # Rotate x‑tick labels if needed (here three short names, no rotation)\n    ax.set_xticks(range(len(programs)))\n    ax.set_xticklabels(programs, fontsize=8)\n\n    # No legend – only three bars, labels on bars suffice\n\n    # Save to temporary file and insert into pdf\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_detailed_chart": "def render_g_detailed_chart(pdf, dataframes, x, y, w, h):\n    # Retrieve dataframes by filename (known from artifacts)\n    df_outcomes = dataframes.get('student_outcomes.xlsx')\n    df_budget = dataframes.get('campus_budget.csv')\n\n    # Validate presence and structure\n    if df_outcomes is None or df_budget is None:\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"I\", 8)\n        pdf.cell(w, h, \"Dados indisponíveis para a tabela detalhada.\", align='C')\n        return\n\n    # Merge on 'campus'\n    try:\n        df_merged = df_outcomes.merge(df_budget, on='campus', how='left')\n    except Exception:\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"I\", 8)\n        pdf.cell(w, h, \"Erro ao combinar bases.\", align='C')\n        return\n\n    # Check that merge resulted in expected columns\n    required_cols = ['campus', 'program', 'students', 'completion_rate',\n                     'placement_rate', 'satisfaction', 'instruction_budget',\n                     'career_services_budget']\n    missing = [col for col in required_cols if col not in df_merged.columns]\n    if missing:\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"I\", 8)\n        pdf.cell(w, h, f\"Colunas ausentes: {', '.join(missing)}\", align='C')\n        return\n\n    # Prepare display data\n    display_df = df_merged[required_cols].copy()\n\n    # Format columns for Brazilian Portuguese / executive style\n    display_df['students'] = display_df['students'].astype(int)\n    display_df['completion_rate'] = (display_df['completion_rate'] * 100).round(1).astype(str) + '%'\n    display_df['placement_rate'] = (display_df['placement_rate'] * 100).round(1).astype(str) + '%'\n    display_df['satisfaction'] = display_df['satisfaction'].round(1).astype(str)\n\n    # Budget formatting: R$ with dot as thousands separator (Brazilian standard)\n    def format_budget(val):\n        s = f\"{int(val):,}\".replace(',', '.')\n        return f\"R$ {s}\"\n\n    display_df['instruction_budget'] = display_df['instruction_budget'].apply(format_budget)\n    display_df['career_services_budget'] = display_df['career_services_budget'].apply(format_budget)\n\n    # Column headers (Portuguese)\n    headers = [\n        'Campus', 'Programa', 'Alunos', 'Conclusão', 'Colocação',\n        'Satisfação', 'Orç. Instrução', 'Orç. Carreira'\n    ]\n\n    # Build table cell data (list of rows of strings)\n    cell_data = []\n    for _, row in display_df.iterrows():\n        cell_data.append([\n            row['campus'],\n            row['program'],\n            str(row['students']),\n            row['completion_rate'],\n            row['placement_rate'],\n            row['satisfaction'],\n            row['instruction_budget'],\n            row['career_services_budget']\n        ])\n\n    # Create matplotlib figure\n    fig_width = w / 25.4\n    fig_height = h / 25.4\n    fig, ax = plt.subplots(figsize=(fig_width, fig_height))\n    ax.axis('off')\n\n    # Title (inside the figure)\n    plt.title(\"Tabela Detalhada de Resultados por Campus e Programa\",\n              fontsize=9, pad=12, fontweight='bold')\n\n    # Determine appropriate font size based on available height\n    # For 7 rows (header + 6 data) we need space; scale font if h is small\n    base_font = 6.5\n    if h < 60:\n        base_font = 5.5\n    elif h < 80:\n        base_font = 6.0\n\n    # Create the table\n    table = ax.table(\n        cellText=cell_data,\n        colLabels=headers,\n        cellLoc='center',\n        loc='center',\n        colWidths=[0.12, 0.12, 0.08, 0.10, 0.10, 0.10, 0.14, 0.14]\n    )\n\n    # Style the table\n    table.auto_set_font_size(False)\n    table.set_fontsize(base_font)\n    table.scale(1, 1.35)  # increase row height for readability\n\n    # Header styling\n    for j, header_cell in enumerate(table.get_celld().values()):\n        if header_cell.get_text().get_text() in headers:\n            header_cell.set_facecolor('#2c3e50')\n            header_cell.set_text_props(color='w', fontweight='bold')\n        else:\n            # Alternate row colors for data\n            row_idx = header_cell.get_celld()[0]\n            if row_idx % 2 == 0:\n                header_cell.set_facecolor('#f2f2f2')\n            else:\n                header_cell.set_facecolor('white')\n\n    # Adjust layout to avoid clipping of title\n    fig.subplots_adjust(top=0.88, bottom=0.05, left=0.02, right=0.98)\n\n    # Save to temporary file and insert into PDF\n    import tempfile\n    import os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "t_intro": "def render_t_intro(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Este relat\\u00f3rio apresenta uma an\\u00e1lise dos indicadores educacionais, abrangendo 660 alunos distribu\\u00eddos em tr\\u00eas campi. A taxa m\\u00e9dia de conclus\\u00e3o \\u00e9 de 80,2%, a taxa de coloca\\u00e7\\u00e3o profissional \\u00e9 de 72,7% e a satisfa\\u00e7\\u00e3o m\\u00e9dia \\u00e9 de 8,3. O or\\u00e7amento total investido foi de R$ 2.395.000, resultando em um custo m\\u00e9dio por aluno de R$ 3.628,79.\", x, y, w, h, title=\"Resumo Executivo\")",
+    "t_exec_synthesis": "def render_t_exec_synthesis(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Os dados indicam que o campus West se destaca com as melhores taxas de conclus\\u00e3o (84%) e coloca\\u00e7\\u00e3o (78%) no programa de Business, al\\u00e9m da maior satisfa\\u00e7\\u00e3o (8,6). O campus East apresenta desempenho s\\u00f3lido no programa de Data, com 82% de conclus\\u00e3o e 74% de coloca\\u00e7\\u00e3o. O campus Central, com menor or\\u00e7amento, registra as taxas mais baixas: 72% de conclus\\u00e3o e 63% de coloca\\u00e7\\u00e3o.\", x, y, w, h, title=\"S\\u00edntese dos Gr\\u00e1ficos\")",
+    "t_detailed_analysis": "def render_t_detailed_analysis(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"A rela\\u00e7\\u00e3o entre or\\u00e7amento e resultados mostra que o campus West, com maior investimento em instru\\u00e7\\u00e3o (R$ 710.000) e servi\\u00e7os de carreira (R$ 175.000), obt\\u00e9m os melhores indicadores no programa de Business. O campus East, com investimento intermedi\\u00e1rio, apresenta resultados consistentes. J\\u00e1 o campus Central, com or\\u00e7amento de R$ 580.000 em instru\\u00e7\\u00e3o e R$ 150.000 em servi\\u00e7os de carreira, fica aqu\\u00e9m nas m\\u00e9tricas acad\\u00eamicas. A efic\\u00e1cia do investimento varia por programa: o programa de Business no West tem o maior retorno em conclus\\u00e3o e coloca\\u00e7\\u00e3o, enquanto o programa de Design no Central mostra o menor desempenho.\", x, y, w, h, title=\"An\\u00e1lise Detalhada\")",
+    "t_conclusion": "def render_t_conclusion(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"As evid\\u00eancias sugerem que o or\\u00e7amento mais elevado no campus West est\\u00e1 associado a melhores resultados acad\\u00eamicos e profissionais. Recomenda-se alocar recursos adicionais para o campus Central, especialmente nos programas com menor desempenho, e replicar as pr\\u00e1ticas bem-sucedidas do campus West. A otimiza\\u00e7\\u00e3o do or\\u00e7amento por aluno pode ser revista com base na efic\\u00e1cia demonstrada.\", x, y, w, h, title=\"Conclus\\u00e3o e Recomenda\\u00e7\\u00f5es\")"
+  },
+  "calculated_metrics": {
+    "m_total_students": 660,
+    "m_avg_completion": 0.8016666666666666,
+    "m_avg_placement": 0.7266666666666666,
+    "m_avg_satisfaction": 8.266666666666667,
+    "m_total_budget": 2395000,
+    "m_budget_per_student": 3628.787878787879
+  },
+  "settings": {
+    "title": "Comparação de Resultados Acadêmicos e Eficácia do Orçamento por Campus e Programa",
+    "font": "Arial",
+    "font_size": 10,
+    "alignment": "J",
+    "line_height": 5,
+    "language": "Portuguese",
+    "selected_template_id": "deep_dive_two_pages"
+  },
+  "script": "import os\nos.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')\nimport pandas as pd\nimport numpy as np\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nfrom fpdf import FPDF, XPos, YPos\nimport tempfile\nimport textwrap\n\nsns.set_theme(style='whitegrid')\n\ndef _safe_pdf_text(value):\n    replacements = {\n        '\\u2013': '-', '\\u2014': '-', '\\u2015': '-',\n        '\\u2018': \"'\", '\\u2019': \"'\", '\\u201c': '\"', '\\u201d': '\"',\n        '\\u2022': '-', '\\u00a0': ' ', '\\u2026': '...'\n    }\n    text = str(value or '')\n    for source, target in replacements.items():\n        text = text.replace(source, target)\n    return text.encode('latin-1', 'replace').decode('latin-1')\n\ndef _wrap_lines(text, max_chars):\n    lines = []\n    for paragraph in str(text).splitlines() or ['']:\n        wrapped = textwrap.wrap(paragraph.strip(), width=max_chars) or ['']\n        lines.extend(wrapped)\n    return lines\n\ndef _sentence_chunks(text):\n    normalized = ' '.join(str(text).split())\n    chunks, current = [], []\n    for token in normalized.split(' '):\n        current.append(token)\n        if token.rstrip().endswith(('.', '!', '?', ';')):\n            chunks.append(' '.join(current))\n            current = []\n    if current:\n        chunks.append(' '.join(current))\n    return chunks or [normalized]\n\ndef _fit_text_to_box(text, w, h, font_size, line_height):\n    max_chars = max(14, int(w * 0.55 * (10 / max(font_size, 1))))\n    max_lines = max(1, int(h / max(line_height, 1)))\n    if len(_wrap_lines(text, max_chars)) <= max_lines:\n        return text\n    selected = []\n    for sentence in _sentence_chunks(text):\n        candidate = ' '.join(selected + [sentence]).strip()\n        if not candidate:\n            continue\n        if len(_wrap_lines(candidate, max_chars)) <= max_lines:\n            selected.append(sentence)\n        elif selected:\n            break\n        else:\n            words = sentence.split()\n            compact = []\n            for word in words:\n                candidate = ' '.join(compact + [word])\n                if len(_wrap_lines(candidate, max_chars)) > max_lines:\n                    break\n                compact.append(word)\n            selected.append(' '.join(compact))\n            break\n    fitted = ' '.join(selected).strip()\n    return fitted\n\ndef _write_report_title(pdf, title, font_family):\n    clean_title = ' '.join(_safe_pdf_text(title or 'Relatório Analítico').split())\n    for size in range(16, 10, -1):\n        max_chars = max(28, int(58 * (16 / size)))\n        lines = textwrap.wrap(clean_title, width=max_chars) or [clean_title]\n        if len(lines) <= 2:\n            pdf.set_font(font_family, 'B', size)\n            pdf.multi_cell(0, 8, '\\n'.join(lines), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')\n            return\n    pdf.set_font(font_family, 'B', 11)\n    pdf.multi_cell(0, 7, '\\n'.join(textwrap.wrap(clean_title, width=84)), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')\n\ndef render_text_block(pdf, text, x, y, w, h, title=None):\n    font_size = 10\n    line_height = 5\n    text = _safe_pdf_text(text)\n    title = _safe_pdf_text(title) if title else None\n    body_height = h\n    pdf.set_xy(x, y)\n    if title:\n        pdf.set_font('helvetica', 'B', font_size)\n        pdf.cell(w, 7, title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)\n        body_height = max(1, h - 8)\n        pdf.set_xy(x, pdf.get_y())\n    \n    fitted_text = _fit_text_to_box(text, w, body_height, font_size, line_height)\n    pdf.set_font('helvetica', '', font_size)\n    pdf.multi_cell(w, line_height, fitted_text, align='J')\n\ndef render_g_primary_chart(pdf, dataframes, x, y, w, h):\n    # Get primary dataframe (student_outcomes.xlsx)\n    df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        # Fallback: empty box with title\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"B\", 10)\n        pdf.cell(w, 10, \"Taxas de Conclusão e Colocação por Campus\", align=\"C\")\n        return\n\n    # Aggregate by campus: mean rates\n    agg = df.groupby(\"campus\", as_index=False).agg(\n        completion_rate=(\"completion_rate\", \"mean\"),\n        placement_rate=(\"placement_rate\", \"mean\")\n    )\n    # Multiply by 100 for percentage display\n    agg[\"completion_pct\"] = agg[\"completion_rate\"] * 100\n    agg[\"placement_pct\"] = agg[\"placement_rate\"] * 100\n\n    # Prepare plot\n    fig, ax = plt.subplots(figsize=(w/25.4, h/25.4))\n    campuses = agg[\"campus\"].tolist()\n    x_pos = range(len(campuses))\n    width = 0.35  # bar width\n\n    bars1 = ax.bar([p - width/2 for p in x_pos], agg[\"completion_pct\"], width,\n                   label=\"Conclusão\", color=\"#4C72B0\")\n    bars2 = ax.bar([p + width/2 for p in x_pos], agg[\"placement_pct\"], width,\n                   label=\"Colocação\", color=\"#DD8452\")\n\n    # Add value labels on bars (compact: use small font, inside if possible)\n    for bar in bars1:\n        height = bar.get_height()\n        ax.text(bar.get_x() + bar.get_width()/2., height,\n                f\"{height:.1f}%\", ha='center', va='bottom', fontsize=7)\n    for bar in bars2:\n        height = bar.get_height()\n        ax.text(bar.get_x() + bar.get_width()/2., height,\n                f\"{height:.1f}%\", ha='center', va='bottom', fontsize=7)\n\n    # Labels and ticks\n    ax.set_xticks(list(x_pos))\n    ax.set_xticklabels(campuses, fontsize=8)\n    ax.set_ylabel(\"Percentual (%)\", fontsize=8)\n    ax.set_ylim(0, 100)  # ensure headroom for labels (max < 90, so 100 is fine)\n\n    # Title\n    ax.set_title(\"Taxas de Conclusão e Colocação por Campus\", fontsize=10, pad=8)\n\n    # Legend below chart, adjust margins\n    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.22), ncol=2, frameon=False, fontsize=7)\n    fig.subplots_adjust(bottom=0.28, top=0.80)\n\n    # Save and insert\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_support_chart1(pdf, dataframes, x, y, w, h):\n    # Obtain the requested dataframe\n    df = dataframes.get('campus_budget.csv')\n    if df is None or df.empty:\n        # Fallback to first dataframe if specific one is missing\n        df = list(dataframes.values())[0]\n        if df is None or df.empty:\n            return\n\n    # Verify required columns exist\n    required_cols = ['campus', 'instruction_budget', 'career_services_budget']\n    if not all(col in df.columns for col in required_cols):\n        # Try to match columns by name similarity or use first available\n        df = df.reset_index()\n        if 'campus' not in df.columns:\n            # Attempt to find a categorical column\n            for col in df.columns:\n                if df[col].dtype == object:\n                    df = df.rename(columns={col: 'campus'})\n                    break\n        for col in ['instruction_budget', 'career_services_budget']:\n            if col not in df.columns:\n                # Fall back to first two numeric columns\n                numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns[:2]\n                if len(numeric_cols) >= 2:\n                    df[col] = df[numeric_cols[0]] if 'instruction' in col else df[numeric_cols[1]]\n    # If still missing, return gracefully\n    if 'campus' not in df.columns:\n        return\n\n    # Convert budget columns to numeric if necessary\n    instruction = pd.to_numeric(df['instruction_budget'], errors='coerce').fillna(0)\n    career = pd.to_numeric(df['career_services_budget'], errors='coerce').fillna(0)\n    campuses = df['campus'].values\n\n    # Create figure with given dimensions (mm to inches)\n    fig_width = w / 25.4\n    fig_height = h / 25.4\n    fig, ax = plt.subplots(figsize=(fig_width, fig_height))\n\n    # Plot stacked bars\n    bar_width = 0.6\n    indices = np.arange(len(campuses))\n    bars_inst = ax.bar(indices, instruction, bar_width, label='Orçamento de Instrução', color='#4C72B0')\n    bars_career = ax.bar(indices, career, bar_width, bottom=instruction, label='Orçamento de Serviços de Carreira', color='#DD8452')\n\n    # Add value labels inside each segment (if space permits)\n    for i in range(len(campuses)):\n        inst_val = instruction.values[i]\n        career_val = career.values[i]\n        # Instruction segment label (centered)\n        if inst_val > 0:\n            ax.text(indices[i], inst_val/2, f'{inst_val:,.0f}', ha='center', va='center',\n                    fontsize=6, color='white', fontweight='bold')\n        # Career segment label (centered within its box)\n        if career_val > 0:\n            ax.text(indices[i], inst_val + career_val/2, f'{career_val:,.0f}', ha='center', va='center',\n                    fontsize=6, color='white', fontweight='bold')\n\n    # Title\n    plt.title('Distribuição de Orçamento por Campus', fontsize=9, pad=8)\n\n    # X-axis labels\n    ax.set_xticks(indices)\n    ax.set_xticklabels(campuses, fontsize=7)\n\n    # Y-axis formatting\n    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))\n    ax.set_ylabel('Valor (R$)', fontsize=7)\n\n    # Legend below plot (ncol=2) – omit xlabel to avoid duplication\n    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2, frameon=False, fontsize=7)\n    fig.subplots_adjust(bottom=0.22)\n\n    # Remove top and right spines for cleaner look\n    sns.despine(ax=ax)\n\n    # Save temporary image and insert\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_support_chart2(pdf, dataframes, x, y, w, h):\n    # Access the primary dataframe by known filename\n    df = dataframes.get('student_outcomes.xlsx')\n    if df is None or df.empty:\n        return\n\n    # Required columns: program, satisfaction\n    if 'program' not in df.columns or 'satisfaction' not in df.columns:\n        return\n\n    # Aggregate mean satisfaction by program\n    program_satisfaction = df.groupby('program')['satisfaction'].mean().reset_index()\n    # Sort for consistent bar order (optional but nice)\n    program_satisfaction = program_satisfaction.sort_values('program')\n\n    programs = program_satisfaction['program'].tolist()\n    values = program_satisfaction['satisfaction'].tolist()\n\n    # Create figure with correct aspect ratio based on w and h (mm -> inches)\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4), constrained_layout=True)\n\n    # Title in Portuguese, small, with top margin\n    ax.set_title('Satisfação Média por Programa', fontsize=10, pad=8)\n\n    # Bar plot with distinct colors\n    colors = ['#4C72B0', '#DD8452', '#55A868']  # seaborn-ish\n    bars = ax.bar(programs, values, color=colors[:len(programs)], edgecolor='white', linewidth=0.5)\n\n    # Add value labels on top of bars with automatic padding\n    ax.bar_label(bars, fmt='%.1f', padding=3, fontsize=8)\n\n    # Annotations use y‑axis space – ensure headroom\n    max_val = max(values)\n    ax.set_ylim(0, max_val * 1.2)\n\n    # Remove top and right spines for cleaner look\n    ax.spines['top'].set_visible(False)\n    ax.spines['right'].set_visible(False)\n\n    # Set y‑label (short, beneath chart we may use subtitle but no)\n    ax.set_ylabel('Satisfação Média', fontsize=8)\n\n    # Rotate x‑tick labels if needed (here three short names, no rotation)\n    ax.set_xticks(range(len(programs)))\n    ax.set_xticklabels(programs, fontsize=8)\n\n    # No legend – only three bars, labels on bars suffice\n\n    # Save to temporary file and insert into pdf\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_detailed_chart(pdf, dataframes, x, y, w, h):\n    # Retrieve dataframes by filename (known from artifacts)\n    df_outcomes = dataframes.get('student_outcomes.xlsx')\n    df_budget = dataframes.get('campus_budget.csv')\n\n    # Validate presence and structure\n    if df_outcomes is None or df_budget is None:\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"I\", 8)\n        pdf.cell(w, h, \"Dados indisponíveis para a tabela detalhada.\", align='C')\n        return\n\n    # Merge on 'campus'\n    try:\n        df_merged = df_outcomes.merge(df_budget, on='campus', how='left')\n    except Exception:\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"I\", 8)\n        pdf.cell(w, h, \"Erro ao combinar bases.\", align='C')\n        return\n\n    # Check that merge resulted in expected columns\n    required_cols = ['campus', 'program', 'students', 'completion_rate',\n                     'placement_rate', 'satisfaction', 'instruction_budget',\n                     'career_services_budget']\n    missing = [col for col in required_cols if col not in df_merged.columns]\n    if missing:\n        pdf.set_xy(x, y)\n        pdf.set_font(\"Helvetica\", \"I\", 8)\n        pdf.cell(w, h, f\"Colunas ausentes: {', '.join(missing)}\", align='C')\n        return\n\n    # Prepare display data\n    display_df = df_merged[required_cols].copy()\n\n    # Format columns for Brazilian Portuguese / executive style\n    display_df['students'] = display_df['students'].astype(int)\n    display_df['completion_rate'] = (display_df['completion_rate'] * 100).round(1).astype(str) + '%'\n    display_df['placement_rate'] = (display_df['placement_rate'] * 100).round(1).astype(str) + '%'\n    display_df['satisfaction'] = display_df['satisfaction'].round(1).astype(str)\n\n    # Budget formatting: R$ with dot as thousands separator (Brazilian standard)\n    def format_budget(val):\n        s = f\"{int(val):,}\".replace(',', '.')\n        return f\"R$ {s}\"\n\n    display_df['instruction_budget'] = display_df['instruction_budget'].apply(format_budget)\n    display_df['career_services_budget'] = display_df['career_services_budget'].apply(format_budget)\n\n    # Column headers (Portuguese)\n    headers = [\n        'Campus', 'Programa', 'Alunos', 'Conclusão', 'Colocação',\n        'Satisfação', 'Orç. Instrução', 'Orç. Carreira'\n    ]\n\n    # Build table cell data (list of rows of strings)\n    cell_data = []\n    for _, row in display_df.iterrows():\n        cell_data.append([\n            row['campus'],\n            row['program'],\n            str(row['students']),\n            row['completion_rate'],\n            row['placement_rate'],\n            row['satisfaction'],\n            row['instruction_budget'],\n            row['career_services_budget']\n        ])\n\n    # Create matplotlib figure\n    fig_width = w / 25.4\n    fig_height = h / 25.4\n    fig, ax = plt.subplots(figsize=(fig_width, fig_height))\n    ax.axis('off')\n\n    # Title (inside the figure)\n    plt.title(\"Tabela Detalhada de Resultados por Campus e Programa\",\n              fontsize=9, pad=12, fontweight='bold')\n\n    # Determine appropriate font size based on available height\n    # For 7 rows (header + 6 data) we need space; scale font if h is small\n    base_font = 6.5\n    if h < 60:\n        base_font = 5.5\n    elif h < 80:\n        base_font = 6.0\n\n    # Create the table\n    table = ax.table(\n        cellText=cell_data,\n        colLabels=headers,\n        cellLoc='center',\n        loc='center',\n        colWidths=[0.12, 0.12, 0.08, 0.10, 0.10, 0.10, 0.14, 0.14]\n    )\n\n    # Style the table\n    table.auto_set_font_size(False)\n    table.set_fontsize(base_font)\n    table.scale(1, 1.35)  # increase row height for readability\n\n    # Header styling\n    for j, header_cell in enumerate(table.get_celld().values()):\n        if header_cell.get_text().get_text() in headers:\n            header_cell.set_facecolor('#2c3e50')\n            header_cell.set_text_props(color='w', fontweight='bold')\n        else:\n            # Alternate row colors for data\n            row_idx = header_cell.get_celld()[0]\n            if row_idx % 2 == 0:\n                header_cell.set_facecolor('#f2f2f2')\n            else:\n                header_cell.set_facecolor('white')\n\n    # Adjust layout to avoid clipping of title\n    fig.subplots_adjust(top=0.88, bottom=0.05, left=0.02, right=0.98)\n\n    # Save to temporary file and insert into PDF\n    import tempfile\n    import os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_t_intro(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Este relat\\u00f3rio apresenta uma an\\u00e1lise dos indicadores educacionais, abrangendo 660 alunos distribu\\u00eddos em tr\\u00eas campi. A taxa m\\u00e9dia de conclus\\u00e3o \\u00e9 de 80,2%, a taxa de coloca\\u00e7\\u00e3o profissional \\u00e9 de 72,7% e a satisfa\\u00e7\\u00e3o m\\u00e9dia \\u00e9 de 8,3. O or\\u00e7amento total investido foi de R$ 2.395.000, resultando em um custo m\\u00e9dio por aluno de R$ 3.628,79.\", x, y, w, h, title=\"Resumo Executivo\")\n\ndef render_t_exec_synthesis(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Os dados indicam que o campus West se destaca com as melhores taxas de conclus\\u00e3o (84%) e coloca\\u00e7\\u00e3o (78%) no programa de Business, al\\u00e9m da maior satisfa\\u00e7\\u00e3o (8,6). O campus East apresenta desempenho s\\u00f3lido no programa de Data, com 82% de conclus\\u00e3o e 74% de coloca\\u00e7\\u00e3o. O campus Central, com menor or\\u00e7amento, registra as taxas mais baixas: 72% de conclus\\u00e3o e 63% de coloca\\u00e7\\u00e3o.\", x, y, w, h, title=\"S\\u00edntese dos Gr\\u00e1ficos\")\n\ndef render_t_detailed_analysis(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"A rela\\u00e7\\u00e3o entre or\\u00e7amento e resultados mostra que o campus West, com maior investimento em instru\\u00e7\\u00e3o (R$ 710.000) e servi\\u00e7os de carreira (R$ 175.000), obt\\u00e9m os melhores indicadores no programa de Business. O campus East, com investimento intermedi\\u00e1rio, apresenta resultados consistentes. J\\u00e1 o campus Central, com or\\u00e7amento de R$ 580.000 em instru\\u00e7\\u00e3o e R$ 150.000 em servi\\u00e7os de carreira, fica aqu\\u00e9m nas m\\u00e9tricas acad\\u00eamicas. A efic\\u00e1cia do investimento varia por programa: o programa de Business no West tem o maior retorno em conclus\\u00e3o e coloca\\u00e7\\u00e3o, enquanto o programa de Design no Central mostra o menor desempenho.\", x, y, w, h, title=\"An\\u00e1lise Detalhada\")\n\ndef render_t_conclusion(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"As evid\\u00eancias sugerem que o or\\u00e7amento mais elevado no campus West est\\u00e1 associado a melhores resultados acad\\u00eamicos e profissionais. Recomenda-se alocar recursos adicionais para o campus Central, especialmente nos programas com menor desempenho, e replicar as pr\\u00e1ticas bem-sucedidas do campus West. A otimiza\\u00e7\\u00e3o do or\\u00e7amento por aluno pode ser revista com base na efic\\u00e1cia demonstrada.\", x, y, w, h, title=\"Conclus\\u00e3o e Recomenda\\u00e7\\u00f5es\")\n\ndef generate_report():\n    dataframes = {}\n    dataframes[\"student_outcomes.xlsx\"] = pd.read_excel(r'/home/gengar/codes/pdf-report-generator/workspace/uploads/eb47d4f7-2803-4741-b7c1-bfd2ec1417b0.xlsx')\n    dataframes[\"campus_budget.csv\"] = pd.read_csv(r'/home/gengar/codes/pdf-report-generator/workspace/uploads/0712aa4e-740b-4b47-94d4-6a8971090442.csv')\n    pdf = FPDF()\n    pdf.set_auto_page_break(auto=False)\n    current_page = 0\n    def ensure_page(page):\n        nonlocal current_page\n        while current_page < page:\n            pdf.add_page()\n            current_page += 1\n            if current_page == 1:\n                _write_report_title(pdf, \"Compara\\u00e7\\u00e3o de Resultados Acad\\u00eamicos e Efic\\u00e1cia do Or\\u00e7amento por Campus e Programa\", 'helvetica')\n                pdf.ln(3)\n    ensure_page(1)\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_t_intro(pdf, dataframes, 10, 30, 190, 35, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_t_intro(pdf, dataframes, 10, 30, 190, 35)\n        except Exception as e: \n            print(f'Erro no componente t_intro: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente t_intro: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_primary_chart(pdf, dataframes, 10, 75, 190, 95, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_primary_chart(pdf, dataframes, 10, 75, 190, 95)\n        except Exception as e: \n            print(f'Erro no componente g_primary_chart: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_primary_chart: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_t_exec_synthesis(pdf, dataframes, 10, 180, 190, 45, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_t_exec_synthesis(pdf, dataframes, 10, 180, 190, 45)\n        except Exception as e: \n            print(f'Erro no componente t_exec_synthesis: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente t_exec_synthesis: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_support_chart1(pdf, dataframes, 10, 235, 90, 50, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_support_chart1(pdf, dataframes, 10, 235, 90, 50)\n        except Exception as e: \n            print(f'Erro no componente g_support_chart1: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_support_chart1: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_support_chart2(pdf, dataframes, 110, 235, 90, 50, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_support_chart2(pdf, dataframes, 110, 235, 90, 50)\n        except Exception as e: \n            print(f'Erro no componente g_support_chart2: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_support_chart2: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(2)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_t_detailed_analysis(pdf, dataframes, 10, 30, 90, 160, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_t_detailed_analysis(pdf, dataframes, 10, 30, 90, 160)\n        except Exception as e: \n            print(f'Erro no componente t_detailed_analysis: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente t_detailed_analysis: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(2)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_detailed_chart(pdf, dataframes, 110, 30, 90, 110, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_detailed_chart(pdf, dataframes, 110, 30, 90, 110)\n        except Exception as e: \n            print(f'Erro no componente g_detailed_chart: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_detailed_chart: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(2)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_t_conclusion(pdf, dataframes, 10, 200, 190, 85, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_t_conclusion(pdf, dataframes, 10, 200, 190, 85)\n        except Exception as e: \n            print(f'Erro no componente t_conclusion: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente t_conclusion: {e}')\n        import traceback; traceback.print_exc()\n    pdf.output(r'/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-education_outcomes-ca1f6b6b.pdf')\n\nif __name__ == '__main__':\n    generate_report()",
+  "script_path": "workspace/scripts/canonical-education_outcomes-ca1f6b6b.py",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-education_outcomes-ca1f6b6b.pdf",
+  "provider": "deepseek",
+  "model_name": "deepseek-v4-flash",
+  "data_filter": {
+    "needs_filter": false,
+    "description": "",
+    "code": ""
+  },
+  "pdf_version": 1,
+  "retry_count": 0,
+  "explore_history": []
+}

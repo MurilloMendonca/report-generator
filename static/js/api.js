@@ -47,6 +47,23 @@ const API = {
         return await res.json();
     },
 
+    async getFileBlob(jobId, fileIndex, mode = 'preview') {
+        const res = await fetch(`/api/sessions/${jobId}/files/${fileIndex}/${mode}`, {
+            headers: this.authHeaders()
+        });
+        if (!res.ok) throw new Error('Could not load file');
+        return await res.blob();
+    },
+
+    async deleteFile(jobId, fileIndex) {
+        const res = await fetch(`/api/sessions/${jobId}/files/${fileIndex}`, {
+            method: 'DELETE',
+            headers: this.authHeaders()
+        });
+        if (!res.ok) throw new Error('Could not delete file');
+        return await res.json();
+    },
+
     async sendChat(jobId, prompt) {
         const res = await fetch(`/api/sessions/${jobId}/chat`, { 
             method: 'POST', 
@@ -80,6 +97,16 @@ const API = {
             headers: this.authHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify(settings)
         });
+        return await res.json();
+    },
+
+    async regenerate(jobId, scope, settings = null) {
+        const res = await fetch(`/api/sessions/${jobId}/regenerate`, {
+            method: 'POST',
+            headers: this.authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ scope, settings })
+        });
+        if (!res.ok) throw new Error('Could not update report');
         return await res.json();
     },
 

@@ -1,0 +1,262 @@
+{
+  "case_id": "education_outcomes",
+  "job_id": "canonical-education_outcomes-ca1f6b6b",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-education_outcomes-ca1f6b6b.pdf",
+  "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780259993/education_outcomes",
+  "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/education_outcomes__canonical-education_outcomes-ca1f6b6b.pdf",
+  "passed": true,
+  "checks": [
+    {
+      "name": "pdf_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-education_outcomes-ca1f6b6b.pdf"
+    },
+    {
+      "name": "pdf_size_gt_20kb",
+      "passed": true,
+      "detail": 161275
+    },
+    {
+      "name": "pdf_pages_match_template",
+      "passed": true,
+      "detail": 3
+    },
+    {
+      "name": "status_completed",
+      "passed": true,
+      "detail": "Relatório concluído em 1.7s"
+    },
+    {
+      "name": "has_title",
+      "passed": true,
+      "detail": "Comparação de Resultados Acadêmicos e Eficácia do Orçamento por Campus e Programa"
+    },
+    {
+      "name": "has_artifacts",
+      "passed": true,
+      "detail": 14
+    },
+    {
+      "name": "has_template",
+      "passed": true,
+      "detail": 8
+    },
+    {
+      "name": "template_in_bounds",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_intro",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_primary_chart",
+          "page": 1,
+          "x": 10,
+          "y": 75,
+          "w": 190,
+          "h": 95
+        },
+        {
+          "id": "t_exec_synthesis",
+          "page": 1,
+          "x": 10,
+          "y": 180,
+          "w": 190,
+          "h": 45
+        },
+        {
+          "id": "g_support_chart1",
+          "page": 1,
+          "x": 10,
+          "y": 235,
+          "w": 90,
+          "h": 50
+        },
+        {
+          "id": "g_support_chart2",
+          "page": 1,
+          "x": 110,
+          "y": 235,
+          "w": 90,
+          "h": 50
+        },
+        {
+          "id": "t_detailed_analysis",
+          "page": 2,
+          "x": 10,
+          "y": 30,
+          "w": 90,
+          "h": 160
+        },
+        {
+          "id": "g_detailed_chart",
+          "page": 2,
+          "x": 110,
+          "y": 30,
+          "w": 90,
+          "h": 110
+        },
+        {
+          "id": "t_conclusion",
+          "page": 2,
+          "x": 10,
+          "y": 200,
+          "w": 190,
+          "h": 85
+        }
+      ]
+    },
+    {
+      "name": "template_no_overlap",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_intro",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_primary_chart",
+          "page": 1,
+          "x": 10,
+          "y": 75,
+          "w": 190,
+          "h": 95
+        },
+        {
+          "id": "t_exec_synthesis",
+          "page": 1,
+          "x": 10,
+          "y": 180,
+          "w": 190,
+          "h": 45
+        },
+        {
+          "id": "g_support_chart1",
+          "page": 1,
+          "x": 10,
+          "y": 235,
+          "w": 90,
+          "h": 50
+        },
+        {
+          "id": "g_support_chart2",
+          "page": 1,
+          "x": 110,
+          "y": 235,
+          "w": 90,
+          "h": 50
+        },
+        {
+          "id": "t_detailed_analysis",
+          "page": 2,
+          "x": 10,
+          "y": 30,
+          "w": 90,
+          "h": 160
+        },
+        {
+          "id": "g_detailed_chart",
+          "page": 2,
+          "x": 110,
+          "y": 30,
+          "w": 90,
+          "h": 110
+        },
+        {
+          "id": "t_conclusion",
+          "page": 2,
+          "x": 10,
+          "y": 200,
+          "w": 190,
+          "h": 85
+        }
+      ]
+    },
+    {
+      "name": "has_non_na_metrics",
+      "passed": true,
+      "detail": {
+        "m_total_students": 660,
+        "m_avg_completion": 0.8016666666666666,
+        "m_avg_placement": 0.7266666666666666,
+        "m_avg_satisfaction": 8.266666666666667,
+        "m_total_budget": 2395000,
+        "m_budget_per_student": 3628.787878787879
+      }
+    },
+    {
+      "name": "chart_annotations_do_not_overlap_legends",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "metadata_column_campus",
+      "passed": true,
+      "detail": "campus"
+    },
+    {
+      "name": "metadata_column_program",
+      "passed": true,
+      "detail": "program"
+    },
+    {
+      "name": "metadata_column_completion_rate",
+      "passed": true,
+      "detail": "completion_rate"
+    },
+    {
+      "name": "metadata_column_placement_rate",
+      "passed": true,
+      "detail": "placement_rate"
+    },
+    {
+      "name": "pdf_text_min_chars",
+      "passed": true,
+      "detail": 1874
+    },
+    {
+      "name": "pdf_text_no_cut_ellipsis",
+      "passed": true,
+      "detail": "ok"
+    },
+    {
+      "name": "pdf_text_title_present",
+      "passed": true,
+      "detail": "Comparação de Resultados Acadêmicos e Eficácia do Orçamento por Campus e Programa"
+    },
+    {
+      "name": "page_1_png_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780259993/education_outcomes/page-1.png"
+    },
+    {
+      "name": "page_1_png_size_gt_10kb",
+      "passed": true,
+      "detail": 205122
+    },
+    {
+      "name": "report_keyword_campus",
+      "passed": true,
+      "detail": "campus"
+    },
+    {
+      "name": "report_keyword_completion",
+      "passed": true,
+      "detail": "completion"
+    },
+    {
+      "name": "report_keyword_placement",
+      "passed": true,
+      "detail": "placement"
+    }
+  ]
+}

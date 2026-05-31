@@ -56,3 +56,29 @@ The runner validates:
 - expected report keywords appear in generated script or metadata
 
 Results are saved to `tests/canonical/results/`.
+
+Each normal run now creates a timestamped artifact folder:
+
+```text
+tests/canonical/results/{timestamp}/{case_id}/
+```
+
+Each case folder contains:
+
+- `session.json`
+- `report.pdf`
+- `page-1.png`
+- `pdftotext.txt`
+- `checks.json`
+
+For easier manual review, every generated canonical PDF is also copied to:
+
+```text
+tests/canonical/generated_pdfs/
+```
+
+Skip artifact capture when needed:
+
+```bash
+venv/bin/python tests/canonical/run_canonical_sessions.py --no-save-artifacts
+```

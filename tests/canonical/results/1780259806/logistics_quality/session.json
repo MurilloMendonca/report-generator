@@ -1,0 +1,593 @@
+{
+  "schema_version": 1,
+  "job_id": "canonical-logistics_quality-04942744",
+  "created_at": "2026-05-31T20:36:46.901748+00:00",
+  "updated_at": "2026-05-31T20:39:09.715642+00:00",
+  "status": "Relatório concluído em 2.7s",
+  "logs": [
+    "Canonical test: Logistics quality and cost",
+    "[17:36:46] Planejando indicadores (Metric, Graphic, Text) - T1...",
+    "[17:37:00] Gerando título do relatório...",
+    "[17:37:25] Calculando métrica: Custo total de transporte...",
+    "[17:37:28] Calculando métrica: Percentual médio de atraso...",
+    "[17:37:32] Calculando métrica: Total de incidentes registrados...",
+    "[17:37:36] Aplicando template de layout: Dashboard quatro quadrantes...",
+    "[17:37:36] Gerando gráfico: Custo total por transportadora...",
+    "[17:37:47] Gerando gráfico: Percentual médio de atraso por armazém...",
+    "[17:37:59] Gerando gráfico: Distribuição de incidentes por tipo...",
+    "[17:38:08] Gerando gráfico: Relação entre danos e custo por transportadora...",
+    "[17:38:58] Gerando narrativas consistentes (2)...",
+    "[17:39:07] Montando script final modular...",
+    "[17:39:07] Renderizando PDF (Tentativa 1/5)...",
+    "[17:39:09] Relatório concluído em 2.7s"
+  ],
+  "files": [
+    {
+      "original_filename": "shipment_quality.csv",
+      "path": "workspace/uploads/fe51d234-c65b-47e0-b6ff-3d43c231647e.csv",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "shipment_quality.csv",
+        "shape": {
+          "rows": 6,
+          "columns": 7
+        },
+        "columns": [
+          {
+            "name": "week",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "warehouse",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "carrier",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "shipments",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 434.1666666666667,
+              "min": 310.0,
+              "max": 545.0
+            }
+          },
+          {
+            "name": "late_pct",
+            "type": "float64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 4.800000000000001,
+              "min": 2.1,
+              "max": 8.4
+            }
+          },
+          {
+            "name": "damage_pct",
+            "type": "float64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 0.9500000000000001,
+              "min": 0.5,
+              "max": 1.7
+            }
+          },
+          {
+            "name": "cost",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 29883.333333333332,
+              "min": 24100.0,
+              "max": 36500.0
+            }
+          }
+        ],
+        "sample": [
+          {
+            "week": "2026-W01",
+            "warehouse": "A",
+            "carrier": "FastShip",
+            "shipments": 520,
+            "late_pct": 4.2,
+            "damage_pct": 0.8,
+            "cost": 28400
+          },
+          {
+            "week": "2026-W01",
+            "warehouse": "B",
+            "carrier": "RoadMax",
+            "shipments": 430,
+            "late_pct": 7.9,
+            "damage_pct": 1.4,
+            "cost": 24100
+          },
+          {
+            "week": "2026-W02",
+            "warehouse": "A",
+            "carrier": "FastShip",
+            "shipments": 545,
+            "late_pct": 3.8,
+            "damage_pct": 0.7,
+            "cost": 29200
+          },
+          {
+            "week": "2026-W02",
+            "warehouse": "C",
+            "carrier": "AirSwift",
+            "shipments": 310,
+            "late_pct": 2.1,
+            "damage_pct": 0.5,
+            "cost": 35100
+          },
+          {
+            "week": "2026-W03",
+            "warehouse": "B",
+            "carrier": "RoadMax",
+            "shipments": 470,
+            "late_pct": 8.4,
+            "damage_pct": 1.7,
+            "cost": 26000
+          }
+        ]
+      },
+      "raw_artifact": {
+        "filename": "shipment_quality.csv",
+        "shape": {
+          "rows": 6,
+          "columns": 7
+        },
+        "columns": [
+          {
+            "name": "week",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "warehouse",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "carrier",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "shipments",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 434.1666666666667,
+              "min": 310.0,
+              "max": 545.0
+            }
+          },
+          {
+            "name": "late_pct",
+            "type": "float64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 4.800000000000001,
+              "min": 2.1,
+              "max": 8.4
+            }
+          },
+          {
+            "name": "damage_pct",
+            "type": "float64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 0.9500000000000001,
+              "min": 0.5,
+              "max": 1.7
+            }
+          },
+          {
+            "name": "cost",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 6,
+            "stats": {
+              "mean": 29883.333333333332,
+              "min": 24100.0,
+              "max": 36500.0
+            }
+          }
+        ],
+        "sample": [
+          {
+            "week": "2026-W01",
+            "warehouse": "A",
+            "carrier": "FastShip",
+            "shipments": 520,
+            "late_pct": 4.2,
+            "damage_pct": 0.8,
+            "cost": 28400
+          },
+          {
+            "week": "2026-W01",
+            "warehouse": "B",
+            "carrier": "RoadMax",
+            "shipments": 430,
+            "late_pct": 7.9,
+            "damage_pct": 1.4,
+            "cost": 24100
+          },
+          {
+            "week": "2026-W02",
+            "warehouse": "A",
+            "carrier": "FastShip",
+            "shipments": 545,
+            "late_pct": 3.8,
+            "damage_pct": 0.7,
+            "cost": 29200
+          },
+          {
+            "week": "2026-W02",
+            "warehouse": "C",
+            "carrier": "AirSwift",
+            "shipments": 310,
+            "late_pct": 2.1,
+            "damage_pct": 0.5,
+            "cost": 35100
+          },
+          {
+            "week": "2026-W03",
+            "warehouse": "B",
+            "carrier": "RoadMax",
+            "shipments": 470,
+            "late_pct": 8.4,
+            "damage_pct": 1.7,
+            "cost": 26000
+          }
+        ]
+      },
+      "filtered_path": null,
+      "filter_description": null
+    },
+    {
+      "original_filename": "incident_log.xlsx",
+      "path": "workspace/uploads/0ded6359-ad5e-47e4-a1b7-e2275c80ed53.xlsx",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "incident_log.xlsx",
+        "shape": {
+          "rows": 4,
+          "columns": 3
+        },
+        "columns": [
+          {
+            "name": "warehouse",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "incident_type",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 4
+          },
+          {
+            "name": "count",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 4,
+            "stats": {
+              "mean": 16.25,
+              "min": 8.0,
+              "max": 31.0
+            }
+          }
+        ],
+        "sample": [
+          {
+            "warehouse": "A",
+            "incident_type": "Picking error",
+            "count": 12
+          },
+          {
+            "warehouse": "B",
+            "incident_type": "Late pickup",
+            "count": 31
+          },
+          {
+            "warehouse": "B",
+            "incident_type": "Damaged parcel",
+            "count": 14
+          },
+          {
+            "warehouse": "C",
+            "incident_type": "Address issue",
+            "count": 8
+          }
+        ]
+      },
+      "raw_artifact": {
+        "filename": "incident_log.xlsx",
+        "shape": {
+          "rows": 4,
+          "columns": 3
+        },
+        "columns": [
+          {
+            "name": "warehouse",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 3
+          },
+          {
+            "name": "incident_type",
+            "type": "str",
+            "null_count": 0,
+            "unique_values": 4
+          },
+          {
+            "name": "count",
+            "type": "int64",
+            "null_count": 0,
+            "unique_values": 4,
+            "stats": {
+              "mean": 16.25,
+              "min": 8.0,
+              "max": 31.0
+            }
+          }
+        ],
+        "sample": [
+          {
+            "warehouse": "A",
+            "incident_type": "Picking error",
+            "count": 12
+          },
+          {
+            "warehouse": "B",
+            "incident_type": "Late pickup",
+            "count": 31
+          },
+          {
+            "warehouse": "B",
+            "incident_type": "Damaged parcel",
+            "count": 14
+          },
+          {
+            "warehouse": "C",
+            "incident_type": "Address issue",
+            "count": 8
+          }
+        ]
+      },
+      "filtered_path": null,
+      "filter_description": null
+    },
+    {
+      "original_filename": "operations_brief.pdf",
+      "path": "workspace/uploads/099d411e-e240-4b6d-b5a6-6058af546c75.pdf",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "operations_brief.pdf",
+        "type": "pdf",
+        "size_bytes": 1266,
+        "pages": 1,
+        "text_preview": [
+          "D:20260524202843Z"
+        ],
+        "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe."
+      },
+      "raw_artifact": {
+        "filename": "operations_brief.pdf",
+        "type": "pdf",
+        "size_bytes": 1266,
+        "pages": 1,
+        "text_preview": [
+          "D:20260524202843Z"
+        ],
+        "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe."
+      },
+      "filtered_path": null,
+      "filter_description": null
+    }
+  ],
+  "initial_prompt": "Build a logistics performance report that compares cost, late delivery rate, damage rate, and incident concentration by warehouse and carrier.",
+  "current_goal": "Build a logistics performance report that compares cost, late delivery rate, damage rate, and incident concentration by warehouse and carrier.",
+  "is_exploratory": false,
+  "refinement_history": [],
+  "artifacts": [
+    {
+      "id": "m_custo_total",
+      "indicator": "Custo total de transporte",
+      "type": "metric",
+      "reason": "Somar o custo de todas as remessas para usar no resumo e na conclusão.",
+      "columns": [
+        "shipment_quality.csv:cost"
+      ]
+    },
+    {
+      "id": "m_avg_atraso",
+      "indicator": "Percentual médio de atraso",
+      "type": "metric",
+      "reason": "Calcular a média da coluna late_pct para comparar desempenho entre armazéns e transportadoras.",
+      "columns": [
+        "shipment_quality.csv:late_pct"
+      ]
+    },
+    {
+      "id": "m_total_incidentes",
+      "indicator": "Total de incidentes registrados",
+      "type": "metric",
+      "reason": "Somar a contagem de incidentes para contextualizar a qualidade operacional.",
+      "columns": [
+        "incident_log.xlsx:count"
+      ]
+    },
+    {
+      "id": "t_resumo",
+      "indicator": "Resumo executivo – desempenho logístico",
+      "type": "text",
+      "sub_type": "kpi_resumo",
+      "reason": "Texto introdutório que apresenta o custo total, média de atraso e total de incidentes, contextualizando o relatório.",
+      "columns": []
+    },
+    {
+      "id": "t_conclusao",
+      "indicator": "Conclusão e recomendações",
+      "type": "text",
+      "sub_type": "kpi_conclusao",
+      "reason": "Síntese final referenciando as métricas calculadas para orientar decisões sobre transportadoras e armazéns.",
+      "columns": []
+    },
+    {
+      "id": "g_custo_por_transportadora",
+      "indicator": "Custo total por transportadora",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Gráfico de barras comparando o custo total de cada transportadora (FastShip, RoadMax, AirSwift). É a comparação mais importante para o quadrante superior esquerdo.",
+      "columns": [
+        "shipment_quality.csv:carrier",
+        "shipment_quality.csv:cost"
+      ]
+    },
+    {
+      "id": "g_atraso_por_armazem",
+      "indicator": "Percentual médio de atraso por armazém",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Gráfico de barras mostrando a média de late_pct por armazém (A, B, C). Permite identificar ranking de pontualidade. Ideal para o quadrante superior direito.",
+      "columns": [
+        "shipment_quality.csv:warehouse",
+        "shipment_quality.csv:late_pct"
+      ]
+    },
+    {
+      "id": "g_distribuicao_incidentes",
+      "indicator": "Distribuição de incidentes por tipo",
+      "type": "graphic",
+      "sub_type": "pie",
+      "reason": "Gráfico de pizza com a contagem de cada tipo de incidente (Picking error, Late pickup, Damaged parcel, Address issue). Útil para o quadrante inferior esquerdo (distribuição). Atenção: apenas 4 categorias, baixa cardinalidade.",
+      "columns": [
+        "incident_log.xlsx:incident_type",
+        "incident_log.xlsx:count"
+      ]
+    },
+    {
+      "id": "g_danos_vs_custo",
+      "indicator": "Relação entre danos e custo por transportadora",
+      "type": "graphic",
+      "sub_type": "scatter",
+      "reason": "Gráfico de dispersão relacionando damage_pct e cost, diferenciando por carrier. Explora correlação entre qualidade e custo. Quadrante inferior direito.",
+      "columns": [
+        "shipment_quality.csv:damage_pct",
+        "shipment_quality.csv:cost",
+        "shipment_quality.csv:carrier"
+      ]
+    }
+  ],
+  "template": [
+    {
+      "id": "t_resumo",
+      "page": 1,
+      "x": 10,
+      "y": 30,
+      "w": 190,
+      "h": 30
+    },
+    {
+      "id": "g_custo_por_transportadora",
+      "page": 1,
+      "x": 10,
+      "y": 70,
+      "w": 90,
+      "h": 65
+    },
+    {
+      "id": "g_atraso_por_armazem",
+      "page": 1,
+      "x": 110,
+      "y": 70,
+      "w": 90,
+      "h": 65
+    },
+    {
+      "id": "g_distribuicao_incidentes",
+      "page": 1,
+      "x": 10,
+      "y": 145,
+      "w": 90,
+      "h": 65
+    },
+    {
+      "id": "g_danos_vs_custo",
+      "page": 1,
+      "x": 110,
+      "y": 145,
+      "w": 90,
+      "h": 65
+    },
+    {
+      "id": "t_conclusao",
+      "page": 1,
+      "x": 10,
+      "y": 220,
+      "w": 190,
+      "h": 65
+    }
+  ],
+  "components": {
+    "g_custo_por_transportadora": "def render_g_custo_por_transportadora(pdf, dataframes, x, y, w, h):\n    # Input validation\n    df = dataframes.get('shipment_quality.csv')\n    if df is None:\n        # Fallback to first dataframe if explicit name not found\n        if dataframes:\n            df = list(dataframes.values())[0]\n        else:\n            return  # No data available\n\n    if df.empty or 'carrier' not in df.columns or 'cost' not in df.columns:\n        # Cannot render, just draw empty placeholder\n        return\n\n    # Aggregate total cost per carrier\n    cost_per_carrier = df.groupby('carrier', observed=True)['cost'].sum().sort_values(ascending=False)\n\n    # Colors for clarity\n    bar_colors = ['#4C72B0', '#55A868', '#C44E52']  # blue, green, red\n\n    # Create matplotlib figure\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))\n\n    # Bar positions\n    categories = cost_per_carrier.index.tolist()\n    values = cost_per_carrier.values.tolist()\n\n    bars = ax.bar(categories, values, color=bar_colors[:len(categories)], edgecolor='white', linewidth=0.5)\n\n    # Add data labels with percent headroom\n    max_val = max(values)\n    ax.set_ylim(0, max_val * 1.20)  # 20% room for labels\n\n    for bar, val in zip(bars, values):\n        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max_val * 0.02,\n                f'R$ {val:,.0f}', ha='center', va='bottom', fontsize=8, fontweight='bold', color='#333333')\n\n    # Titles and labels\n    ax.set_title('Custo Total por Transportadora', fontsize=10, fontweight='bold', pad=8)\n    ax.set_ylabel('Custo Total (R$)', fontsize=8)\n    ax.set_xlabel('')  # Omit x-axis label, carrier names are enough\n\n    # Finish axis styling\n    ax.spines['top'].set_visible(False)\n    ax.spines['right'].set_visible(False)\n    ax.tick_params(axis='x', labelsize=8)\n    ax.tick_params(axis='y', labelsize=7)\n\n    # Adjust layout to fit title and labels inside the box\n    fig.subplots_adjust(top=0.88, bottom=0.12, left=0.15, right=0.95)\n\n    # Save to temporary file\n    import tempfile\n    import os\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_atraso_por_armazem": "def render_g_atraso_por_armazem(pdf, dataframes, x, y, w, h):\n    # Retrieve the shipment quality dataframe\n    df = dataframes.get('shipment_quality.csv')\n    if df is None or df.empty:\n        return\n\n    # Check required columns\n    if 'warehouse' not in df.columns or 'late_pct' not in df.columns:\n        return\n\n    # Compute mean late_pct per warehouse, sort descending (worst first)\n    avg_late = df.groupby('warehouse', sort=False)['late_pct'].mean().reset_index()\n    avg_late = avg_late.sort_values('late_pct', ascending=False).reset_index(drop=True)\n\n    # Prepare data for plotting\n    warehouses = avg_late['warehouse'].tolist()\n    values = avg_late['late_pct'].tolist()\n\n    # Create figure sized according to component dimensions (mm -> inches)\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4), constrained_layout=True)\n\n    # Bar chart\n    colors = ['#e74c3c', '#f39c12', '#27ae60']  # red, orange, green for ranking\n    bars = ax.bar(warehouses, values, color=colors[:len(warehouses)], edgecolor='white', linewidth=0.8)\n\n    # Add value labels above bars\n    for bar, val in zip(bars, values):\n        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.1,\n                f'{val:.1f}%', ha='center', va='bottom', fontsize=9, fontweight='bold')\n\n    # Overall average line (from calculated metric m_avg_atraso)\n    overall_avg = 4.8  # from metrics\n    ax.axhline(y=overall_avg, color='gray', linestyle='--', linewidth=1, alpha=0.6)\n    ax.text(len(warehouses) - 0.3, overall_avg + 0.2, f'Média geral: {overall_avg:.1f}%',\n            fontsize=7, color='gray', ha='right', va='bottom', style='italic')\n\n    # Labels and title\n    ax.set_xlabel('')\n    ax.set_ylabel('Percentual médio de atraso (%)', fontsize=9)\n    ax.set_title('Percentual médio de atraso por armazém', fontsize=11, fontweight='bold', pad=8)\n\n    # Formatting\n    ax.set_ylim(0, max(values) * 1.25)  # headroom for labels\n    ax.tick_params(axis='both', labelsize=8)\n    ax.grid(axis='y', linestyle='--', alpha=0.3)\n\n    # Remove top/right spines\n    for spine in ['top', 'right']:\n        ax.spines[spine].set_visible(False)\n\n    # Save to temporary file and insert into PDF\n    import tempfile\n    import os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_distribuicao_incidentes": "def render_g_distribuicao_incidentes(pdf, dataframes, x, y, w, h):\n    # Access the incident log dataframe\n    df = dataframes.get('incident_log.xlsx')\n    if df is None or df.empty:\n        return\n\n    # Group by incident_type and sum counts\n    grouped = df.groupby('incident_type')['count'].sum().sort_values(ascending=False)\n    labels = grouped.index.tolist()\n    values = grouped.values.tolist()\n    total = sum(values)  # should match m_total_incidentes\n\n    # Create pie chart\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))\n    wedges, texts, autotexts = ax.pie(\n        values,\n        labels=None,  # we will use legend below for compactness\n        autopct='%1.1f%%',\n        startangle=90,\n        colors=['#66b3ff', '#ff9999', '#ffcc99', '#99ff99'],\n        textprops={'fontsize': 8}\n    )\n\n    # Legend outside, below the pie\n    # Since only 4 categories, legend with 2 columns is fine\n    legend_labels = [f'{l} ({v})' for l, v in zip(labels, values)]\n    ax.legend(\n        wedges, legend_labels,\n        title='Tipo de Incidente',\n        loc='upper center',\n        bbox_to_anchor=(0.5, -0.15),\n        ncol=2,\n        frameon=False,\n        fontsize=7\n    )\n\n    # Title\n    plt.title('Distribuição de Incidentes por Tipo', fontsize=10, pad=8)\n\n    # Adjust layout to make room for legend\n    fig.subplots_adjust(bottom=0.25)\n\n    # Save as temporary image and insert\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_danos_vs_custo": "def render_g_danos_vs_custo(pdf, dataframes, x, y, w, h):\n    # Use the primary dataset (shipment_quality.csv)\n    df = next(iter(dataframes.values()))\n    if df is None or df.empty:\n        return\n\n    # Create figure with exact dimensions (mm -> inches)\n    fig, ax = plt.subplots(1, 1, figsize=(w / 25.4, h / 25.4))\n    fig.subplots_adjust(right=0.78)  # reserve space for external legend\n\n    # Color palette for up to 3 carriers\n    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']\n    carriers = df['carrier'].unique()\n\n    for i, carrier in enumerate(carriers):\n        subset = df[df['carrier'] == carrier]\n        ax.scatter(subset['cost'], subset['damage_pct'],\n                   label=carrier, color=colors[i % len(colors)],\n                   s=50, alpha=0.8, edgecolor='white', linewidth=0.5)\n\n    # Axes labels and title\n    ax.set_xlabel('Custo ($)', fontsize=8)\n    ax.set_ylabel('Danos (%)', fontsize=8)\n    ax.set_title('Relação entre Danos e Custo por Transportadora', fontsize=9, pad=8)\n    ax.tick_params(labelsize=7)\n\n    # Legend outside the plotting area (right side)\n    ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1),\n              frameon=False, fontsize=7, title='Transportadora', title_fontsize=7)\n\n    # Save as temporary PNG and insert into PDF\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "t_resumo": "def render_t_resumo(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"O per\\u00edodo analisado registrou um custo log\\u00edstico total de R$ 179.300, taxa m\\u00e9dia de atraso de 4,8% e 65 incidentes operacionais. Esses n\\u00fameros indicam a necessidade de aprimoramento nos processos de transporte e armazenagem, conforme detalhado neste relat\\u00f3rio.\", x, y, w, h, title=\"Resumo executivo \\u2013 desempenho log\\u00edstico\")",
+    "t_conclusao": "def render_t_conclusao(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Os dados apontam que a transportadora RoadMax, com atraso m\\u00e9dio de 8,2%, e o armaz\\u00e9m B, respons\\u00e1vel por 69% dos incidentes (principalmente atrasos e avarias), s\\u00e3o os principais pontos de melhoria. Recomenda-se renegociar contratos com a RoadMax e implementar auditorias no armaz\\u00e9m B, visando reduzir o custo total e elevar a qualidade do servi\\u00e7o.\", x, y, w, h, title=\"Conclus\\u00e3o e recomenda\\u00e7\\u00f5es\")"
+  },
+  "calculated_metrics": {
+    "m_custo_total": 179300.0,
+    "m_avg_atraso": 4.800000000000001,
+    "m_total_incidentes": 65
+  },
+  "settings": {
+    "title": "Desempenho Logístico: Custo, Atraso, Danos e Incidentes por Armazém e Transp.",
+    "font": "Arial",
+    "font_size": 10,
+    "alignment": "J",
+    "line_height": 5,
+    "language": "Portuguese",
+    "selected_template_id": "four_quadrant_dashboard"
+  },
+  "script": "import os\nos.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')\nimport pandas as pd\nimport numpy as np\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nfrom fpdf import FPDF, XPos, YPos\nimport tempfile\nimport textwrap\n\nsns.set_theme(style='whitegrid')\n\ndef _safe_pdf_text(value):\n    replacements = {\n        '\\u2013': '-', '\\u2014': '-', '\\u2015': '-',\n        '\\u2018': \"'\", '\\u2019': \"'\", '\\u201c': '\"', '\\u201d': '\"',\n        '\\u2022': '-', '\\u00a0': ' ', '\\u2026': '...'\n    }\n    text = str(value or '')\n    for source, target in replacements.items():\n        text = text.replace(source, target)\n    return text.encode('latin-1', 'replace').decode('latin-1')\n\ndef _wrap_lines(text, max_chars):\n    lines = []\n    for paragraph in str(text).splitlines() or ['']:\n        wrapped = textwrap.wrap(paragraph.strip(), width=max_chars) or ['']\n        lines.extend(wrapped)\n    return lines\n\ndef _sentence_chunks(text):\n    normalized = ' '.join(str(text).split())\n    chunks, current = [], []\n    for token in normalized.split(' '):\n        current.append(token)\n        if token.rstrip().endswith(('.', '!', '?', ';')):\n            chunks.append(' '.join(current))\n            current = []\n    if current:\n        chunks.append(' '.join(current))\n    return chunks or [normalized]\n\ndef _fit_text_to_box(text, w, h, font_size, line_height):\n    max_chars = max(14, int(w * 0.55 * (10 / max(font_size, 1))))\n    max_lines = max(1, int(h / max(line_height, 1)))\n    if len(_wrap_lines(text, max_chars)) <= max_lines:\n        return text\n    selected = []\n    for sentence in _sentence_chunks(text):\n        candidate = ' '.join(selected + [sentence]).strip()\n        if not candidate:\n            continue\n        if len(_wrap_lines(candidate, max_chars)) <= max_lines:\n            selected.append(sentence)\n        elif selected:\n            break\n        else:\n            words = sentence.split()\n            compact = []\n            for word in words:\n                candidate = ' '.join(compact + [word])\n                if len(_wrap_lines(candidate, max_chars)) > max_lines:\n                    break\n                compact.append(word)\n            selected.append(' '.join(compact))\n            break\n    fitted = ' '.join(selected).strip()\n    return fitted\n\ndef _write_report_title(pdf, title, font_family):\n    clean_title = ' '.join(_safe_pdf_text(title or 'Relatório Analítico').split())\n    for size in range(16, 10, -1):\n        max_chars = max(28, int(58 * (16 / size)))\n        lines = textwrap.wrap(clean_title, width=max_chars) or [clean_title]\n        if len(lines) <= 2:\n            pdf.set_font(font_family, 'B', size)\n            pdf.multi_cell(0, 8, '\\n'.join(lines), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')\n            return\n    pdf.set_font(font_family, 'B', 11)\n    pdf.multi_cell(0, 7, '\\n'.join(textwrap.wrap(clean_title, width=84)), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')\n\ndef render_text_block(pdf, text, x, y, w, h, title=None):\n    font_size = 10\n    line_height = 5\n    text = _safe_pdf_text(text)\n    title = _safe_pdf_text(title) if title else None\n    body_height = h\n    pdf.set_xy(x, y)\n    if title:\n        pdf.set_font('helvetica', 'B', font_size)\n        pdf.cell(w, 7, title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)\n        body_height = max(1, h - 8)\n        pdf.set_xy(x, pdf.get_y())\n    \n    fitted_text = _fit_text_to_box(text, w, body_height, font_size, line_height)\n    pdf.set_font('helvetica', '', font_size)\n    pdf.multi_cell(w, line_height, fitted_text, align='J')\n\ndef render_g_custo_por_transportadora(pdf, dataframes, x, y, w, h):\n    # Input validation\n    df = dataframes.get('shipment_quality.csv')\n    if df is None:\n        # Fallback to first dataframe if explicit name not found\n        if dataframes:\n            df = list(dataframes.values())[0]\n        else:\n            return  # No data available\n\n    if df.empty or 'carrier' not in df.columns or 'cost' not in df.columns:\n        # Cannot render, just draw empty placeholder\n        return\n\n    # Aggregate total cost per carrier\n    cost_per_carrier = df.groupby('carrier', observed=True)['cost'].sum().sort_values(ascending=False)\n\n    # Colors for clarity\n    bar_colors = ['#4C72B0', '#55A868', '#C44E52']  # blue, green, red\n\n    # Create matplotlib figure\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))\n\n    # Bar positions\n    categories = cost_per_carrier.index.tolist()\n    values = cost_per_carrier.values.tolist()\n\n    bars = ax.bar(categories, values, color=bar_colors[:len(categories)], edgecolor='white', linewidth=0.5)\n\n    # Add data labels with percent headroom\n    max_val = max(values)\n    ax.set_ylim(0, max_val * 1.20)  # 20% room for labels\n\n    for bar, val in zip(bars, values):\n        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max_val * 0.02,\n                f'R$ {val:,.0f}', ha='center', va='bottom', fontsize=8, fontweight='bold', color='#333333')\n\n    # Titles and labels\n    ax.set_title('Custo Total por Transportadora', fontsize=10, fontweight='bold', pad=8)\n    ax.set_ylabel('Custo Total (R$)', fontsize=8)\n    ax.set_xlabel('')  # Omit x-axis label, carrier names are enough\n\n    # Finish axis styling\n    ax.spines['top'].set_visible(False)\n    ax.spines['right'].set_visible(False)\n    ax.tick_params(axis='x', labelsize=8)\n    ax.tick_params(axis='y', labelsize=7)\n\n    # Adjust layout to fit title and labels inside the box\n    fig.subplots_adjust(top=0.88, bottom=0.12, left=0.15, right=0.95)\n\n    # Save to temporary file\n    import tempfile\n    import os\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_atraso_por_armazem(pdf, dataframes, x, y, w, h):\n    # Retrieve the shipment quality dataframe\n    df = dataframes.get('shipment_quality.csv')\n    if df is None or df.empty:\n        return\n\n    # Check required columns\n    if 'warehouse' not in df.columns or 'late_pct' not in df.columns:\n        return\n\n    # Compute mean late_pct per warehouse, sort descending (worst first)\n    avg_late = df.groupby('warehouse', sort=False)['late_pct'].mean().reset_index()\n    avg_late = avg_late.sort_values('late_pct', ascending=False).reset_index(drop=True)\n\n    # Prepare data for plotting\n    warehouses = avg_late['warehouse'].tolist()\n    values = avg_late['late_pct'].tolist()\n\n    # Create figure sized according to component dimensions (mm -> inches)\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4), constrained_layout=True)\n\n    # Bar chart\n    colors = ['#e74c3c', '#f39c12', '#27ae60']  # red, orange, green for ranking\n    bars = ax.bar(warehouses, values, color=colors[:len(warehouses)], edgecolor='white', linewidth=0.8)\n\n    # Add value labels above bars\n    for bar, val in zip(bars, values):\n        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.1,\n                f'{val:.1f}%', ha='center', va='bottom', fontsize=9, fontweight='bold')\n\n    # Overall average line (from calculated metric m_avg_atraso)\n    overall_avg = 4.8  # from metrics\n    ax.axhline(y=overall_avg, color='gray', linestyle='--', linewidth=1, alpha=0.6)\n    ax.text(len(warehouses) - 0.3, overall_avg + 0.2, f'Média geral: {overall_avg:.1f}%',\n            fontsize=7, color='gray', ha='right', va='bottom', style='italic')\n\n    # Labels and title\n    ax.set_xlabel('')\n    ax.set_ylabel('Percentual médio de atraso (%)', fontsize=9)\n    ax.set_title('Percentual médio de atraso por armazém', fontsize=11, fontweight='bold', pad=8)\n\n    # Formatting\n    ax.set_ylim(0, max(values) * 1.25)  # headroom for labels\n    ax.tick_params(axis='both', labelsize=8)\n    ax.grid(axis='y', linestyle='--', alpha=0.3)\n\n    # Remove top/right spines\n    for spine in ['top', 'right']:\n        ax.spines[spine].set_visible(False)\n\n    # Save to temporary file and insert into PDF\n    import tempfile\n    import os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_distribuicao_incidentes(pdf, dataframes, x, y, w, h):\n    # Access the incident log dataframe\n    df = dataframes.get('incident_log.xlsx')\n    if df is None or df.empty:\n        return\n\n    # Group by incident_type and sum counts\n    grouped = df.groupby('incident_type')['count'].sum().sort_values(ascending=False)\n    labels = grouped.index.tolist()\n    values = grouped.values.tolist()\n    total = sum(values)  # should match m_total_incidentes\n\n    # Create pie chart\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))\n    wedges, texts, autotexts = ax.pie(\n        values,\n        labels=None,  # we will use legend below for compactness\n        autopct='%1.1f%%',\n        startangle=90,\n        colors=['#66b3ff', '#ff9999', '#ffcc99', '#99ff99'],\n        textprops={'fontsize': 8}\n    )\n\n    # Legend outside, below the pie\n    # Since only 4 categories, legend with 2 columns is fine\n    legend_labels = [f'{l} ({v})' for l, v in zip(labels, values)]\n    ax.legend(\n        wedges, legend_labels,\n        title='Tipo de Incidente',\n        loc='upper center',\n        bbox_to_anchor=(0.5, -0.15),\n        ncol=2,\n        frameon=False,\n        fontsize=7\n    )\n\n    # Title\n    plt.title('Distribuição de Incidentes por Tipo', fontsize=10, pad=8)\n\n    # Adjust layout to make room for legend\n    fig.subplots_adjust(bottom=0.25)\n\n    # Save as temporary image and insert\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_danos_vs_custo(pdf, dataframes, x, y, w, h):\n    # Use the primary dataset (shipment_quality.csv)\n    df = next(iter(dataframes.values()))\n    if df is None or df.empty:\n        return\n\n    # Create figure with exact dimensions (mm -> inches)\n    fig, ax = plt.subplots(1, 1, figsize=(w / 25.4, h / 25.4))\n    fig.subplots_adjust(right=0.78)  # reserve space for external legend\n\n    # Color palette for up to 3 carriers\n    colors = ['#1f77b4', '#ff7f0e', '#2ca02c']\n    carriers = df['carrier'].unique()\n\n    for i, carrier in enumerate(carriers):\n        subset = df[df['carrier'] == carrier]\n        ax.scatter(subset['cost'], subset['damage_pct'],\n                   label=carrier, color=colors[i % len(colors)],\n                   s=50, alpha=0.8, edgecolor='white', linewidth=0.5)\n\n    # Axes labels and title\n    ax.set_xlabel('Custo ($)', fontsize=8)\n    ax.set_ylabel('Danos (%)', fontsize=8)\n    ax.set_title('Relação entre Danos e Custo por Transportadora', fontsize=9, pad=8)\n    ax.tick_params(labelsize=7)\n\n    # Legend outside the plotting area (right side)\n    ax.legend(loc='upper left', bbox_to_anchor=(1.02, 1),\n              frameon=False, fontsize=7, title='Transportadora', title_fontsize=7)\n\n    # Save as temporary PNG and insert into PDF\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_t_resumo(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"O per\\u00edodo analisado registrou um custo log\\u00edstico total de R$ 179.300, taxa m\\u00e9dia de atraso de 4,8% e 65 incidentes operacionais. Esses n\\u00fameros indicam a necessidade de aprimoramento nos processos de transporte e armazenagem, conforme detalhado neste relat\\u00f3rio.\", x, y, w, h, title=\"Resumo executivo \\u2013 desempenho log\\u00edstico\")\n\ndef render_t_conclusao(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Os dados apontam que a transportadora RoadMax, com atraso m\\u00e9dio de 8,2%, e o armaz\\u00e9m B, respons\\u00e1vel por 69% dos incidentes (principalmente atrasos e avarias), s\\u00e3o os principais pontos de melhoria. Recomenda-se renegociar contratos com a RoadMax e implementar auditorias no armaz\\u00e9m B, visando reduzir o custo total e elevar a qualidade do servi\\u00e7o.\", x, y, w, h, title=\"Conclus\\u00e3o e recomenda\\u00e7\\u00f5es\")\n\ndef generate_report():\n    dataframes = {}\n    dataframes[\"shipment_quality.csv\"] = pd.read_csv(r'/home/gengar/codes/pdf-report-generator/workspace/uploads/fe51d234-c65b-47e0-b6ff-3d43c231647e.csv')\n    dataframes[\"incident_log.xlsx\"] = pd.read_excel(r'/home/gengar/codes/pdf-report-generator/workspace/uploads/0ded6359-ad5e-47e4-a1b7-e2275c80ed53.xlsx')\n    pdf = FPDF()\n    pdf.set_auto_page_break(auto=False)\n    current_page = 0\n    def ensure_page(page):\n        nonlocal current_page\n        while current_page < page:\n            pdf.add_page()\n            current_page += 1\n            if current_page == 1:\n                _write_report_title(pdf, \"Desempenho Log\\u00edstico: Custo, Atraso, Danos e Incidentes por Armaz\\u00e9m e Transp.\", 'helvetica')\n                pdf.ln(3)\n    ensure_page(1)\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_t_resumo(pdf, dataframes, 10, 30, 190, 30, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_t_resumo(pdf, dataframes, 10, 30, 190, 30)\n        except Exception as e: \n            print(f'Erro no componente t_resumo: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente t_resumo: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_custo_por_transportadora(pdf, dataframes, 10, 70, 90, 65, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_custo_por_transportadora(pdf, dataframes, 10, 70, 90, 65)\n        except Exception as e: \n            print(f'Erro no componente g_custo_por_transportadora: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_custo_por_transportadora: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_atraso_por_armazem(pdf, dataframes, 110, 70, 90, 65, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_atraso_por_armazem(pdf, dataframes, 110, 70, 90, 65)\n        except Exception as e: \n            print(f'Erro no componente g_atraso_por_armazem: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_atraso_por_armazem: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_distribuicao_incidentes(pdf, dataframes, 10, 145, 90, 65, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_distribuicao_incidentes(pdf, dataframes, 10, 145, 90, 65)\n        except Exception as e: \n            print(f'Erro no componente g_distribuicao_incidentes: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_distribuicao_incidentes: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_g_danos_vs_custo(pdf, dataframes, 110, 145, 90, 65, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_g_danos_vs_custo(pdf, dataframes, 110, 145, 90, 65)\n        except Exception as e: \n            print(f'Erro no componente g_danos_vs_custo: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente g_danos_vs_custo: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        render_t_conclusao(pdf, dataframes, 10, 220, 190, 65, df=primary_df)\n    except TypeError: # Fallback if function doesn't accept 'df' keyword argument\n        try: render_t_conclusao(pdf, dataframes, 10, 220, 190, 65)\n        except Exception as e: \n            print(f'Erro no componente t_conclusao: {e}')\n            import traceback; traceback.print_exc()\n    except Exception as e: \n        print(f'Erro no componente t_conclusao: {e}')\n        import traceback; traceback.print_exc()\n    pdf.output(r'/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-logistics_quality-04942744.pdf')\n\nif __name__ == '__main__':\n    generate_report()",
+  "script_path": "workspace/scripts/canonical-logistics_quality-04942744.py",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-logistics_quality-04942744.pdf",
+  "provider": "deepseek",
+  "model_name": "deepseek-v4-flash",
+  "data_filter": {
+    "needs_filter": false,
+    "description": "",
+    "code": ""
+  },
+  "pdf_version": 1,
+  "retry_count": 0,
+  "explore_history": []
+}

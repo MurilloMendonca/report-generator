@@ -28,6 +28,18 @@ def render_{id}(pdf, dataframes, x, y, w, h):
 - **Table Rendering**: For `type: table`, use `ax.axis('off')` and `ax.table(cellText=..., colLabels=..., loc='center')`. Adjust font sizes dynamically if `h` is small.
 - **Quality**: Always save with high DPI for professional results: `plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)`.
 - **Readability Optimization**: If a categorical column has many unique values (e.g., > 10 for pie charts or > 15 for bar charts), AGGREGATE the less significant values into an 'Others' (or equivalent in the Target Language) category.
+- **Chart Layout Safety**:
+  - Never place legends inside the plot area when bars, lines, markers, or annotations can occupy the same region.
+  - Prefer legends outside the axes, below the chart, using `ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), ncol=2, frameon=False, fontsize=7)` and reserve bottom margin with `fig.subplots_adjust(bottom=0.24)`.
+  - If a legend is placed below the chart with a negative `bbox_to_anchor` y value, do NOT also render an x-axis label. Omit `ax.set_xlabel(...)` or set it to an empty string; category/date tick labels are enough in compact PDF blocks.
+  - For compact blocks (`h < 80` or `w < 120`), prefer either an x-axis label OR a bottom legend, never both. If both are essential, move the legend to the right outside the axes with extra right margin instead of below.
+  - Treat `ax.text(...)`, `plt.text(...)`, `ax.annotate(...)`, and `plt.annotate(...)` as data annotations when they label bars/points/percentages.
+  - If the chart is short (`h < 70`) or narrow (`w < 110`), avoid non-essential annotations entirely. Use axis labels, legends, and concise titles instead.
+  - Do not put value labels or percentage annotations above bars unless you also increase the y-axis limit with at least 20% headroom: `ax.set_ylim(0, max_value * 1.25)`.
+  - For compact bar charts, prefer labels inside bars (`va='top'`, small white text) or omit labels.
+  - Keep chart titles separate from data labels: use a small title (`fontsize=9` or `10`), `pad=8`, and reserve top margin with `fig.subplots_adjust(top=0.82)`.
+  - Do not combine data annotations (`ax.text`, `plt.text`, `ax.annotate`, `plt.annotate`) with `ax.legend(loc='upper right')`, `ax.legend(loc='upper left')`, `plt.legend(loc='upper right')`, or `plt.legend(loc='upper left')`.
+  - Prefer `fig, ax = plt.subplots(..., constrained_layout=True)` or explicit `fig.subplots_adjust(...)`; do not rely on `plt.tight_layout()` alone when the chart has legends, long tick labels, or annotations.
 - **Clean insertion**:
   ```python
   with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
@@ -49,3 +61,6 @@ def render_{id}(pdf, dataframes, x, y, w, h):
 - Target Language (e.g., Portuguese, English).
 - Target Component JSON (ID, Type, Indicator, Columns).
 - Data Artifacts (Summary of all files).
+- Optional Layout Slot Constraints with exact block size and whether the block is compact.
+
+When `Layout Slot Constraints.compact` is true, simplify the visualization: fewer labels, smaller title, no table with many columns, no dense annotations, and no competing x-axis label plus bottom legend.

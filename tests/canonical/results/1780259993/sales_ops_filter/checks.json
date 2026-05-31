@@ -1,0 +1,245 @@
+{
+  "case_id": "sales_ops_filter",
+  "job_id": "canonical-sales_ops_filter-629a85c8",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_filter-629a85c8.pdf",
+  "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780259993/sales_ops_filter",
+  "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/sales_ops_filter__canonical-sales_ops_filter-629a85c8.pdf",
+  "passed": true,
+  "checks": [
+    {
+      "name": "pdf_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_filter-629a85c8.pdf"
+    },
+    {
+      "name": "pdf_size_gt_20kb",
+      "passed": true,
+      "detail": 175217
+    },
+    {
+      "name": "pdf_pages_match_template",
+      "passed": true,
+      "detail": 2
+    },
+    {
+      "name": "status_completed",
+      "passed": true,
+      "detail": "Relatório concluído em 1.7s"
+    },
+    {
+      "name": "has_title",
+      "passed": true,
+      "detail": "Relatório Executivo de Vendas: Receita Regional, Mix e Metas"
+    },
+    {
+      "name": "has_artifacts",
+      "passed": true,
+      "detail": 8
+    },
+    {
+      "name": "has_template",
+      "passed": true,
+      "detail": 5
+    },
+    {
+      "name": "template_in_bounds",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_intro",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_revenue_trend",
+          "page": 1,
+          "x": 10,
+          "y": 70,
+          "w": 190,
+          "h": 105
+        },
+        {
+          "id": "g_product_mix",
+          "page": 1,
+          "x": 10,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "g_target_attainment",
+          "page": 1,
+          "x": 110,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "t_conclusion",
+          "page": 1,
+          "x": 10,
+          "y": 250,
+          "w": 190,
+          "h": 35
+        }
+      ]
+    },
+    {
+      "name": "template_no_overlap",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_intro",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_revenue_trend",
+          "page": 1,
+          "x": 10,
+          "y": 70,
+          "w": 190,
+          "h": 105
+        },
+        {
+          "id": "g_product_mix",
+          "page": 1,
+          "x": 10,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "g_target_attainment",
+          "page": 1,
+          "x": 110,
+          "y": 185,
+          "w": 90,
+          "h": 55
+        },
+        {
+          "id": "t_conclusion",
+          "page": 1,
+          "x": 10,
+          "y": 250,
+          "w": 190,
+          "h": 35
+        }
+      ]
+    },
+    {
+      "name": "has_non_na_metrics",
+      "passed": true,
+      "detail": {
+        "m_total_revenue": 520000.0,
+        "m_total_units": 1705,
+        "m_avg_discount": 9.6
+      }
+    },
+    {
+      "name": "chart_annotations_do_not_overlap_legends",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "metadata_column_revenue",
+      "passed": true,
+      "detail": "revenue"
+    },
+    {
+      "name": "metadata_column_region",
+      "passed": true,
+      "detail": "region"
+    },
+    {
+      "name": "metadata_column_channel",
+      "passed": true,
+      "detail": "channel"
+    },
+    {
+      "name": "pdf_text_min_chars",
+      "passed": true,
+      "detail": 830
+    },
+    {
+      "name": "pdf_text_no_cut_ellipsis",
+      "passed": true,
+      "detail": "ok"
+    },
+    {
+      "name": "pdf_text_title_present",
+      "passed": true,
+      "detail": "Relatório Executivo de Vendas: Receita Regional, Mix e Metas"
+    },
+    {
+      "name": "page_1_png_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780259993/sales_ops_filter/page-1.png"
+    },
+    {
+      "name": "page_1_png_size_gt_10kb",
+      "passed": true,
+      "detail": 215916
+    },
+    {
+      "name": "report_keyword_revenue",
+      "passed": true,
+      "detail": "revenue"
+    },
+    {
+      "name": "report_keyword_region",
+      "passed": true,
+      "detail": "region"
+    },
+    {
+      "name": "report_keyword_channel",
+      "passed": true,
+      "detail": "channel"
+    },
+    {
+      "name": "data_filter_needed",
+      "passed": true,
+      "detail": {
+        "needs_filter": true,
+        "description": "Excluir linhas do canal 'Partner' do arquivo sales_pipeline.csv.",
+        "code": "def filter_dataframes(dataframes):\n    filtered = {}\n    for filename, df in dataframes.items():\n        if filename == 'sales_pipeline.csv' and 'channel' in df.columns:\n            # Remove linhas onde o canal é 'Partner' (case-insensitive)\n            filtered[filename] = df[df['channel'].str.lower() != 'partner'].copy()\n        else:\n            filtered[filename] = df.copy()\n    return filtered"
+      }
+    },
+    {
+      "name": "data_filter_has_filtered_path",
+      "passed": true,
+      "detail": [
+        "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_filter-629a85c8_f37f9d90435646b8b0717529babd45c7.csv",
+        "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_filter-629a85c8_0b1df6248b304900bf72442b8291acec.csv",
+        null
+      ]
+    },
+    {
+      "name": "script_uses_filtered_file",
+      "passed": true,
+      "detail": "workspace/filtered"
+    },
+    {
+      "name": "data_filter_changed_row_count",
+      "passed": true,
+      "detail": [
+        {
+          "file": "sales_pipeline.csv",
+          "raw_rows": 8,
+          "filtered_rows": 5
+        },
+        {
+          "file": "regional_targets.xlsx",
+          "raw_rows": 3,
+          "filtered_rows": 3
+        }
+      ]
+    }
+  ]
+}

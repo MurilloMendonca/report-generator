@@ -21,6 +21,42 @@
     }
   },
   {
+    "id": "sales_ops_filter",
+    "name": "Sales operations with data filter",
+    "provider": "deepseek",
+    "model_name": "deepseek-v4-flash",
+    "template_id": "executive_hero_chart",
+    "files": [
+      "fixtures/sales_ops/sales_pipeline.csv",
+      "fixtures/sales_ops/regional_targets.xlsx",
+      "fixtures/sales_ops/sales_context.pdf"
+    ],
+    "initial_prompt": "Create an executive sales performance report, but do not include Partner channel rows in the analysis. Focus on revenue by region, product mix, and target attainment.",
+    "refinement_prompts": [],
+    "expected": {
+      "columns": ["revenue", "region", "channel"],
+      "keywords": ["revenue", "region", "channel"],
+      "filter": true
+    }
+  },
+  {
+    "id": "sales_ops_exploratory",
+    "name": "Sales operations exploratory report without prompt",
+    "provider": "deepseek",
+    "model_name": "deepseek-v4-flash",
+    "template_id": "executive_hero_chart",
+    "files": [
+      "fixtures/sales_ops/sales_pipeline.csv",
+      "fixtures/sales_ops/regional_targets.xlsx"
+    ],
+    "initial_prompt": "",
+    "refinement_prompts": [],
+    "expected": {
+      "columns": ["revenue", "region", "product"],
+      "keywords": ["revenue", "region"]
+    }
+  },
+  {
     "id": "hr_retention",
     "name": "HR retention risk",
     "provider": "deepseek",
