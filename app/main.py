@@ -2,7 +2,6 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTa
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from typing import List
-import shutil
 import os
 import sys
 import uuid
@@ -47,6 +46,18 @@ from app.services.session_manager import create_session, get_session, update_ses
 app = FastAPI(title="Report Generator v0.3.6")
 
 APP_ACCESS_SECRET = os.getenv("APP_ACCESS_SECRET") or os.getenv("PDF_REPORT_ACCESS_SECRET") or "change-me"
+APP_ENV = os.getenv("APP_ENV", "development").lower()
+ALLOW_DEFAULT_SECRET = APP_ENV in {"development", "dev", "local", "test"} or os.getenv("PDF_REPORT_ALLOW_DEFAULT_SECRET") == "1"
+MAX_UPLOAD_BYTES = int(os.getenv("PDF_REPORT_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+ALLOWED_UPLOAD_EXTENSIONS = {
+    ".csv",
+    ".xls",
+    ".xlsx",
+    ".pdf",
+}
+
+if APP_ACCESS_SECRET == "change-me" and not ALLOW_DEFAULT_SECRET:
+    raise RuntimeError("APP_ACCESS_SECRET or PDF_REPORT_ACCESS_SECRET must be configured outside development mode.")
 
 UPLOAD_DIR = "workspace/uploads"
 for d in [UPLOAD_DIR, FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
@@ -105,17 +116,43 @@ def require_session(job_id: str) -> dict:
     return session
 
 
+def validate_upload(file: UploadFile) -> str:
+    filename = file.filename or ""
+    file_ext = os.path.splitext(filename)[1].lower()
+    if file_ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext or 'unknown'}")
+    return file_ext
+
+
+def copy_upload_with_limit(file: UploadFile, destination: str) -> int:
+    total = 0
+    with open(destination, "wb") as buffer:
+        while True:
+            chunk = file.file.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_UPLOAD_BYTES:
+                buffer.close()
+                try:
+                    os.remove(destination)
+                except FileNotFoundError:
+                    pass
+                raise HTTPException(status_code=413, detail="Uploaded file exceeds the configured size limit")
+            buffer.write(chunk)
+    return total
+
+
 def save_uploaded_files(files: List[UploadFile]) -> list:
     saved_files = []
     for file in files:
-        file_ext = os.path.splitext(file.filename)[1]
+        file_ext = validate_upload(file)
         data_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}{file_ext}")
-        with open(data_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        size_bytes = copy_upload_with_limit(file, data_path)
         saved_files.append({
             "original_filename": file.filename,
             "path": data_path,
-            "size_bytes": os.path.getsize(data_path),
+            "size_bytes": size_bytes,
             "mime_type": file.content_type or mimetypes.guess_type(file.filename)[0],
             "artifact": None
         })
