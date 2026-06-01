@@ -4,7 +4,7 @@ import uuid
 import unittest
 
 from app.models.session import CURRENT_SESSION_SCHEMA_VERSION, normalize_session
-from app.services.session_manager import create_session, get_session, get_session_path, update_session
+from app.services.session_manager import create_session, get_session, get_session_lock_path, get_session_path, update_session
 
 
 class SessionSchemaTests(unittest.TestCase):
@@ -13,9 +13,9 @@ class SessionSchemaTests(unittest.TestCase):
 
     def tearDown(self):
         for job_id in self.job_ids:
-            path = get_session_path(job_id)
-            if os.path.exists(path):
-                os.remove(path)
+            for path in [get_session_path(job_id), get_session_lock_path(job_id)]:
+                if os.path.exists(path):
+                    os.remove(path)
 
     def new_job_id(self):
         job_id = f"test-schema-{uuid.uuid4().hex}"
@@ -130,6 +130,29 @@ class SessionSchemaTests(unittest.TestCase):
         self.assertTrue(updated["unknown_feature_flag"])
         self.assertIn("updated_at", updated)
         self.assertEqual(updated["settings"]["alignment"], "J")
+
+    def test_update_session_writes_atomically_under_concurrent_updates(self):
+        import threading
+
+        job_id = self.new_job_id()
+        create_session(job_id, {
+            "job_id": job_id,
+            "initial_prompt": "Concurrent",
+            "logs": [],
+        })
+
+        def worker(index):
+            update_session(job_id, {f"value_{index}": index})
+
+        threads = [threading.Thread(target=worker, args=(index,)) for index in range(10)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        session = get_session(job_id)
+        for index in range(10):
+            self.assertEqual(session[f"value_{index}"], index)
 
     def test_normalize_session_accepts_none(self):
         self.assertIsNone(normalize_session(None))
