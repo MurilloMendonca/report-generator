@@ -4,6 +4,7 @@ from tests.canonical.run_canonical_sessions import (
     title_in_pdf_text,
     validate_chart_layout_safety,
     validate_expected_filter,
+    validate_expected_preprocessing,
 )
 
 
@@ -48,6 +49,41 @@ class CanonicalRunnerTests(unittest.TestCase):
         checks = validate_expected_filter(session)
 
         self.assertFalse(all(item["passed"] for item in checks))
+
+    def test_validate_expected_preprocessing_requires_computed_columns(self):
+        session = {
+            "data_preprocessing": {
+                "needs_preprocessing": True,
+                "description": "Criar colunas calculadas",
+                "code": "def preprocess_dataframes(dataframes): pass",
+            },
+            "script": "dataframes['sales.csv'] = pd.read_csv(r'workspace/filtered/out.csv')",
+            "files": [{
+                "original_filename": "sales.csv",
+                "preprocessed_path": "workspace/filtered/out.csv",
+                "raw_artifact": {
+                    "shape": {"rows": 8, "columns": 3},
+                    "columns": [{"name": "revenue"}, {"name": "discount_pct"}, {"name": "units"}],
+                },
+                "artifact": {
+                    "shape": {"rows": 8, "columns": 5},
+                    "columns": [
+                        {"name": "revenue"},
+                        {"name": "discount_pct"},
+                        {"name": "units"},
+                        {"name": "net_revenue_after_discount"},
+                        {"name": "revenue_per_unit"},
+                    ],
+                },
+            }],
+        }
+
+        checks = validate_expected_preprocessing(session, {
+            "preprocessing": True,
+            "computed_columns": ["net_revenue_after_discount", "revenue_per_unit"],
+        })
+
+        self.assertTrue(all(item["passed"] for item in checks))
 
     def test_chart_layout_safety_flags_annotations_with_inside_upper_legend(self):
         checks = validate_chart_layout_safety({

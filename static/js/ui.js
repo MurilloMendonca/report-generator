@@ -96,15 +96,22 @@ const UI = {
         tray.innerHTML = list.map((f, index) => {
             const filename = f.original_filename || `arquivo-${index + 1}`;
             const kind = UI.fileKind(filename);
+            const hasPreprocessed = Boolean(f.preprocessed_path || f.filtered_path);
             const size = UI.formatBytes(f.size_bytes || (f.artifact && f.artifact.size_bytes));
             const metadata = f.artifact && !f.artifact.error
                 ? `${f.artifact.rows || f.artifact.pages || ''}${f.artifact.rows ? ' linhas' : f.artifact.pages ? ' paginas' : ''}`
                 : (f.artifact && f.artifact.error ? 'nao analisado' : 'aguardando analise');
+            const processLabel = hasPreprocessed
+                ? `<span class="file-state-badge">Pré-processado</span>`
+                : '';
             return `
                 <article class="file-card" data-file-index="${index}">
                     <button class="file-open" type="button" title="Visualizar ${UI.escapeHtml(filename)}" onclick="App.previewFile(${index})">
                         <span class="file-type file-type-${kind}">${UI.fileIcon(kind)}</span>
-                        <span class="file-name">${UI.escapeHtml(filename)}</span>
+                        <span class="file-title">
+                            <span class="file-name">${UI.escapeHtml(filename)}</span>
+                            ${processLabel}
+                        </span>
                     </button>
                     <div class="file-meta">
                         <span>${UI.escapeHtml(metadata)}</span>
@@ -206,6 +213,7 @@ const UI = {
         html += (session.files || []).map(f => `
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid var(--md-sys-color-outline); padding-bottom: 1rem;">
                 <h4 style="color: var(--md-sys-color-primary)">📄 ${f.original_filename}</h4>
+                ${f.preprocessing_description || f.filter_description ? `<div style="font-size: 0.78rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 0.5rem;">Pré-processamento: ${UI.escapeHtml(f.preprocessing_description || f.filter_description)}</div>` : ''}
                 <pre style="font-size: 0.75rem; background: #f5f5f5; padding: 1rem; border-radius: 8px; overflow-x: auto;">${Utils.formatJson(f.artifact)}</pre>
             </div>
         `).join('');

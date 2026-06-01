@@ -47,8 +47,9 @@ const API = {
         return await res.json();
     },
 
-    async getFileBlob(jobId, fileIndex, mode = 'preview') {
-        const res = await fetch(`/api/sessions/${jobId}/files/${fileIndex}/${mode}`, {
+    async getFileBlob(jobId, fileIndex, mode = 'preview', variant = 'original') {
+        const query = variant && variant !== 'original' ? `?variant=${encodeURIComponent(variant)}` : '';
+        const res = await fetch(`/api/sessions/${jobId}/files/${fileIndex}/${mode}${query}`, {
             headers: this.authHeaders()
         });
         if (!res.ok) throw new Error('Could not load file');

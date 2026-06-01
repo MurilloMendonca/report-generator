@@ -50,6 +50,7 @@ class SessionSchemaTests(unittest.TestCase):
         self.assertEqual(session["settings"]["alignment"], "J")
         self.assertEqual(session["settings"]["font"], "Arial")
         self.assertEqual(session["data_filter"]["needs_filter"], False)
+        self.assertEqual(session["data_preprocessing"]["needs_preprocessing"], False)
         self.assertEqual(session["files"][0]["raw_artifact"], {"shape": {"rows": 10}})
         self.assertEqual(session["custom_state"], {"keep": True})
 
@@ -92,6 +93,28 @@ class SessionSchemaTests(unittest.TestCase):
         self.assertEqual(session["template"], [{"id": "texto", "page": 1}])
         self.assertEqual(session["settings"]["alignment"], "J")
         self.assertEqual(session["data_filter"]["needs_filter"], False)
+        self.assertEqual(session["data_preprocessing"]["needs_preprocessing"], False)
+
+    def test_migrates_legacy_filter_to_preprocessing(self):
+        session = normalize_session({
+            "job_id": "legacy-filter",
+            "files": [{
+                "original_filename": "data.csv",
+                "path": "workspace/uploads/data.csv",
+                "artifact": {"shape": {"rows": 10}},
+                "filtered_path": "workspace/filtered/data.csv",
+                "filter_description": "Filtro antigo",
+            }],
+            "data_filter": {
+                "needs_filter": True,
+                "description": "Filtro antigo",
+                "code": "def filter_dataframes(dataframes):\n    return dataframes",
+            },
+        })
+
+        self.assertTrue(session["data_preprocessing"]["needs_preprocessing"])
+        self.assertEqual(session["files"][0]["preprocessed_path"], "workspace/filtered/data.csv")
+        self.assertEqual(session["files"][0]["preprocessing_description"], "Filtro antigo")
 
     def test_update_session_preserves_unknown_fields_and_applies_defaults(self):
         job_id = self.new_job_id()

@@ -81,6 +81,7 @@ def create_canonical_session(case: dict) -> str:
         "provider": case.get("provider", "deepseek"),
         "model_name": case.get("model_name", "deepseek-v4-flash"),
         "data_filter": {},
+        "data_preprocessing": {},
         "pdf_version": 0,
         "retry_count": 0,
         "explore_history": [],
@@ -100,6 +101,7 @@ def apply_refinement(job_id: str, prompt: str):
         update_session(job_id, {
             "files": files,
             "data_filter": {},
+            "data_preprocessing": {},
             "artifacts": [],
             "template": [],
             "components": {},
@@ -179,8 +181,9 @@ def validate_session(job_id: str, case: dict, artifact_dir: Path | None = None, 
     for keyword in case.get("expected", {}).get("keywords", []):
         checks.append(check(f"report_keyword_{keyword}", keyword.lower() in searchable_report_text, keyword))
 
-    if case.get("expected", {}).get("filter"):
-        checks.extend(validate_expected_filter(session))
+    expected = case.get("expected", {})
+    if expected.get("filter") or expected.get("preprocessing"):
+        checks.extend(validate_expected_preprocessing(session, expected))
 
     result = {
         "case_id": case["id"],
@@ -271,26 +274,42 @@ def title_in_pdf_text(title: str, pdf_text: str) -> bool:
 
 
 def validate_expected_filter(session: dict) -> list[dict]:
+    return validate_expected_preprocessing(session, {"filter": True})
+
+
+def validate_expected_preprocessing(session: dict, expected: dict | None = None) -> list[dict]:
+    expected = expected or {}
     checks = []
     files = session.get("files", [])
-    data_filter = session.get("data_filter", {})
-    filtered_files = [file_info for file_info in files if file_info.get("filtered_path")]
+    data_filter = session.get("data_preprocessing") or session.get("data_filter", {})
+    filtered_files = [file_info for file_info in files if file_info.get("preprocessed_path") or file_info.get("filtered_path")]
 
-    checks.append(check("data_filter_needed", data_filter.get("needs_filter") is True, data_filter))
-    checks.append(check("data_filter_has_filtered_path", bool(filtered_files), [f.get("filtered_path") for f in files]))
+    checks.append(check("data_preprocessing_needed", (data_filter.get("needs_preprocessing") or data_filter.get("needs_filter")) is True, data_filter))
+    checks.append(check("data_preprocessing_has_output_path", bool(filtered_files), [f.get("preprocessed_path") or f.get("filtered_path") for f in files]))
     checks.append(check("script_uses_filtered_file", "workspace/filtered" in session.get("script", ""), "workspace/filtered"))
 
-    row_changes = []
-    for file_info in filtered_files:
-        raw_rows = (file_info.get("raw_artifact") or {}).get("shape", {}).get("rows")
-        filtered_rows = (file_info.get("artifact") or {}).get("shape", {}).get("rows")
-        if raw_rows is not None and filtered_rows is not None:
-            row_changes.append({"file": file_info.get("original_filename"), "raw_rows": raw_rows, "filtered_rows": filtered_rows})
-    checks.append(check(
-        "data_filter_changed_row_count",
-        any(item["filtered_rows"] < item["raw_rows"] for item in row_changes),
-        row_changes,
-    ))
+    if expected.get("filter"):
+        row_changes = []
+        for file_info in filtered_files:
+            raw_rows = (file_info.get("raw_artifact") or {}).get("shape", {}).get("rows")
+            filtered_rows = (file_info.get("artifact") or {}).get("shape", {}).get("rows")
+            if raw_rows is not None and filtered_rows is not None:
+                row_changes.append({"file": file_info.get("original_filename"), "raw_rows": raw_rows, "filtered_rows": filtered_rows})
+        checks.append(check(
+            "data_filter_changed_row_count",
+            any(item["filtered_rows"] < item["raw_rows"] for item in row_changes),
+            row_changes,
+        ))
+
+    computed_columns = expected.get("computed_columns", [])
+    if computed_columns:
+        processed_metadata = json.dumps([file_info.get("artifact") for file_info in filtered_files], ensure_ascii=False).lower()
+        for column in computed_columns:
+            checks.append(check(
+                f"data_preprocessing_computed_column_{column}",
+                column.lower() in processed_metadata,
+                column,
+            ))
     return checks
 
 

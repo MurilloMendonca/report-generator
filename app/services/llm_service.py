@@ -160,6 +160,33 @@ def generate_template(artifacts: list, provider: str = DEFAULT_PROVIDER, model_n
     return normalize_template(build_layout_from_template(artifacts, template_id))
 
 
+def normalize_preprocessing_payload(payload: dict) -> dict:
+    needs_preprocessing = bool(payload.get("needs_preprocessing") or payload.get("needs_filter"))
+    if not needs_preprocessing:
+        return {
+            "needs_preprocessing": False,
+            "needs_filter": False,
+            "description": "",
+            "code": "",
+        }
+
+    code = strip_code_fence(str(payload.get("code", "")), "python").strip()
+    if "def preprocess_dataframes" not in code and "def filter_dataframes" not in code:
+        return {
+            "needs_preprocessing": False,
+            "needs_filter": False,
+            "description": "",
+            "code": "",
+        }
+
+    return {
+        "needs_preprocessing": True,
+        "needs_filter": True,
+        "description": str(payload.get("description", "")).strip(),
+        "code": code,
+    }
+
+
 def generate_data_filter(all_metadata: str, prompt: str, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None) -> dict:
     system_instruction = load_prompt("GENERATE_DATA_FILTER.md")
     lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
@@ -175,20 +202,12 @@ def generate_data_filter(all_metadata: str, prompt: str, provider: str = DEFAULT
         try:
             payload = json.loads(text)
             if isinstance(payload, dict):
-                if not payload.get("needs_filter"):
-                    return {"needs_filter": False, "description": "", "code": ""}
-                code = strip_code_fence(str(payload.get("code", "")), "python")
-                if "def filter_dataframes" in code:
-                    return {
-                        "needs_filter": True,
-                        "description": str(payload.get("description", "")).strip(),
-                        "code": code.strip(),
-                    }
+                return normalize_preprocessing_payload(payload)
         except Exception as e:
-            print(f"DEBUG: data filter generation attempt {attempt + 1} failed: {str(e)}")
+            print(f"DEBUG: data preprocessing generation attempt {attempt + 1} failed: {str(e)}")
             time.sleep(2)
 
-    return {"needs_filter": False, "description": "", "code": ""}
+    return {"needs_preprocessing": False, "needs_filter": False, "description": "", "code": ""}
 
 
 def dataframe_load_line(original_name: str, path: str, indent: str = "") -> str:

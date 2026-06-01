@@ -40,6 +40,26 @@
     }
   },
   {
+    "id": "sales_ops_preprocessing",
+    "name": "Sales operations with calculated preprocessing columns",
+    "provider": "deepseek",
+    "model_name": "deepseek-v4-flash",
+    "template_id": "executive_hero_chart",
+    "files": [
+      "fixtures/sales_ops/sales_pipeline.csv",
+      "fixtures/sales_ops/regional_targets.xlsx",
+      "fixtures/sales_ops/sales_context.pdf"
+    ],
+    "initial_prompt": "Create an executive sales performance report. Before analysis, preprocess sales_pipeline.csv by adding two calculated columns: net_revenue_after_discount = revenue * (1 - discount_pct / 100) and revenue_per_unit = revenue / units. Use those preprocessed columns when discussing revenue quality, discount discipline, and regional performance.",
+    "refinement_prompts": [],
+    "expected": {
+      "columns": ["revenue", "region", "discount_pct", "net_revenue_after_discount", "revenue_per_unit"],
+      "keywords": ["revenue", "discount", "region"],
+      "preprocessing": true,
+      "computed_columns": ["net_revenue_after_discount", "revenue_per_unit"]
+    }
+  },
+  {
     "id": "sales_ops_exploratory",
     "name": "Sales operations exploratory report without prompt",
     "provider": "deepseek",

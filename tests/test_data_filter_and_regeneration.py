@@ -12,6 +12,7 @@ from app.main import (
     clear_data_filter_state,
     has_data_filter_decision,
     regenerate_session,
+    session_file_variant,
     should_consider_data_filter,
 )
 from app.services.session_manager import create_session, get_session, get_session_path
@@ -29,8 +30,11 @@ class DataFilterTests(unittest.TestCase):
     def test_detects_filter_intent_in_portuguese_and_english(self):
         self.assertTrue(should_consider_data_filter("quero excluir pokemon variantes de região"))
         self.assertTrue(should_consider_data_filter("focus on enterprise accounts only"))
+        self.assertTrue(should_consider_data_filter("adicione uma nova coluna calculada de margem"))
+        self.assertTrue(should_consider_data_filter("group by region before generating the report"))
         self.assertTrue(should_consider_data_filter('Não inclua nenhuma forma regional ou mega. É possível identificar isso pela presença de um "-" no nome do pokemon'))
         self.assertTrue(should_consider_data_filter("", {"data_filter": {"needs_filter": True}}))
+        self.assertTrue(should_consider_data_filter("", {"data_preprocessing": {"needs_preprocessing": True}}))
         self.assertFalse(should_consider_data_filter("gere um relatório exploratório dos dados"))
 
     def test_default_filter_state_is_not_treated_as_existing_decision(self):
@@ -41,12 +45,12 @@ class DataFilterTests(unittest.TestCase):
             "code": "",
         }))
         self.assertTrue(has_data_filter_decision({
-            "needs_filter": False,
+            "needs_preprocessing": False,
             "description": "Não filtrar estes dados",
             "code": "",
         }))
 
-    def test_applies_filter_once_and_preserves_original_upload(self):
+    def test_applies_preprocessing_once_and_preserves_original_upload(self):
         source_path = f"workspace/uploads/filter_test_{uuid.uuid4().hex}.csv"
         pd.DataFrame({
             "name": ["Pikachu", "Alolan Raichu", "Bulbasaur"],
@@ -64,40 +68,43 @@ class DataFilterTests(unittest.TestCase):
             }]
         }
         data_filter = {
-            "needs_filter": True,
-            "description": "Excluir variantes regionais",
+            "needs_preprocessing": True,
+            "description": "Excluir variantes regionais e calcular valor dobrado",
             "code": (
-                "def filter_dataframes(dataframes):\n"
-                "    filtered = {}\n"
+                "def preprocess_dataframes(dataframes):\n"
+                "    processed = {}\n"
                 "    for name, df in dataframes.items():\n"
                 "        out = df.copy()\n"
                 "        if 'variant' in out.columns:\n"
                 "            out = out[out['variant'].astype(str).str.lower() != 'regional']\n"
-                "        filtered[name] = out\n"
-                "    return filtered"
+                "        out['value_doubled'] = out['value'] * 2\n"
+                "        processed[name] = out\n"
+                "    return processed"
             ),
         }
 
         filter_job_id = f"test_filter_{uuid.uuid4().hex}"
-        self.created_paths.append(f"workspace/scripts/filter_{filter_job_id}.py")
+        self.created_paths.append(f"workspace/scripts/preprocess_{filter_job_id}.py")
 
         files = apply_data_filter(filter_job_id, session, data_filter)
-        filtered_path = files[0]["filtered_path"]
+        filtered_path = files[0]["preprocessed_path"]
         self.created_paths.append(filtered_path)
 
         self.assertEqual(files[0]["path"], source_path)
+        self.assertEqual(files[0]["filtered_path"], filtered_path)
         self.assertTrue(os.path.exists(filtered_path))
-        self.assertEqual(files[0]["filter_description"], "Excluir variantes regionais")
-        self.assertEqual(
-            pd.read_csv(filtered_path)["name"].tolist(),
-            ["Pikachu", "Bulbasaur"],
-        )
+        self.assertEqual(files[0]["preprocessing_description"], "Excluir variantes regionais e calcular valor dobrado")
+        processed = pd.read_csv(filtered_path)
+        self.assertEqual(processed["name"].tolist(), ["Pikachu", "Bulbasaur"])
+        self.assertEqual(processed["value_doubled"].tolist(), [2, 6])
         self.assertEqual(files[0]["artifact"]["shape"]["rows"], 2)
 
     def test_build_files_map_prefers_filtered_path_and_can_clear_filter_state(self):
         files = [{
             "original_filename": "data.csv",
             "path": "workspace/uploads/original.csv",
+            "preprocessed_path": "workspace/filtered/preprocessed.csv",
+            "preprocessing_description": "Pré-processamento ativo",
             "filtered_path": "workspace/filtered/filtered.csv",
             "filter_description": "Filtro ativo",
             "raw_artifact": {"shape": {"rows": 3}},
@@ -105,12 +112,36 @@ class DataFilterTests(unittest.TestCase):
         }]
 
         files_map = build_files_map({"files": files})
-        self.assertTrue(files_map["data.csv"].endswith("workspace/filtered/filtered.csv"))
+        self.assertTrue(files_map["data.csv"].endswith("workspace/filtered/preprocessed.csv"))
 
         cleared = clear_data_filter_state(files)
+        self.assertNotIn("preprocessed_path", cleared[0])
+        self.assertNotIn("preprocessing_description", cleared[0])
         self.assertNotIn("filtered_path", cleared[0])
         self.assertNotIn("filter_description", cleared[0])
         self.assertEqual(cleared[0]["artifact"], {"shape": {"rows": 3}})
+
+    def test_session_file_variant_exposes_preprocessed_file(self):
+        source_path = f"workspace/uploads/original_{uuid.uuid4().hex}.csv"
+        processed_path = f"workspace/filtered/processed_{uuid.uuid4().hex}.csv"
+        pd.DataFrame({"value": [1]}).to_csv(source_path, index=False)
+        pd.DataFrame({"value": [1], "value_doubled": [2]}).to_csv(processed_path, index=False)
+        self.created_paths.extend([source_path, processed_path])
+
+        file_info = {
+            "original_filename": "original.csv",
+            "path": source_path,
+            "preprocessed_path": processed_path,
+            "mime_type": "text/csv",
+        }
+
+        original = session_file_variant(file_info)
+        processed = session_file_variant(file_info, "preprocessed")
+
+        self.assertEqual(original["path"], source_path)
+        self.assertEqual(processed["path"], processed_path)
+        self.assertEqual(processed["filename"], "original_preprocessed.csv")
+        self.assertEqual(processed["mime_type"], "text/csv")
 
 
 class RegenerationEndpointTests(unittest.TestCase):

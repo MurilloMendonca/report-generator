@@ -44,7 +44,7 @@ from app.services.pipeline_service import (
 )
 from app.services.session_manager import create_session, get_session, update_session, add_log, list_recent_sessions
 
-app = FastAPI(title="AI PDF Report Generator v3")
+app = FastAPI(title="Report Generator v0.3.6")
 
 APP_ACCESS_SECRET = os.getenv("APP_ACCESS_SECRET") or os.getenv("PDF_REPORT_ACCESS_SECRET") or "change-me"
 
@@ -134,11 +134,33 @@ def get_session_file(session: dict, file_index: int) -> dict:
     return file_info
 
 
-def file_response(file_info: dict, inline: bool = False) -> FileResponse:
-    filename = file_info.get("original_filename") or os.path.basename(file_info["path"])
-    media_type = file_info.get("mime_type") or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+def session_file_variant(file_info: dict, variant: str = "original") -> dict:
+    if variant == "preprocessed":
+        variant_path = file_info.get("preprocessed_path") or file_info.get("filtered_path")
+        if not variant_path or not os.path.exists(variant_path):
+            raise HTTPException(status_code=404, detail="Preprocessed file not found")
+        filename = file_info.get("original_filename") or os.path.basename(variant_path)
+        stem, _ = os.path.splitext(filename)
+        return {
+            "path": variant_path,
+            "filename": f"{stem}_preprocessed.csv",
+            "mime_type": "text/csv",
+        }
+
+    return {
+        "path": file_info["path"],
+        "filename": file_info.get("original_filename") or os.path.basename(file_info["path"]),
+        "mime_type": file_info.get("mime_type"),
+    }
+
+
+def file_response(file_info: dict, inline: bool = False, variant: str = "original") -> FileResponse:
+    variant_info = session_file_variant(file_info, variant)
+    filename = variant_info["filename"]
+    file_path = variant_info["path"]
+    media_type = variant_info.get("mime_type") or mimetypes.guess_type(filename)[0] or "application/octet-stream"
     return FileResponse(
-        file_info["path"],
+        file_path,
         media_type=media_type,
         filename=filename,
         content_disposition_type="inline" if inline else "attachment"
@@ -179,6 +201,7 @@ async def start_session(
         "provider": provider,
         "model_name": model_name,
         "data_filter": {},
+        "data_preprocessing": {},
         "pdf_version": 0,
         "retry_count": 0,
         "explore_history": []
@@ -209,14 +232,14 @@ async def add_files_to_session(
     return {"status": "OK"}
 
 @app.get("/api/sessions/{job_id}/files/{file_index}/download")
-async def download_session_file(job_id: str, file_index: int):
+async def download_session_file(job_id: str, file_index: int, variant: str = "original"):
     session = require_session(job_id)
-    return file_response(get_session_file(session, file_index))
+    return file_response(get_session_file(session, file_index), variant=variant)
 
 @app.get("/api/sessions/{job_id}/files/{file_index}/preview")
-async def preview_session_file(job_id: str, file_index: int):
+async def preview_session_file(job_id: str, file_index: int, variant: str = "original"):
     session = require_session(job_id)
-    return file_response(get_session_file(session, file_index), inline=True)
+    return file_response(get_session_file(session, file_index), inline=True, variant=variant)
 
 @app.delete("/api/sessions/{job_id}/files/{file_index}")
 async def delete_session_file(job_id: str, file_index: int, background_tasks: BackgroundTasks):
@@ -229,6 +252,15 @@ async def delete_session_file(job_id: str, file_index: int, background_tasks: Ba
         os.remove(file_info["path"])
     except FileNotFoundError:
         pass
+    for generated_path in [
+        file_info.get("preprocessed_path"),
+        file_info.get("filtered_path"),
+    ]:
+        if generated_path and generated_path != file_info.get("path"):
+            try:
+                os.remove(generated_path)
+            except FileNotFoundError:
+                pass
 
     update_payload = {
         "files": files,
@@ -259,11 +291,12 @@ async def chat_refinement(job_id: str, background_tasks: BackgroundTasks, prompt
     full_current_goal = session['initial_prompt'] + "\nRefinement History:\n- " + "\n- ".join(history)
 
     if should_consider_data_filter(prompt):
-        add_log(job_id, f"Filtro de dados solicitado: {prompt}")
+        add_log(job_id, f"Pré-processamento de dados solicitado: {prompt}")
         files = clear_data_filter_state(session.get("files", []))
         update_session(job_id, {
             "files": files,
             "data_filter": {},
+            "data_preprocessing": {},
             "artifacts": [],
             "template": [],
             "components": {},

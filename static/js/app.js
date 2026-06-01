@@ -4,6 +4,8 @@ const App = {
     lastPdfVersion: 0,
     pdfObjectUrl: null,
     filePreviewUrl: null,
+    filePreviewIndex: null,
+    filePreviewVariant: 'original',
     layoutTemplates: [],
     models: {
         gemini: [
@@ -282,6 +284,10 @@ const App = {
     },
 
     async previewFile(index) {
+        return this.previewFileVariant(index, 'original');
+    },
+
+    async previewFileVariant(index, variant = 'original') {
         const file = this.currentSession.files[index];
         if (!file) return;
 
@@ -291,38 +297,70 @@ const App = {
         const body = document.getElementById('file-preview-body');
         const downloadBtn = document.getElementById('file-preview-download');
         const filename = file.original_filename || `arquivo-${index + 1}`;
-        const kind = UI.fileKind(filename);
+        const isPreprocessed = variant === 'preprocessed';
+        const effectiveFilename = isPreprocessed
+            ? `${filename.replace(/\.[^.]+$/, '')}_preprocessed.csv`
+            : filename;
+        const kind = UI.fileKind(effectiveFilename);
+        const hasPreprocessed = Boolean(file.preprocessed_path || file.filtered_path);
+        this.filePreviewIndex = index;
+        this.filePreviewVariant = variant;
 
-        title.textContent = filename;
-        meta.textContent = [UI.formatBytes(file.size_bytes || (file.artifact && file.artifact.size_bytes)), file.mime_type]
+        title.textContent = effectiveFilename;
+        meta.textContent = [
+            isPreprocessed ? 'Pré-processado' : 'Original',
+            UI.formatBytes(file.size_bytes || (file.artifact && file.artifact.size_bytes)),
+            isPreprocessed ? 'text/csv' : file.mime_type,
+            isPreprocessed ? (file.preprocessing_description || file.filter_description) : ''
+        ]
             .filter(Boolean)
             .join(' · ');
-        body.innerHTML = '<div class="preview-loading">Carregando preview...</div>';
-        downloadBtn.onclick = () => this.downloadFile(index);
+        body.innerHTML = `
+            ${hasPreprocessed ? this.renderFilePreviewTabs(index, variant) : ''}
+            <div class="preview-content"><div class="preview-loading">Carregando preview...</div></div>
+        `;
+        const content = body.querySelector('.preview-content') || body;
+        downloadBtn.onclick = () => this.downloadFile(index, variant);
         modal.showModal();
 
         try {
-            const blob = await API.getFileBlob(this.currentSession.job_id, index, 'preview');
+            const blob = await API.getFileBlob(this.currentSession.job_id, index, 'preview', variant);
             if (this.filePreviewUrl) URL.revokeObjectURL(this.filePreviewUrl);
             this.filePreviewUrl = URL.createObjectURL(blob);
 
             if (kind === 'image') {
-                body.innerHTML = `<img class="preview-image" alt="${UI.escapeHtml(filename)}" src="${this.filePreviewUrl}">`;
+                content.innerHTML = `<img class="preview-image" alt="${UI.escapeHtml(effectiveFilename)}" src="${this.filePreviewUrl}">`;
             } else if (kind === 'pdf') {
-                body.innerHTML = `<iframe class="preview-frame" title="${UI.escapeHtml(filename)}" src="${this.filePreviewUrl}"></iframe>`;
+                content.innerHTML = `<iframe class="preview-frame" title="${UI.escapeHtml(effectiveFilename)}" src="${this.filePreviewUrl}"></iframe>`;
             } else if (kind === 'text' || kind === 'data') {
-                if (filename.toLowerCase().match(/\.(xlsx|xls|ods)$/)) {
-                    this.renderMetadataPreview(body, file, 'Planilhas podem ser baixadas ou usadas pelo gerador, mas nao abrem como texto no navegador.');
+                if (effectiveFilename.toLowerCase().match(/\.(xlsx|xls|ods)$/)) {
+                    this.renderMetadataPreview(content, file, 'Planilhas podem ser baixadas ou usadas pelo gerador, mas nao abrem como texto no navegador.');
                     return;
                 }
                 const text = await blob.text();
-                body.innerHTML = `<pre class="preview-text">${UI.escapeHtml(text.slice(0, 200000))}</pre>`;
+                content.innerHTML = `<pre class="preview-text">${UI.escapeHtml(text.slice(0, 200000))}</pre>`;
             } else {
-                this.renderMetadataPreview(body, file, 'Preview direto indisponivel para este formato.');
+                this.renderMetadataPreview(content, file, 'Preview direto indisponivel para este formato.');
             }
         } catch (error) {
-            body.innerHTML = '<div class="preview-empty">Nao foi possivel abrir o preview deste arquivo.</div>';
+            content.innerHTML = '<div class="preview-empty">Nao foi possivel abrir o preview deste arquivo.</div>';
         }
+    },
+
+    renderFilePreviewTabs(index, activeVariant) {
+        const tab = (variant, label) => `
+            <button
+                type="button"
+                class="file-preview-tab ${activeVariant === variant ? 'active' : ''}"
+                onclick="App.previewFileVariant(${index}, '${variant}')"
+            >${label}</button>
+        `;
+        return `
+            <div class="file-preview-tabs">
+                ${tab('original', 'Original')}
+                ${tab('preprocessed', 'Pré-processado')}
+            </div>
+        `;
     },
 
     renderMetadataPreview(container, file, message) {
@@ -341,17 +379,22 @@ const App = {
             URL.revokeObjectURL(this.filePreviewUrl);
             this.filePreviewUrl = null;
         }
+        this.filePreviewIndex = null;
+        this.filePreviewVariant = 'original';
     },
 
-    async downloadFile(index) {
+    async downloadFile(index, variant = 'original') {
         const file = this.currentSession.files[index];
         if (!file) return;
 
-        const blob = await API.getFileBlob(this.currentSession.job_id, index, 'download');
+        const blob = await API.getFileBlob(this.currentSession.job_id, index, 'download', variant);
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
+        const filename = file.original_filename || `arquivo-${index + 1}`;
         link.href = url;
-        link.download = file.original_filename || `arquivo-${index + 1}`;
+        link.download = variant === 'preprocessed'
+            ? `${filename.replace(/\.[^.]+$/, '')}_preprocessed.csv`
+            : filename;
         document.body.appendChild(link);
         link.click();
         link.remove();

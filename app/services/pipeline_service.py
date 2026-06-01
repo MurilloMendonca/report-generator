@@ -55,9 +55,21 @@ for directory in [FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
     os.makedirs(directory, exist_ok=True)
 
 
+def processed_path(file_info: dict) -> str | None:
+    return file_info.get("preprocessed_path") or file_info.get("filtered_path")
+
+
+def preprocessing_description(file_info: dict) -> str:
+    return file_info.get("preprocessing_description") or file_info.get("filter_description") or ""
+
+
+def preprocessing_needed(state: dict | None) -> bool:
+    return bool(state and (state.get("needs_preprocessing") or state.get("needs_filter")))
+
+
 def build_files_map(session: dict) -> dict:
     return {
-        f['original_filename']: os.path.abspath(f.get('filtered_path') or f['path'])
+        f['original_filename']: os.path.abspath(processed_path(f) or f['path'])
         for f in session.get('files', [])
     }
 
@@ -77,7 +89,7 @@ def normalize_filter_prompt(prompt: str) -> str:
 
 
 def should_consider_data_filter(prompt: str, session: dict = None) -> bool:
-    if session and session.get("data_filter", {}).get("needs_filter"):
+    if session and preprocessing_needed(session.get("data_preprocessing") or session.get("data_filter")):
         return True
     normalized = normalize_filter_prompt(prompt)
     keywords = [
@@ -88,6 +100,15 @@ def should_consider_data_filter(prompt: str, session: dict = None) -> bool:
         "apenas", "somente", "so ", "sem ", "exceto", "limitar",
         "restringir", "focar", "foco em", "considerar so",
         "considerar apenas", "incluir apenas", "inclua apenas",
+        "preprocess", "pre-process", "pre process", "preprocessar",
+        "pre-processar", "pre processamento", "pre-processamento",
+        "transformar", "transforme", "preparar", "prepare",
+        "limpar", "limpe", "normalizar", "normalize", "padronizar",
+        "agrupar", "agrupe", "agregado", "agregar", "resumir por",
+        "group by", "grouped by", "aggregate", "summarize by",
+        "nova coluna", "coluna calculada", "criar coluna",
+        "adicione uma coluna", "adicionar uma coluna", "calcular coluna",
+        "calculated column", "new column", "derive column",
         "keep only", "only", "exclude", "remove", "ignore", "filter",
         "without", "except", "focus on", "restrict", "do not include",
         "don't include"
@@ -99,7 +120,7 @@ def has_data_filter_decision(data_filter: dict | None) -> bool:
     if not data_filter:
         return False
     return bool(
-        data_filter.get("needs_filter")
+        preprocessing_needed(data_filter)
         or data_filter.get("description")
         or data_filter.get("code")
     )
@@ -121,7 +142,7 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
         setup_line = dataframe_load_line(file_info["original_filename"], os.path.abspath(source_path))
         if setup_line:
             setup_lines.append(setup_line)
-            output_path = os.path.abspath(os.path.join(FILTERED_DIR, f"{job_id}_{uuid.uuid4().hex}.csv"))
+            output_path = os.path.abspath(os.path.join(FILTERED_DIR, f"{job_id}_{uuid.uuid4().hex}_preprocessed.csv"))
             output_paths[file_info["original_filename"]] = output_path
 
     if not output_paths:
@@ -132,26 +153,33 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     script += data_filter.get("code", "")
     script += "\n\n"
     script += f"output_paths = {json.dumps(output_paths, ensure_ascii=False)}\n"
-    script += "filtered = filter_dataframes(dataframes)\n"
+    script += "if 'preprocess_dataframes' in globals():\n"
+    script += "    processed = preprocess_dataframes(dataframes)\n"
+    script += "else:\n"
+    script += "    processed = filter_dataframes(dataframes)\n"
     script += "for name, path in output_paths.items():\n"
-    script += "    df = filtered.get(name, dataframes.get(name))\n"
+    script += "    df = processed.get(name, dataframes.get(name))\n"
     script += "    if df is None:\n"
     script += "        continue\n"
     script += "    df.to_csv(path, index=False)\n"
 
-    script_path = os.path.join(SCRIPT_DIR, f"filter_{job_id}.py")
+    script_path = os.path.join(SCRIPT_DIR, f"preprocess_{job_id}.py")
     result = execute_script(script, script_path)
     if not result["success"]:
-        raise RuntimeError(result["stderr"] or "Falha ao aplicar filtro de dados")
+        raise RuntimeError(result["stderr"] or "Falha ao aplicar pré-processamento de dados")
 
     for file_info in files:
         filtered_path = output_paths.get(file_info.get("original_filename"))
         if filtered_path and os.path.exists(filtered_path):
+            file_info["preprocessed_path"] = filtered_path
+            file_info["preprocessing_description"] = data_filter.get("description", "")
             file_info["filtered_path"] = filtered_path
             file_info["filter_description"] = data_filter.get("description", "")
             file_info["artifact"] = extract_metadata(filtered_path, file_info["original_filename"])
         elif file_info.get("raw_artifact"):
             file_info["artifact"] = file_info["raw_artifact"]
+            file_info.pop("preprocessed_path", None)
+            file_info.pop("preprocessing_description", None)
             file_info.pop("filtered_path", None)
             file_info.pop("filter_description", None)
 
@@ -160,6 +188,8 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
 
 def clear_data_filter_state(files: list) -> list:
     for file_info in files:
+        file_info.pop("preprocessed_path", None)
+        file_info.pop("preprocessing_description", None)
         file_info.pop("filtered_path", None)
         file_info.pop("filter_description", None)
         if file_info.get("raw_artifact"):
@@ -188,35 +218,35 @@ def run_pipeline(job_id: str):
             if not file_info.get('raw_artifact'):
                 raw_artifact = extract_metadata(file_info['path'], file_info['original_filename'])
                 files[i]['raw_artifact'] = raw_artifact
-                if not file_info.get("filtered_path"):
+                if not processed_path(file_info):
                     files[i]['artifact'] = raw_artifact
                 any_new_artifact = True
         if any_new_artifact:
             session = update_session(job_id, {"files": files}) or session
             files = session.get("files", files)
 
-        data_filter = session.get("data_filter", {})
+        data_filter = session.get("data_preprocessing") or session.get("data_filter", {})
         has_filter_decision = has_data_filter_decision(data_filter)
         filter_prompt = session.get('current_goal', session['initial_prompt'])
         should_filter = should_consider_data_filter(filter_prompt, session)
         if should_filter and (any_new_artifact or not has_filter_decision):
-            add_log(job_id, "Avaliando filtro de dados solicitado...")
+            add_log(job_id, "Avaliando pré-processamento de dados solicitado...")
             data_filter = generate_data_filter(raw_metadata_json({"files": files}), filter_prompt, provider, model_name, settings=session.get('settings'))
-            session = update_session(job_id, {"data_filter": data_filter}) or session
+            session = update_session(job_id, {"data_preprocessing": data_filter, "data_filter": data_filter}) or session
             has_filter_decision = has_data_filter_decision(data_filter)
 
-        needs_filter_apply = data_filter.get("needs_filter") and (
-            any_new_artifact or any(supported_tabular_path(f.get("path", "")) and not f.get("filtered_path") for f in files)
+        needs_filter_apply = preprocessing_needed(data_filter) and (
+            any_new_artifact or any(supported_tabular_path(f.get("path", "")) and not processed_path(f) for f in files)
         )
         if needs_filter_apply:
-            add_log(job_id, f"Aplicando filtro de dados: {data_filter.get('description', 'filtro ativo')}")
+            add_log(job_id, f"Aplicando pré-processamento de dados: {data_filter.get('description', 'transformação ativa')}")
             files = apply_data_filter(job_id, session, data_filter)
-            session = update_session(job_id, {"files": files}) or session
+            session = update_session(job_id, {"files": files, "data_preprocessing": data_filter, "data_filter": data_filter}) or session
             files = session.get("files", files)
             any_new_artifact = True
-        elif has_filter_decision and not data_filter.get("needs_filter"):
+        elif has_filter_decision and not preprocessing_needed(data_filter):
             files = clear_data_filter_state(files)
-            session = update_session(job_id, {"files": files, "data_filter": data_filter}) or session
+            session = update_session(job_id, {"files": files, "data_preprocessing": data_filter, "data_filter": data_filter}) or session
 
         all_metadata = metadata_json({"files": files})
         files_map = build_files_map({"files": files})

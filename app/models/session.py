@@ -20,6 +20,8 @@ class SessionFile(BaseModel):
     mime_type: str | None = None
     artifact: dict[str, Any] | None = None
     raw_artifact: dict[str, Any] | None = None
+    preprocessed_path: str | None = None
+    preprocessing_description: str | None = None
     filtered_path: str | None = None
     filter_description: str | None = None
 
@@ -29,6 +31,10 @@ class SessionFile(BaseModel):
             self.raw_artifact = self.artifact
         if self.artifact is None and self.raw_artifact is not None:
             self.artifact = self.raw_artifact
+        if self.preprocessed_path is None and self.filtered_path is not None:
+            self.preprocessed_path = self.filtered_path
+        if self.preprocessing_description is None and self.filter_description is not None:
+            self.preprocessing_description = self.filter_description
         return self
 
 
@@ -54,8 +60,17 @@ class DataFilterState(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     needs_filter: bool = False
+    needs_preprocessing: bool = False
     description: str = ""
     code: str = ""
+
+    @model_validator(mode="after")
+    def migrate_preprocessing_flags(self):
+        if self.needs_filter and not self.needs_preprocessing:
+            self.needs_preprocessing = True
+        if self.needs_preprocessing and not self.needs_filter:
+            self.needs_filter = True
+        return self
 
 
 class ReportSession(BaseModel):
@@ -83,6 +98,7 @@ class ReportSession(BaseModel):
     provider: str = "deepseek"
     model_name: str = "deepseek-v4-flash"
     data_filter: DataFilterState = Field(default_factory=DataFilterState)
+    data_preprocessing: DataFilterState = Field(default_factory=DataFilterState)
     pdf_version: int = 0
     retry_count: int = 0
     explore_history: list[dict[str, Any]] = Field(default_factory=list)
@@ -112,6 +128,8 @@ class ReportSession(BaseModel):
             payload["settings"] = {}
         if payload.get("data_filter") is None:
             payload["data_filter"] = {}
+        if payload.get("data_preprocessing") is None:
+            payload["data_preprocessing"] = payload.get("data_filter") or {}
 
         return payload
 
@@ -124,6 +142,10 @@ class ReportSession(BaseModel):
             self.provider = "deepseek"
         if not self.model_name:
             self.model_name = "deepseek-v4-flash"
+        if self.data_preprocessing.needs_preprocessing or self.data_preprocessing.description or self.data_preprocessing.code:
+            self.data_filter = self.data_preprocessing
+        elif self.data_filter.needs_filter or self.data_filter.description or self.data_filter.code:
+            self.data_preprocessing = self.data_filter
         return self
 
 
