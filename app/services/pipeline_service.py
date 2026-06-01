@@ -5,6 +5,8 @@ import traceback
 import unicodedata
 import uuid
 
+import pandas as pd
+
 from app.services.executor_service import execute_script
 from app.services.llm_service import (
     DEFAULT_MODEL_NAME,
@@ -131,9 +133,37 @@ def supported_tabular_path(path: str) -> bool:
     return os.path.splitext(path)[1].lower() in {".csv", ".xls", ".xlsx"}
 
 
+def read_tabular_preview(path: str) -> tuple[int, set]:
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".csv":
+        df = pd.read_csv(path)
+    elif ext in {".xls", ".xlsx"}:
+        df = pd.read_excel(path)
+    else:
+        return 0, set()
+    return int(len(df)), {str(column) for column in df.columns}
+
+
+def preprocessing_impact(original_path: str, processed_path_value: str) -> dict:
+    before_rows, before_columns = read_tabular_preview(original_path)
+    after_rows, after_columns = read_tabular_preview(processed_path_value)
+    removed_rows = max(0, before_rows - after_rows)
+    return {
+        "rows_before": before_rows,
+        "rows_after": after_rows,
+        "rows_removed": removed_rows,
+        "rows_removed_ratio": round(removed_rows / before_rows, 4) if before_rows else 0,
+        "columns_before": len(before_columns),
+        "columns_after": len(after_columns),
+        "columns_added": sorted(after_columns - before_columns),
+        "columns_removed": sorted(before_columns - after_columns),
+    }
+
+
 def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     files = session.get("files", [])
     output_paths = {}
+    impacts = {}
     setup_lines = ["import pandas as pd", "import numpy as np", "dataframes = {}"]
 
     for file_info in files:
@@ -177,12 +207,20 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
             file_info["filtered_path"] = filtered_path
             file_info["filter_description"] = data_filter.get("description", "")
             file_info["artifact"] = extract_metadata(filtered_path, file_info["original_filename"])
+            impact = preprocessing_impact(file_info["path"], filtered_path)
+            file_info["preprocessing_impact"] = impact
+            file_info["filter_impact"] = impact
+            impacts[file_info["original_filename"]] = impact
         elif file_info.get("raw_artifact"):
             file_info["artifact"] = file_info["raw_artifact"]
             file_info.pop("preprocessed_path", None)
             file_info.pop("preprocessing_description", None)
             file_info.pop("filtered_path", None)
             file_info.pop("filter_description", None)
+            file_info.pop("preprocessing_impact", None)
+            file_info.pop("filter_impact", None)
+
+    data_filter["impact"] = impacts
 
     return files
 
@@ -193,6 +231,8 @@ def clear_data_filter_state(files: list) -> list:
         file_info.pop("preprocessing_description", None)
         file_info.pop("filtered_path", None)
         file_info.pop("filter_description", None)
+        file_info.pop("preprocessing_impact", None)
+        file_info.pop("filter_impact", None)
         if file_info.get("raw_artifact"):
             file_info["artifact"] = file_info["raw_artifact"]
     return files

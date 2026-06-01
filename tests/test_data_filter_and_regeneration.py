@@ -94,6 +94,10 @@ class DataFilterTests(unittest.TestCase):
         self.assertEqual(files[0]["filtered_path"], filtered_path)
         self.assertTrue(os.path.exists(filtered_path))
         self.assertEqual(files[0]["preprocessing_description"], "Excluir variantes regionais e calcular valor dobrado")
+        self.assertEqual(files[0]["preprocessing_impact"]["rows_before"], 3)
+        self.assertEqual(files[0]["preprocessing_impact"]["rows_after"], 2)
+        self.assertEqual(files[0]["preprocessing_impact"]["columns_added"], ["value_doubled"])
+        self.assertEqual(data_filter["impact"]["pokemon.csv"]["rows_removed"], 1)
         processed = pd.read_csv(filtered_path)
         self.assertEqual(processed["name"].tolist(), ["Pikachu", "Bulbasaur"])
         self.assertEqual(processed["value_doubled"].tolist(), [2, 6])
@@ -117,8 +121,10 @@ class DataFilterTests(unittest.TestCase):
         cleared = clear_data_filter_state(files)
         self.assertNotIn("preprocessed_path", cleared[0])
         self.assertNotIn("preprocessing_description", cleared[0])
+        self.assertNotIn("preprocessing_impact", cleared[0])
         self.assertNotIn("filtered_path", cleared[0])
         self.assertNotIn("filter_description", cleared[0])
+        self.assertNotIn("filter_impact", cleared[0])
         self.assertEqual(cleared[0]["artifact"], {"shape": {"rows": 3}})
 
     def test_session_file_variant_exposes_preprocessed_file(self):

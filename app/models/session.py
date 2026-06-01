@@ -22,8 +22,10 @@ class SessionFile(BaseModel):
     raw_artifact: dict[str, Any] | None = None
     preprocessed_path: str | None = None
     preprocessing_description: str | None = None
+    preprocessing_impact: dict[str, Any] | None = None
     filtered_path: str | None = None
     filter_description: str | None = None
+    filter_impact: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def migrate_artifacts(self):
@@ -35,6 +37,8 @@ class SessionFile(BaseModel):
             self.preprocessed_path = self.filtered_path
         if self.preprocessing_description is None and self.filter_description is not None:
             self.preprocessing_description = self.filter_description
+        if self.preprocessing_impact is None and self.filter_impact is not None:
+            self.preprocessing_impact = self.filter_impact
         return self
 
 
