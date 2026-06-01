@@ -27,6 +27,7 @@ from app.services.llm_service import (
     generate_exploration_script,
     translate_workspace
 )
+from app.services.executor_service import execute_script
 from app.services.pipeline_service import (
     DEFAULT_EXPLORATORY_PROMPT,
     DEFAULT_SETTINGS,
