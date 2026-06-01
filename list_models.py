@@ -1,4 +1,3 @@
-import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -10,12 +9,19 @@ def list_gemini_models():
     if not api_key:
         print("Erro: GEMINI_API_KEY não encontrada no .env")
         return
-    
-    genai.configure(api_key=api_key)
+
+    try:
+        from google import genai
+    except ImportError:
+        print("Erro: instale google-genai com `pip install -r requirements.txt`")
+        return
+
+    client = genai.Client(api_key=api_key)
     print("Modelos disponíveis para generateContent:")
-    for m in genai.list_models():
-        if 'generateContent' in m.supported_generation_methods:
-            print(f"- {m.name}")
+    for model in client.models.list():
+        actions = getattr(model, "supported_actions", None) or getattr(model, "supported_generation_methods", [])
+        if not actions or "generateContent" in actions:
+            print(f"- {model.name}")
 
 
 def list_deepseek_models():

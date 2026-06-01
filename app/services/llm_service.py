@@ -1,4 +1,3 @@
-import google.generativeai as genai
 import os
 import hashlib
 import json
@@ -15,31 +14,31 @@ PROMPTS_DIR = "prompts"
 DEFAULT_PROVIDER = "deepseek"
 DEFAULT_MODEL_BY_PROVIDER = {
     "deepseek": "deepseek-v4-flash",
-    "gemini": "models/gemini-3.1-flash-lite-preview",
+    "gemini": "gemini-3.1-flash-lite-preview",
 }
 DEFAULT_MODEL_NAME = DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER]
 
 
 MODEL_CATALOG = {
     "gemini": [
-        {"id": "models/gemini-3.1-flash-lite-preview", "label": "Gemini 3.1 Flash Lite Preview"},
-        {"id": "models/gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash Lite"},
-        {"id": "models/gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro Preview"},
-        {"id": "models/gemini-3-pro-preview", "label": "Gemini 3 Pro Preview"},
-        {"id": "models/gemini-3-flash-preview", "label": "Gemini 3 Flash Preview"},
-        {"id": "models/gemini-3.5-flash", "label": "Gemini 3.5 Flash"},
-        {"id": "models/gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
-        {"id": "models/gemini-2.5-flash", "label": "Gemini 2.5 Flash"},
-        {"id": "models/gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash Lite"},
-        {"id": "models/gemini-2.0-flash", "label": "Gemini 2.0 Flash"},
-        {"id": "models/gemini-2.0-flash-001", "label": "Gemini 2.0 Flash 001"},
-        {"id": "models/gemini-2.0-flash-lite", "label": "Gemini 2.0 Flash Lite"},
-        {"id": "models/gemini-2.0-flash-lite-001", "label": "Gemini 2.0 Flash Lite 001"},
-        {"id": "models/gemini-pro-latest", "label": "Gemini Pro Latest"},
-        {"id": "models/gemini-flash-latest", "label": "Gemini Flash Latest"},
-        {"id": "models/gemini-flash-lite-latest", "label": "Gemini Flash Lite Latest"},
-        {"id": "models/gemma-4-31b-it", "label": "Gemma 4 31B IT"},
-        {"id": "models/gemma-4-26b-a4b-it", "label": "Gemma 4 26B A4B IT"},
+        {"id": "gemini-3.1-flash-lite-preview", "label": "Gemini 3.1 Flash Lite Preview"},
+        {"id": "gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash Lite"},
+        {"id": "gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro Preview"},
+        {"id": "gemini-3-pro-preview", "label": "Gemini 3 Pro Preview"},
+        {"id": "gemini-3-flash-preview", "label": "Gemini 3 Flash Preview"},
+        {"id": "gemini-3.5-flash", "label": "Gemini 3.5 Flash"},
+        {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
+        {"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash"},
+        {"id": "gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash Lite"},
+        {"id": "gemini-2.0-flash", "label": "Gemini 2.0 Flash"},
+        {"id": "gemini-2.0-flash-001", "label": "Gemini 2.0 Flash 001"},
+        {"id": "gemini-2.0-flash-lite", "label": "Gemini 2.0 Flash Lite"},
+        {"id": "gemini-2.0-flash-lite-001", "label": "Gemini 2.0 Flash Lite 001"},
+        {"id": "gemini-pro-latest", "label": "Gemini Pro Latest"},
+        {"id": "gemini-flash-latest", "label": "Gemini Flash Latest"},
+        {"id": "gemini-flash-lite-latest", "label": "Gemini Flash Lite Latest"},
+        {"id": "gemma-4-31b-it", "label": "Gemma 4 31B IT"},
+        {"id": "gemma-4-26b-a4b-it", "label": "Gemma 4 26B A4B IT"},
     ],
     "deepseek": [
         {"id": "deepseek-v4-flash", "label": "DeepSeek V4 Flash"},
@@ -128,12 +127,19 @@ def prompt_fingerprint(filename: str) -> dict:
         "version": content.splitlines()[0].strip("# ").strip() if content.splitlines() else filename,
     }
 
-def get_gemini_model(model_name="models/gemini-3.1-flash-lite-preview"):
+def normalize_gemini_model_name(model_name: str) -> str:
+    return str(model_name or "").removeprefix("models/")
+
+
+def get_gemini_client():
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not found in environment.")
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(model_name)
+    try:
+        from google import genai
+    except ImportError as exc:
+        raise ImportError("google-genai is required for Gemini. Install dependencies with `pip install -r requirements.txt`.") from exc
+    return genai.Client(api_key=api_key)
 
 def get_deepseek_client():
     api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -154,8 +160,11 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
     for i in range(retries):
         try:
             if provider == "gemini":
-                model = get_gemini_model(model_name)
-                response = model.generate_content([system_instruction, user_prompt])
+                client = get_gemini_client()
+                response = client.models.generate_content(
+                    model=normalize_gemini_model_name(model_name),
+                    contents=f"{system_instruction}\n\n{user_prompt}",
+                )
                 return response.text
             elif provider == "deepseek":
                 client = get_deepseek_client()

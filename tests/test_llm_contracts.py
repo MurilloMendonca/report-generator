@@ -1,6 +1,12 @@
 import unittest
 
-from app.services.llm_service import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER, model_catalog, prompt_fingerprint
+from app.services.llm_service import (
+    DEFAULT_MODEL_NAME,
+    DEFAULT_PROVIDER,
+    model_catalog,
+    normalize_gemini_model_name,
+    prompt_fingerprint,
+)
 
 
 class LlmContractTests(unittest.TestCase):
@@ -18,6 +24,15 @@ class LlmContractTests(unittest.TestCase):
         self.assertEqual(fingerprint["filename"], "GENERATE_ARTIFACTS.md")
         self.assertEqual(len(fingerprint["sha256"]), 64)
         self.assertTrue(fingerprint["version"])
+
+    def test_gemini_model_names_are_new_sdk_compatible(self):
+        catalog = model_catalog()
+
+        self.assertEqual(normalize_gemini_model_name("models/gemini-2.5-flash"), "gemini-2.5-flash")
+        self.assertTrue(all(
+            not model["id"].startswith("models/")
+            for model in catalog["providers"]["gemini"]
+        ))
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ The current UI text is mostly Portuguese, and the default report language is Por
 - Charts: matplotlib, seaborn
 - PDF rendering: fpdf2
 - LLM providers:
-  - Google Gemini via `google-generativeai`
+  - Google Gemini via `google-genai`
   - DeepSeek via OpenAI-compatible client
 - Frontend: static HTML/CSS/JavaScript
 - Runtime persistence: JSON files under `workspace/sessions`
