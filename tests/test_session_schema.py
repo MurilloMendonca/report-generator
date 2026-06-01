@@ -4,7 +4,7 @@ import uuid
 import unittest
 
 from app.models.session import CURRENT_SESSION_SCHEMA_VERSION, normalize_session
-from app.services.session_manager import create_session, get_session, get_session_lock_path, get_session_path, update_session
+from app.services.session_manager import create_session, get_session, get_session_lock_path, get_session_path, set_session_stage, update_session
 
 
 class SessionSchemaTests(unittest.TestCase):
@@ -153,6 +153,26 @@ class SessionSchemaTests(unittest.TestCase):
         session = get_session(job_id)
         for index in range(10):
             self.assertEqual(session[f"value_{index}"], index)
+
+    def test_set_session_stage_records_progress_and_structured_error(self):
+        job_id = self.new_job_id()
+        create_session(job_id, {"job_id": job_id, "initial_prompt": "Stages"})
+
+        set_session_stage(job_id, "graphics", 75)
+        session = get_session(job_id)
+        self.assertEqual(session["current_step"], "graphics")
+        self.assertEqual(session["progress"], 75)
+
+        set_session_stage(job_id, "failed", 120, {
+            "code": "render_error",
+            "message": "Render failed",
+            "stage": "render",
+            "retryable": False,
+        })
+        session = get_session(job_id)
+        self.assertEqual(session["progress"], 100)
+        self.assertEqual(session["status"], "Render failed")
+        self.assertEqual(session["error"]["code"], "render_error")
 
     def test_normalize_session_accepts_none(self):
         self.assertIsNone(normalize_session(None))

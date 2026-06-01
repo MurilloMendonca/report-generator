@@ -24,7 +24,7 @@ from app.services.llm_service import (
     generate_template,
     slot_by_artifact_id,
 )
-from app.services.session_manager import add_log, get_session, update_session
+from app.services.session_manager import add_log, get_session, set_session_stage, update_session
 from app.utils.data_analyzer import extract_metadata
 from app.utils.artifact_validation import validate_report_plan
 from app.utils.layout import normalize_template
@@ -253,6 +253,7 @@ def run_pipeline(job_id: str):
     model_name = session.get('model_name', DEFAULT_MODEL_NAME)
 
     try:
+        set_session_stage(job_id, "metadata", 10, error={})
         files = session.get('files', [])
         any_new_artifact = False
         for i, file_info in enumerate(files):
@@ -271,6 +272,7 @@ def run_pipeline(job_id: str):
         filter_prompt = session.get('current_goal', session['initial_prompt'])
         should_filter = should_consider_data_filter(filter_prompt, session)
         if should_filter and (any_new_artifact or not has_filter_decision):
+            set_session_stage(job_id, "preprocessing_plan", 20)
             add_log(job_id, "Avaliando pré-processamento de dados solicitado...")
             data_filter = generate_data_filter(raw_metadata_json({"files": files}), filter_prompt, provider, model_name, settings=session.get('settings'))
             session = update_session(job_id, {"data_preprocessing": data_filter, "data_filter": data_filter}) or session
@@ -280,6 +282,7 @@ def run_pipeline(job_id: str):
             any_new_artifact or any(supported_tabular_path(f.get("path", "")) and not processed_path(f) for f in files)
         )
         if needs_filter_apply:
+            set_session_stage(job_id, "preprocessing_apply", 25)
             add_log(job_id, f"Aplicando pré-processamento de dados: {data_filter.get('description', 'transformação ativa')}")
             files = apply_data_filter(job_id, session, data_filter)
             session = update_session(job_id, {"files": files, "data_preprocessing": data_filter, "data_filter": data_filter}) or session
@@ -298,6 +301,7 @@ def run_pipeline(job_id: str):
         selected_template = None
 
         if not artifacts or any_new_artifact:
+            set_session_stage(job_id, "artifact_plan", 35)
             max_artifacts_retries = 3
             if selected_template_id:
                 selected_template = select_layout_template([], selected_template_id)
@@ -335,6 +339,7 @@ def run_pipeline(job_id: str):
             update_session(job_id, {"artifacts": artifacts})
 
         if not settings.get("title"):
+            set_session_stage(job_id, "title", 45)
             add_log(job_id, "Gerando título do relatório...")
             title = generate_report_title(
                 all_metadata,
@@ -351,6 +356,7 @@ def run_pipeline(job_id: str):
         metric_artifacts = [a for a in artifacts if a.get('type') == 'metric']
         for art in metric_artifacts:
             if art['id'] not in metrics_store or any_new_artifact:
+                set_session_stage(job_id, "metrics", 55)
                 add_log(job_id, f"Calculando métrica: {art['indicator']}...")
                 val = calculate_metric_value(all_metadata, art, files_map, provider, model_name)
                 metrics_store[art['id']] = val
@@ -359,6 +365,7 @@ def run_pipeline(job_id: str):
         visible_artifacts = [a for a in artifacts if a.get('type') in VISUAL_TYPES or a.get('type') == 'text']
         template = session.get('template', [])
         if not template or len(template) != len(visible_artifacts):
+            set_session_stage(job_id, "layout", 65)
             template_name = selected_template.get("name") if selected_template else "fallback"
             add_log(job_id, f"Aplicando template de layout: {template_name}...")
             template = generate_template(visible_artifacts, provider, model_name, template_id=selected_template_id)
@@ -370,6 +377,7 @@ def run_pipeline(job_id: str):
         graphic_artifacts = [a for a in artifacts if a.get('type') in VISUAL_TYPES]
         for art in graphic_artifacts:
             if art['id'] not in components:
+                set_session_stage(job_id, "graphics", 75)
                 add_log(job_id, f"Gerando gráfico: {art['indicator']}...")
                 code = generate_component_code(
                     all_metadata,
@@ -388,6 +396,7 @@ def run_pipeline(job_id: str):
                              any(art['id'] in components and "render_text_block" not in components[art['id']] for art in text_artifacts)
 
         if text_artifacts and needs_text_refresh:
+            set_session_stage(job_id, "texts", 85)
             add_log(job_id, f"Gerando narrativas consistentes ({len(text_artifacts)})...")
             texts_map = generate_all_texts(
                 all_metadata,
@@ -412,11 +421,18 @@ def run_pipeline(job_id: str):
 
     except Exception as e:
         traceback.print_exc()
+        set_session_stage(job_id, "failed", 100, {
+            "code": "pipeline_error",
+            "message": str(e),
+            "stage": (get_session(job_id) or {}).get("current_step", "pipeline"),
+            "retryable": True,
+        })
         add_log(job_id, f"Erro na pipeline: {str(e)}")
 
 
 def run_script_generation(job_id: str):
     session = get_session(job_id)
+    set_session_stage(job_id, "script", 90)
     add_log(job_id, "Montando script final modular...")
 
     script_path = os.path.join(SCRIPT_DIR, f"{job_id}.py")
@@ -447,7 +463,7 @@ def run_execution(job_id: str):
 
     if result["success"]:
         new_version = session.get("pdf_version", 0) + 1
-        update_session(job_id, {"pdf_version": new_version, "retry_count": 0, "status": "Concluído"})
+        update_session(job_id, {"pdf_version": new_version, "retry_count": 0, "status": "Concluído", "current_step": "completed", "progress": 100, "error": {}})
         add_log(job_id, f"Relatório concluído em {duration:.1f}s")
     else:
         if retries < max_retries - 1:
@@ -457,4 +473,10 @@ def run_execution(job_id: str):
             update_session(job_id, {"script": fixed_code, "retry_count": retries + 1})
             run_execution(job_id)
         else:
+            set_session_stage(job_id, "failed", 100, {
+                "code": "render_error",
+                "message": result["stderr"] or "Falha ao renderizar PDF",
+                "stage": "render",
+                "retryable": False,
+            })
             add_log(job_id, f"Falha após {max_retries} tentativas.")

@@ -210,7 +210,7 @@ const App = {
     },
 
     updateUI(session) {
-        UI.updateStatus(session.status, session.status === "Concluído" ? 100 : 60);
+        UI.updateStatus(session.status, Number.isFinite(session.progress) ? session.progress : (session.status === "Concluído" ? 100 : 60));
         UI.renderLogs(session.logs);
         UI.renderFiles(session.files);
         UI.renderArtifacts(session.artifacts);
@@ -246,7 +246,7 @@ const App = {
         if (!q) return;
 
         document.getElementById('chat-history').innerHTML += `
-            <div class="message user"><b>Você:</b> ${q}</div>
+            <div class="message user"><b>Você:</b> ${UI.escapeHtml(q)}</div>
         `;
         input.value = '';
         
@@ -261,11 +261,11 @@ const App = {
         if (!q) return;
 
         const chat = document.getElementById('explore-chat');
-        chat.innerHTML += `<div class="message user"><b>Você:</b> ${q}</div>`;
+        chat.innerHTML += `<div class="message user"><b>Você:</b> ${UI.escapeHtml(q)}</div>`;
         input.value = '';
         
         const data = await API.exploreData(this.currentSession.job_id, q);
-        chat.innerHTML += `<div class="message ai"><b>Analista:</b> ${data.answer}</div>`;
+        chat.innerHTML += `<div class="message ai"><b>Analista:</b> ${UI.escapeHtml(data.answer)}</div>`;
         chat.scrollTop = chat.scrollHeight;
     },
 

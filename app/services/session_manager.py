@@ -125,3 +125,14 @@ def add_log(job_id: str, message: str):
             session["status"] = message
             session["updated_at"] = datetime.now(timezone.utc).isoformat()
             write_session_file(job_id, normalize_session(session, job_id))
+
+
+def set_session_stage(job_id: str, step: str, progress: int = None, error: dict = None):
+    updates = {"current_step": step}
+    if progress is not None:
+        updates["progress"] = max(0, min(100, int(progress)))
+    if error is not None:
+        updates["error"] = error
+        if error:
+            updates["status"] = error.get("message", "Erro")
+    return update_session(job_id, updates)

@@ -1,4 +1,18 @@
 const API = {
+    async parseResponse(res, fallbackMessage) {
+        if (!res.ok) {
+            let detail = fallbackMessage || 'Request failed';
+            try {
+                const payload = await res.json();
+                detail = payload.detail || payload.message || detail;
+            } catch (error) {
+                // Keep fallback message.
+            }
+            throw new Error(detail);
+        }
+        return await res.json();
+    },
+
     accessToken() {
         return localStorage.getItem('pdf_report_access_secret') || '';
     },
@@ -27,7 +41,7 @@ const API = {
 
     async startSession(formData) {
         const res = await fetch('/api/sessions', { method: 'POST', headers: this.authHeaders(), body: formData });
-        return await res.json();
+        return await this.parseResponse(res, 'Could not start session');
     },
 
     async getRecentSessions() {
@@ -44,7 +58,7 @@ const API = {
 
     async addFiles(jobId, formData) {
         const res = await fetch(`/api/sessions/${jobId}/files`, { method: 'POST', headers: this.authHeaders(), body: formData });
-        return await res.json();
+        return await this.parseResponse(res, 'Could not add files');
     },
 
     async getFileBlob(jobId, fileIndex, mode = 'preview', variant = 'original') {
@@ -71,7 +85,7 @@ const API = {
             headers: this.authHeaders(),
             body: new URLSearchParams({ prompt }) 
         });
-        return await res.json();
+        return await this.parseResponse(res, 'Could not send feedback');
     },
 
     async syncArtifacts(jobId, artifacts, components) {
@@ -80,7 +94,7 @@ const API = {
             headers: this.authHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({ artifacts, components })
         });
-        return await res.json();
+        return await this.parseResponse(res, 'Could not update artifacts');
     },
 
     async saveLayout(jobId, template) {
@@ -89,7 +103,7 @@ const API = {
             headers: this.authHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify(template)
         });
-        return await res.json();
+        return await this.parseResponse(res, 'Could not save layout');
     },
 
     async updateSettings(jobId, settings) {
@@ -98,7 +112,7 @@ const API = {
             headers: this.authHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify(settings)
         });
-        return await res.json();
+        return await this.parseResponse(res, 'Could not update settings');
     },
 
     async regenerate(jobId, scope, settings = null) {
@@ -113,7 +127,7 @@ const API = {
 
     async getLayoutTemplates() {
         const res = await fetch('/api/layout-templates', { headers: this.authHeaders() });
-        return await res.json();
+        return await this.parseResponse(res, 'Could not load layout templates');
     },
 
     async exploreData(jobId, prompt) {
@@ -122,7 +136,7 @@ const API = {
             headers: this.authHeaders(),
             body: new URLSearchParams({ prompt }) 
         });
-        return await res.json();
+        return await this.parseResponse(res, 'Could not run exploration');
     },
 
     async getPdfObjectUrl(jobId, version) {

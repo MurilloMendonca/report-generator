@@ -85,6 +85,9 @@ class ReportSession(BaseModel):
     created_at: str = Field(default_factory=utc_now_iso)
     updated_at: str = Field(default_factory=utc_now_iso)
     status: str = ""
+    current_step: str = ""
+    progress: int = 0
+    error: dict[str, Any] | None = None
     logs: list[str] = Field(default_factory=list)
     files: list[SessionFile] = Field(default_factory=list)
     initial_prompt: str = ""
