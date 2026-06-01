@@ -1,5 +1,6 @@
 import google.generativeai as genai
 import os
+import hashlib
 import json
 import re
 import time
@@ -17,6 +18,42 @@ DEFAULT_MODEL_BY_PROVIDER = {
     "gemini": "models/gemini-3.1-flash-lite-preview",
 }
 DEFAULT_MODEL_NAME = DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER]
+
+
+MODEL_CATALOG = {
+    "gemini": [
+        {"id": "models/gemini-3.1-flash-lite-preview", "label": "Gemini 3.1 Flash Lite Preview"},
+        {"id": "models/gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash Lite"},
+        {"id": "models/gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro Preview"},
+        {"id": "models/gemini-3-pro-preview", "label": "Gemini 3 Pro Preview"},
+        {"id": "models/gemini-3-flash-preview", "label": "Gemini 3 Flash Preview"},
+        {"id": "models/gemini-3.5-flash", "label": "Gemini 3.5 Flash"},
+        {"id": "models/gemini-2.5-pro", "label": "Gemini 2.5 Pro"},
+        {"id": "models/gemini-2.5-flash", "label": "Gemini 2.5 Flash"},
+        {"id": "models/gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash Lite"},
+        {"id": "models/gemini-2.0-flash", "label": "Gemini 2.0 Flash"},
+        {"id": "models/gemini-2.0-flash-001", "label": "Gemini 2.0 Flash 001"},
+        {"id": "models/gemini-2.0-flash-lite", "label": "Gemini 2.0 Flash Lite"},
+        {"id": "models/gemini-2.0-flash-lite-001", "label": "Gemini 2.0 Flash Lite 001"},
+        {"id": "models/gemini-pro-latest", "label": "Gemini Pro Latest"},
+        {"id": "models/gemini-flash-latest", "label": "Gemini Flash Latest"},
+        {"id": "models/gemini-flash-lite-latest", "label": "Gemini Flash Lite Latest"},
+        {"id": "models/gemma-4-31b-it", "label": "Gemma 4 31B IT"},
+        {"id": "models/gemma-4-26b-a4b-it", "label": "Gemma 4 26B A4B IT"},
+    ],
+    "deepseek": [
+        {"id": "deepseek-v4-flash", "label": "DeepSeek V4 Flash"},
+        {"id": "deepseek-v4-pro", "label": "DeepSeek V4 Pro"},
+    ],
+}
+
+
+def model_catalog() -> dict:
+    return {
+        "default_provider": DEFAULT_PROVIDER,
+        "default_model": DEFAULT_MODEL_NAME,
+        "providers": MODEL_CATALOG,
+    }
 
 
 def strip_code_fence(text: str, language: str = None) -> str:
@@ -81,6 +118,15 @@ def load_prompt(filename: str) -> str:
         raise FileNotFoundError(f"Prompt file {filename} not found.")
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()
+
+
+def prompt_fingerprint(filename: str) -> dict:
+    content = load_prompt(filename)
+    return {
+        "filename": filename,
+        "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "version": content.splitlines()[0].strip("# ").strip() if content.splitlines() else filename,
+    }
 
 def get_gemini_model(model_name="models/gemini-3.1-flash-lite-preview"):
     api_key = os.getenv("GEMINI_API_KEY")

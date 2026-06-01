@@ -35,13 +35,23 @@ const App = {
     },
 
     async init() {
-        this.updateModels();
         this.setupEventListeners();
         const isAuthenticated = await this.ensureAuthenticated();
         if (!isAuthenticated) return;
+        await this.loadModels();
+        this.updateModels();
         await this.loadLayoutTemplates();
         await this.loadRecentSessions();
         await this.loadSessionFromUrl();
+    },
+
+    async loadModels() {
+        const catalog = await API.getModels();
+        if (catalog.providers) {
+            this.models = catalog.providers;
+            const provider = document.getElementById('provider');
+            if (provider && catalog.default_provider) provider.value = catalog.default_provider;
+        }
     },
 
     async ensureAuthenticated() {
@@ -169,6 +179,8 @@ const App = {
             await API.login(input.value);
             input.value = '';
             await this.ensureAuthenticated();
+            await this.loadModels();
+            this.updateModels();
             await this.loadLayoutTemplates();
             await this.loadRecentSessions();
             await this.loadSessionFromUrl();

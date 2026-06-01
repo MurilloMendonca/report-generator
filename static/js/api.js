@@ -50,6 +50,11 @@ const API = {
         return await res.json();
     },
 
+    async getModels() {
+        const res = await fetch('/api/models', { headers: this.authHeaders() });
+        return await this.parseResponse(res, 'Could not load models');
+    },
+
     async getSession(jobId) {
         const res = await fetch(`/api/sessions/${jobId}`, { headers: this.authHeaders() });
         if (!res.ok) throw new Error(`Session ${jobId} not found`);

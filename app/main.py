@@ -21,6 +21,7 @@ from app.utils.template_library import (
 from app.services.llm_service import (
     DEFAULT_MODEL_NAME,
     DEFAULT_PROVIDER,
+    model_catalog,
     refine_session_modular, 
     generate_exploration_script,
     translate_workspace
@@ -89,6 +90,11 @@ async def login(payload: dict = Body(...)):
 @app.get("/api/auth/check")
 async def check_login():
     return {"status": "OK"}
+
+
+@app.get("/api/models")
+async def available_models():
+    return model_catalog()
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
