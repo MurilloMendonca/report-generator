@@ -549,6 +549,7 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
     
     script = [
         "import os", "os.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')",
+        "import json",
         "import pandas as pd", "import numpy as np", "import matplotlib.pyplot as plt", "import seaborn as sns",
         "from fpdf import FPDF, XPos, YPos", "import tempfile", "import textwrap", "",
         "sns.set_theme(style='whitegrid')", "",
@@ -652,6 +653,7 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
     script.append("    pdf = FPDF()")
     script.append("    pdf.set_auto_page_break(auto=False)")
     script.append("    current_page = 0")
+    script.append("    component_manifest = []")
     script.append("    def ensure_page(page):")
     script.append("        nonlocal current_page")
     script.append("        while current_page < page:")
@@ -667,15 +669,21 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
         script.append(f"    try:")
         script.append(f"        # Provide a default 'df' for backward compatibility with older prompts/scripts")
         script.append(f"        primary_df = list(dataframes.values())[0] if dataframes else None")
-        script.append(f"        render_{item['id']}(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']}, df=primary_df)")
-        script.append(f"    except TypeError: # Fallback if function doesn't accept 'df' keyword argument")
-        script.append(f"        try: render_{item['id']}(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']})")
-        script.append(f"        except Exception as e: ")
-        script.append(f"            print(f'Erro no componente {item['id']}: {{e}}')")
-        script.append(f"            import traceback; traceback.print_exc()")
+        script.append(f"        try:")
+        script.append(f"            render_{item['id']}(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']}, df=primary_df)")
+        script.append(f"        except TypeError:")
+        script.append(f"            render_{item['id']}(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']})")
+        script.append(f"        component_manifest.append({{'id': {json.dumps(item['id'])}, 'status': 'rendered'}})")
         script.append(f"    except Exception as e: ")
+        script.append(f"        component_manifest.append({{'id': {json.dumps(item['id'])}, 'status': 'failed', 'error': str(e)}})")
         script.append(f"        print(f'Erro no componente {item['id']}: {{e}}')")
         script.append(f"        import traceback; traceback.print_exc()")
+    script.append(f"    manifest_path = r'{output_pdf_path}.manifest.json'")
+    script.append("    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:")
+    script.append("        json.dump({'components': component_manifest}, manifest_file, indent=2, ensure_ascii=False)")
+    script.append("    failed_components = [item for item in component_manifest if item.get('status') != 'rendered']")
+    script.append("    if failed_components:")
+    script.append("        raise RuntimeError('Report component rendering failed: ' + ', '.join(item['id'] for item in failed_components))")
     script.append(f"    pdf.output(r'{output_pdf_path}')")
     script.append("")
     script.append("if __name__ == '__main__':")
