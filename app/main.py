@@ -7,6 +7,7 @@ import sys
 import uuid
 import hmac
 import mimetypes
+import ast
 from datetime import datetime, timezone
 
 # Permite rodar o script diretamente da raiz do projeto
@@ -210,6 +211,24 @@ def file_response(file_info: dict, inline: bool = False, variant: str = "origina
     )
 
 
+def validate_component_code(component_id: str, code: str):
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid Python syntax for {component_id}: {exc.msg}")
+
+    expected_name = f"render_{component_id}"
+    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
+    target = next((node for node in functions if node.name == expected_name), None)
+    if target is None:
+        raise HTTPException(status_code=400, detail=f"Custom code must define function {expected_name}")
+
+    arg_names = [arg.arg for arg in target.args.args]
+    required = ["pdf", "dataframes", "x", "y", "w", "h"]
+    if arg_names[:len(required)] != required:
+        raise HTTPException(status_code=400, detail=f"{expected_name} must start with arguments: {', '.join(required)}")
+
+
 @app.post("/api/sessions")
 async def start_session(
     background_tasks: BackgroundTasks,
@@ -402,6 +421,8 @@ async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTas
                     del current_components[new_art['id']]
 
     # Sincroniza componentes manuais (sobrescreve o que quer que estivesse lá)
+    for component_id, code in new_components.items():
+        validate_component_code(component_id, code)
     current_components.update(new_components)
 
 

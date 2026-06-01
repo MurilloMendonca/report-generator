@@ -466,9 +466,13 @@ const App = {
         const code = document.getElementById('m-code').value;
         if (code) overrides[id] = code;
 
-        await API.syncArtifacts(this.currentSession.job_id, this.currentSession.artifacts, overrides);
-        document.getElementById('indicator-modal').close();
-        this.startPolling();
+        try {
+            await API.syncArtifacts(this.currentSession.job_id, this.currentSession.artifacts, overrides);
+            document.getElementById('indicator-modal').close();
+            this.startPolling();
+        } catch (error) {
+            alert(error.message || 'Não foi possível salvar o componente.');
+        }
     },
 
     async handleDeleteIndicator(index) {
