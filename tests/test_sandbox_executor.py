@@ -74,6 +74,25 @@ class SandboxExecutorTests(unittest.TestCase):
         self.assertEqual(result["stdout"].strip(), "pdf-ok")
         self.assertTrue(os.path.exists(output_path))
 
+    def test_allows_openpyxl_excel_reads(self):
+        import pandas as pd
+
+        input_path = f"workspace/uploads/test_sandbox_{uuid.uuid4().hex}.xlsx"
+        self.created_paths.append(input_path)
+        pd.DataFrame({"name": ["Pikachu"], "is_legendary": [False]}).to_excel(input_path, index=False)
+
+        result = execute_script(
+            "\n".join([
+                "import pandas as pd",
+                f"df = pd.read_excel({input_path!r})",
+                "print(df.shape[0])",
+            ]),
+            self.script_path(),
+        )
+
+        self.assertTrue(result["success"], result["stderr"])
+        self.assertEqual(result["stdout"].strip(), "1")
+
     def test_denies_project_secret_reads(self):
         result = execute_script(
             "open('.env', 'r', encoding='utf-8').read()",

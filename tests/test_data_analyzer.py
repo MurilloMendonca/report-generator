@@ -50,6 +50,21 @@ class DataAnalyzerTests(unittest.TestCase):
         self.assertEqual({sheet["sheet_name"] for sheet in metadata["sheets"]}, {"sales", "targets"})
         self.assertIn("sales:sales", [column["name"] for column in metadata["columns"]])
 
+    def test_boolean_columns_do_not_trigger_numeric_stats(self):
+        path = self.temp_path(".xlsx")
+        pd.DataFrame({
+            "name": ["A", "B"],
+            "is_legendary": [True, False],
+            "score": [10, 20],
+        }).to_excel(path, index=False)
+
+        metadata = extract_metadata(path, "pokemon.xlsx")
+
+        self.assertNotIn("error", metadata)
+        bool_column = next(column for column in metadata["columns"] if column["name"] == "is_legendary")
+        self.assertEqual(bool_column["role"], "boolean")
+        self.assertNotIn("stats", bool_column)
+
 
 if __name__ == "__main__":
     unittest.main()

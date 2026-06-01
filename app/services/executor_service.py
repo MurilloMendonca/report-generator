@@ -124,6 +124,7 @@ def _python_read_dirs():
         sysconfig.get_path("platstdlib"),
         sysconfig.get_path("purelib"),
         sysconfig.get_path("platlib"),
+        "/etc/mime.types",
         "/etc/fonts",
         "/usr/share/fonts",
         "/usr/local/share/fonts",

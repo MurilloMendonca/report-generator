@@ -94,7 +94,7 @@ def dataframe_metadata(df: pd.DataFrame, display_name: str, sheet_name: str = No
             "top_values": top_values(series),
         }
 
-        if pd.api.types.is_numeric_dtype(series):
+        if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
             numeric = pd.to_numeric(series, errors="coerce").dropna()
             if not numeric.empty:
                 col_info["stats"] = {
