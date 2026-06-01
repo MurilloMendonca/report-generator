@@ -99,6 +99,7 @@ class ReportSession(BaseModel):
     template: list[dict[str, Any]] = Field(default_factory=list)
     components: dict[str, str] = Field(default_factory=dict)
     calculated_metrics: dict[str, Any] = Field(default_factory=dict)
+    semantic_model: dict[str, Any] = Field(default_factory=dict)
     settings: ReportSettings = Field(default_factory=ReportSettings)
     script: str = ""
     script_path: str | None = None

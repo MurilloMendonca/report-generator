@@ -28,6 +28,7 @@ from app.services.session_manager import add_log, get_session, set_session_stage
 from app.utils.data_analyzer import extract_metadata
 from app.utils.artifact_validation import validate_report_plan
 from app.utils.layout import normalize_template
+from app.utils.semantic_model import build_semantic_model
 from app.utils.template_library import (
     fit_artifacts_to_template,
     select_layout_template,
@@ -264,7 +265,7 @@ def run_pipeline(job_id: str):
                     files[i]['artifact'] = raw_artifact
                 any_new_artifact = True
         if any_new_artifact:
-            session = update_session(job_id, {"files": files}) or session
+            session = update_session(job_id, {"files": files, "semantic_model": build_semantic_model(files)}) or session
             files = session.get("files", files)
 
         data_filter = session.get("data_preprocessing") or session.get("data_filter", {})
@@ -285,12 +286,12 @@ def run_pipeline(job_id: str):
             set_session_stage(job_id, "preprocessing_apply", 25)
             add_log(job_id, f"Aplicando pré-processamento de dados: {data_filter.get('description', 'transformação ativa')}")
             files = apply_data_filter(job_id, session, data_filter)
-            session = update_session(job_id, {"files": files, "data_preprocessing": data_filter, "data_filter": data_filter}) or session
+            session = update_session(job_id, {"files": files, "semantic_model": build_semantic_model(files), "data_preprocessing": data_filter, "data_filter": data_filter}) or session
             files = session.get("files", files)
             any_new_artifact = True
         elif has_filter_decision and not preprocessing_needed(data_filter):
             files = clear_data_filter_state(files)
-            session = update_session(job_id, {"files": files, "data_preprocessing": data_filter, "data_filter": data_filter}) or session
+            session = update_session(job_id, {"files": files, "semantic_model": build_semantic_model(files), "data_preprocessing": data_filter, "data_filter": data_filter}) or session
 
         all_metadata = metadata_json({"files": files})
         files_map = build_files_map({"files": files})
