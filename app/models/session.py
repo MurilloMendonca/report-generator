@@ -88,6 +88,7 @@ class ReportSession(BaseModel):
     is_exploratory: bool = False
     refinement_history: list[str] = Field(default_factory=list)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    artifact_validation: list[dict[str, Any]] = Field(default_factory=list)
     template: list[dict[str, Any]] = Field(default_factory=list)
     components: dict[str, str] = Field(default_factory=dict)
     calculated_metrics: dict[str, Any] = Field(default_factory=dict)

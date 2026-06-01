@@ -24,6 +24,7 @@ from app.services.llm_service import (
 )
 from app.services.session_manager import add_log, get_session, update_session
 from app.utils.data_analyzer import extract_metadata
+from app.utils.artifact_validation import validate_report_plan
 from app.utils.layout import normalize_template
 from app.utils.template_library import (
     fit_artifacts_to_template,
@@ -271,6 +272,15 @@ def run_pipeline(job_id: str):
                     template_context=template_constraints(selected_template) if selected_template else None
                 )
                 if isinstance(artifacts, list) and len(artifacts) > 0:
+                    validation_context = template_constraints(selected_template) if selected_template else None
+                    artifacts, validation_issues = validate_report_plan(
+                        artifacts,
+                        [f.get("artifact") for f in files if f.get("artifact")],
+                        validation_context,
+                    )
+                    update_session(job_id, {"artifact_validation": validation_issues})
+                    if validation_issues:
+                        add_log(job_id, f"Plano de indicadores validado com {len(validation_issues)} aviso(s).")
                     break
                 time.sleep(2)
 
