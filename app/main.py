@@ -22,6 +22,8 @@ from app.utils.template_library import (
 from app.services.llm_service import (
     DEFAULT_MODEL_NAME,
     DEFAULT_PROVIDER,
+    assemble_script,
+    dataframe_load_line,
     model_catalog,
     refine_session_modular, 
     generate_exploration_script,
@@ -230,6 +232,106 @@ def validate_component_code(component_id: str, code: str):
         raise HTTPException(status_code=400, detail=f"{expected_name} must start with arguments: {', '.join(required)}")
 
 
+def component_preview_filename(job_id: str, component_id: str, suffix: str) -> str:
+    safe_component_id = "".join(
+        ch if ch.isalnum() or ch in {"-", "_"} else "_"
+        for ch in str(component_id)
+    )[:80] or "component"
+    return f"{job_id}_{safe_component_id}_preview.{suffix}"
+
+
+def component_preview_slot(session: dict, component_id: str) -> dict:
+    slot = next(
+        (item for item in normalize_template(session.get("template", [])) if item.get("id") == component_id),
+        None,
+    )
+    if not slot:
+        slot = {"w": 120, "h": 80}
+
+    width = max(40, min(190, float(slot.get("w") or 120)))
+    height = max(30, min(260, float(slot.get("h") or 80)))
+    return {
+        "id": component_id,
+        "page": 1,
+        "x": 10,
+        "y": 10,
+        "w": width,
+        "h": height,
+    }
+
+
+def component_preview_script_from_session_script(
+    session: dict,
+    component_id: str,
+    slot: dict,
+    output_pdf_path: str,
+) -> str | None:
+    script = session.get("script") or ""
+    if not script:
+        return None
+
+    try:
+        tree = ast.parse(script)
+    except SyntaxError:
+        return None
+
+    target_name = f"render_{component_id}"
+    generate_node = None
+    has_target = False
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "generate_report":
+            generate_node = node
+        if isinstance(node, ast.FunctionDef) and node.name == target_name:
+            has_target = True
+
+    if not generate_node or not has_target:
+        return None
+
+    prefix = "\n".join(script.splitlines()[:generate_node.lineno - 1]).rstrip()
+    files_map = build_files_map(session)
+    page_width = slot["w"] + 20
+    page_height = slot["h"] + 20
+
+    preview_lines = [
+        "",
+        "def generate_report():",
+        "    dataframes = {}",
+    ]
+    for original_name, path in files_map.items():
+        line = dataframe_load_line(original_name, path, indent="    ")
+        if line:
+            preview_lines.append(line)
+
+    preview_lines.extend([
+        f"    pdf = FPDF(format=({float(page_width)}, {float(page_height)}))",
+        "    pdf.set_auto_page_break(auto=False)",
+        "    pdf.add_page()",
+        "    component_manifest = []",
+        "    try:",
+        "        primary_df = list(dataframes.values())[0] if dataframes else None",
+        "        try:",
+        f"            {target_name}(pdf, dataframes, {slot['x']}, {slot['y']}, {slot['w']}, {slot['h']}, df=primary_df)",
+        "        except TypeError:",
+        f"            {target_name}(pdf, dataframes, {slot['x']}, {slot['y']}, {slot['w']}, {slot['h']})",
+        f"        component_manifest.append({{'id': {component_id!r}, 'status': 'rendered'}})",
+        "    except Exception as e:",
+        f"        component_manifest.append({{'id': {component_id!r}, 'status': 'failed', 'error': str(e)}})",
+        f"        print(f'Erro no componente {component_id}: {{e}}')",
+        "        import traceback; traceback.print_exc()",
+        f"    manifest_path = r'{output_pdf_path}.manifest.json'",
+        "    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:",
+        "        json.dump({'components': component_manifest}, manifest_file, indent=2, ensure_ascii=False)",
+        "    failed_components = [item for item in component_manifest if item.get('status') != 'rendered']",
+        "    if failed_components:",
+        "        raise RuntimeError('Report component rendering failed: ' + ', '.join(item['id'] for item in failed_components))",
+        f"    pdf.output(r'{output_pdf_path}')",
+        "",
+        "if __name__ == '__main__':",
+        "    generate_report()",
+    ])
+    return prefix + "\n" + "\n".join(preview_lines)
+
+
 @app.post("/api/sessions")
 async def start_session(
     background_tasks: BackgroundTasks,
@@ -397,6 +499,7 @@ async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTas
     
     new_artifacts = payload.get("artifacts", [])
     new_components = payload.get("components", {})
+    defer_pipeline = bool(payload.get("defer_pipeline"))
     old_artifacts = session.get('artifacts', [])
     current_components = session.get('components', {})
     # Detecção de mudanças para invalidar cache de código
@@ -434,7 +537,8 @@ async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTas
         "artifacts": new_artifacts, "components": current_components, "template": []
     })
     
-    background_tasks.add_task(run_pipeline, job_id)
+    if not defer_pipeline:
+        background_tasks.add_task(run_pipeline, job_id)
     return {"status": "OK"}
 
 @app.put("/api/sessions/{job_id}/template")
@@ -530,6 +634,15 @@ async def regenerate_session(job_id: str, background_tasks: BackgroundTasks, pay
         update_session(job_id, {"components": components})
         add_log(job_id, "Atualizando gráficos com o provider/modelo atual...")
         background_tasks.add_task(run_pipeline, job_id)
+    elif scope == "component":
+        component_id = payload.get("component_id")
+        artifact = next((a for a in artifacts if a.get("id") == component_id), None)
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Component not found")
+        components = {key: value for key, value in components.items() if key != component_id}
+        update_session(job_id, {"components": components})
+        add_log(job_id, f"Atualizando componente {component_id} com o provider/modelo atual...")
+        background_tasks.add_task(run_pipeline, job_id)
     elif scope == "all":
         settings = session.get("settings", {}).copy()
         settings["title"] = ""
@@ -576,6 +689,39 @@ async def get_pdf(job_id: str):
     session = get_session(job_id)
     if not session or not os.path.exists(session.get('pdf_path', '')): raise HTTPException(status_code=404)
     return FileResponse(session['pdf_path'], media_type="application/pdf")
+
+
+@app.get("/api/sessions/{job_id}/components/{component_id}/preview")
+async def preview_component(job_id: str, component_id: str):
+    session = require_session(job_id)
+    component_code = session.get("components", {}).get(component_id)
+    if not component_code:
+        raise HTTPException(status_code=404, detail="Component code not found")
+
+    slot = component_preview_slot(session, component_id)
+    page_width = slot["w"] + 20
+    page_height = slot["h"] + 20
+    output_pdf_path = os.path.abspath(os.path.join(REPORT_DIR, component_preview_filename(job_id, component_id, "pdf")))
+    script_path = os.path.join("/tmp", component_preview_filename(job_id, component_id, "py"))
+    script_content = component_preview_script_from_session_script(session, component_id, slot, output_pdf_path)
+    if not script_content:
+        script_content = assemble_script(
+            {component_id: component_code},
+            [slot],
+            build_files_map(session),
+            output_pdf_path,
+            settings=session.get("settings") or DEFAULT_SETTINGS.copy(),
+            page_format=(page_width, page_height),
+            include_title=False,
+            normalize_layout=False,
+        )
+    result = execute_script(script_content, script_path, timeout=30)
+    if not result.get("success"):
+        detail = (result.get("stderr") or result.get("stdout") or "Component preview failed").strip()
+        raise HTTPException(status_code=500, detail=detail[-1000:])
+    if not os.path.exists(output_pdf_path):
+        raise HTTPException(status_code=500, detail="Component preview file was not created")
+    return FileResponse(output_pdf_path, media_type="application/pdf", headers={"Cache-Control": "no-store"})
 
 @app.post("/api/sessions/{job_id}/explore")
 async def explore_data(job_id: str, prompt: str = Form(...)):

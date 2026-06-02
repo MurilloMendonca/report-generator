@@ -1,0 +1,1285 @@
+{
+  "schema_version": 1,
+  "job_id": "canonical-logistics_quality-9469d0d6",
+  "created_at": "2026-06-02T03:51:46.098320+00:00",
+  "updated_at": "2026-06-02T03:54:06.653842+00:00",
+  "status": "Relatório concluído em 1.9s",
+  "current_step": "completed",
+  "progress": 100,
+  "error": {},
+  "logs": [
+    "Canonical test: Logistics quality and cost",
+    "[00:51:46] Planejando indicadores (Metric, Graphic, Text) - T1...",
+    "[00:52:07] Gerando título do relatório...",
+    "[00:52:15] Calculando métrica: Total de Remessas...",
+    "[00:52:19] Calculando métrica: Custo Total...",
+    "[00:52:24] Calculando métrica: Percentual Médio de Atraso...",
+    "[00:52:27] Calculando métrica: Percentual Médio de Danos...",
+    "[00:52:32] Calculando métrica: Total de Incidentes...",
+    "[00:52:35] Aplicando template de layout: Dashboard quatro quadrantes...",
+    "[00:52:35] Gerando gráfico: Custo, Atraso e Danos por Armazém...",
+    "[00:52:52] Gerando gráfico: Evolução Semanal do Atraso por Armazém...",
+    "[00:53:09] Gerando gráfico: Distribuição de Incidentes por Tipo...",
+    "[00:53:23] Gerando gráfico: Relação entre Custo e Atraso por Transportadora...",
+    "[00:53:37] Gerando narrativas consistentes (2)...",
+    "[00:54:04] Condensando narrativas para caber nos blocos do layout...",
+    "[00:54:04] Montando script final modular...",
+    "[00:54:04] Renderizando PDF (Tentativa 1/5)...",
+    "[00:54:06] Relatório concluído em 1.9s"
+  ],
+  "files": [
+    {
+      "original_filename": "shipment_quality.csv",
+      "path": "workspace/uploads/1064566d-b3cc-4cd7-ac3a-6a305567f1a5.csv",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "shipment_quality.csv",
+        "shape": {
+          "rows": 6,
+          "columns": 7
+        },
+        "columns": [
+          {
+            "name": "week",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.5,
+            "top_values": [
+              {
+                "value": "2026-W01",
+                "count": 2
+              },
+              {
+                "value": "2026-W02",
+                "count": 2
+              },
+              {
+                "value": "2026-W03",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "warehouse",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.5,
+            "top_values": [
+              {
+                "value": "A",
+                "count": 2
+              },
+              {
+                "value": "B",
+                "count": 2
+              },
+              {
+                "value": "C",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "carrier",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.5,
+            "top_values": [
+              {
+                "value": "FastShip",
+                "count": 2
+              },
+              {
+                "value": "RoadMax",
+                "count": 2
+              },
+              {
+                "value": "AirSwift",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "shipments",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 6,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "520",
+                "count": 1
+              },
+              {
+                "value": "430",
+                "count": 1
+              },
+              {
+                "value": "545",
+                "count": 1
+              },
+              {
+                "value": "310",
+                "count": 1
+              },
+              {
+                "value": "470",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 434.1666666666667,
+              "median": 450.0,
+              "min": 310.0,
+              "max": 545.0,
+              "std": 97.18110241537018,
+              "q25": 355.0,
+              "q75": 507.5
+            }
+          },
+          {
+            "name": "late_pct",
+            "type": "float64",
+            "role": "percentage",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 6,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "4.2",
+                "count": 1
+              },
+              {
+                "value": "7.9",
+                "count": 1
+              },
+              {
+                "value": "3.8",
+                "count": 1
+              },
+              {
+                "value": "2.1",
+                "count": 1
+              },
+              {
+                "value": "8.4",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 4.800000000000001,
+              "median": 4.0,
+              "min": 2.1,
+              "max": 8.4,
+              "std": 2.7195587877448064,
+              "q25": 2.75,
+              "q75": 6.9750000000000005
+            }
+          },
+          {
+            "name": "damage_pct",
+            "type": "float64",
+            "role": "percentage",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 6,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "0.8",
+                "count": 1
+              },
+              {
+                "value": "1.4",
+                "count": 1
+              },
+              {
+                "value": "0.7",
+                "count": 1
+              },
+              {
+                "value": "0.5",
+                "count": 1
+              },
+              {
+                "value": "1.7",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 0.9500000000000001,
+              "median": 0.75,
+              "min": 0.5,
+              "max": 1.7,
+              "std": 0.4847679857416329,
+              "q25": 0.625,
+              "q75": 1.25
+            }
+          },
+          {
+            "name": "cost",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 6,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "28400",
+                "count": 1
+              },
+              {
+                "value": "24100",
+                "count": 1
+              },
+              {
+                "value": "29200",
+                "count": 1
+              },
+              {
+                "value": "35100",
+                "count": 1
+              },
+              {
+                "value": "26000",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 29883.333333333332,
+              "median": 28800.0,
+              "min": 24100.0,
+              "max": 36500.0,
+              "std": 4943.446840683802,
+              "q25": 26600.0,
+              "q75": 33625.0
+            }
+          }
+        ],
+        "sample": [
+          {
+            "week": "2026-W01",
+            "warehouse": "A",
+            "carrier": "FastShip",
+            "shipments": 520,
+            "late_pct": 4.2,
+            "damage_pct": 0.8,
+            "cost": 28400
+          },
+          {
+            "week": "2026-W01",
+            "warehouse": "B",
+            "carrier": "RoadMax",
+            "shipments": 430,
+            "late_pct": 7.9,
+            "damage_pct": 1.4,
+            "cost": 24100
+          },
+          {
+            "week": "2026-W02",
+            "warehouse": "A",
+            "carrier": "FastShip",
+            "shipments": 545,
+            "late_pct": 3.8,
+            "damage_pct": 0.7,
+            "cost": 29200
+          },
+          {
+            "week": "2026-W02",
+            "warehouse": "C",
+            "carrier": "AirSwift",
+            "shipments": 310,
+            "late_pct": 2.1,
+            "damage_pct": 0.5,
+            "cost": 35100
+          },
+          {
+            "week": "2026-W03",
+            "warehouse": "B",
+            "carrier": "RoadMax",
+            "shipments": 470,
+            "late_pct": 8.4,
+            "damage_pct": 1.7,
+            "cost": 26000
+          },
+          {
+            "week": "2026-W03",
+            "warehouse": "C",
+            "carrier": "AirSwift",
+            "shipments": 330,
+            "late_pct": 2.4,
+            "damage_pct": 0.6,
+            "cost": 36500
+          }
+        ],
+        "profile": {
+          "sampled_rows": 6,
+          "column_roles": {
+            "measures": [
+              "shipments",
+              "late_pct",
+              "damage_pct",
+              "cost"
+            ],
+            "dimensions": [
+              "week",
+              "warehouse",
+              "carrier"
+            ],
+            "dates": [],
+            "identifiers": []
+          }
+        },
+        "parser": {
+          "encoding": "utf-8",
+          "separator": ","
+        }
+      },
+      "raw_artifact": {
+        "filename": "shipment_quality.csv",
+        "shape": {
+          "rows": 6,
+          "columns": 7
+        },
+        "columns": [
+          {
+            "name": "week",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.5,
+            "top_values": [
+              {
+                "value": "2026-W01",
+                "count": 2
+              },
+              {
+                "value": "2026-W02",
+                "count": 2
+              },
+              {
+                "value": "2026-W03",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "warehouse",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.5,
+            "top_values": [
+              {
+                "value": "A",
+                "count": 2
+              },
+              {
+                "value": "B",
+                "count": 2
+              },
+              {
+                "value": "C",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "carrier",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.5,
+            "top_values": [
+              {
+                "value": "FastShip",
+                "count": 2
+              },
+              {
+                "value": "RoadMax",
+                "count": 2
+              },
+              {
+                "value": "AirSwift",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "shipments",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 6,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "520",
+                "count": 1
+              },
+              {
+                "value": "430",
+                "count": 1
+              },
+              {
+                "value": "545",
+                "count": 1
+              },
+              {
+                "value": "310",
+                "count": 1
+              },
+              {
+                "value": "470",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 434.1666666666667,
+              "median": 450.0,
+              "min": 310.0,
+              "max": 545.0,
+              "std": 97.18110241537018,
+              "q25": 355.0,
+              "q75": 507.5
+            }
+          },
+          {
+            "name": "late_pct",
+            "type": "float64",
+            "role": "percentage",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 6,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "4.2",
+                "count": 1
+              },
+              {
+                "value": "7.9",
+                "count": 1
+              },
+              {
+                "value": "3.8",
+                "count": 1
+              },
+              {
+                "value": "2.1",
+                "count": 1
+              },
+              {
+                "value": "8.4",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 4.800000000000001,
+              "median": 4.0,
+              "min": 2.1,
+              "max": 8.4,
+              "std": 2.7195587877448064,
+              "q25": 2.75,
+              "q75": 6.9750000000000005
+            }
+          },
+          {
+            "name": "damage_pct",
+            "type": "float64",
+            "role": "percentage",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 6,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "0.8",
+                "count": 1
+              },
+              {
+                "value": "1.4",
+                "count": 1
+              },
+              {
+                "value": "0.7",
+                "count": 1
+              },
+              {
+                "value": "0.5",
+                "count": 1
+              },
+              {
+                "value": "1.7",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 0.9500000000000001,
+              "median": 0.75,
+              "min": 0.5,
+              "max": 1.7,
+              "std": 0.4847679857416329,
+              "q25": 0.625,
+              "q75": 1.25
+            }
+          },
+          {
+            "name": "cost",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 6,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "28400",
+                "count": 1
+              },
+              {
+                "value": "24100",
+                "count": 1
+              },
+              {
+                "value": "29200",
+                "count": 1
+              },
+              {
+                "value": "35100",
+                "count": 1
+              },
+              {
+                "value": "26000",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 29883.333333333332,
+              "median": 28800.0,
+              "min": 24100.0,
+              "max": 36500.0,
+              "std": 4943.446840683802,
+              "q25": 26600.0,
+              "q75": 33625.0
+            }
+          }
+        ],
+        "sample": [
+          {
+            "week": "2026-W01",
+            "warehouse": "A",
+            "carrier": "FastShip",
+            "shipments": 520,
+            "late_pct": 4.2,
+            "damage_pct": 0.8,
+            "cost": 28400
+          },
+          {
+            "week": "2026-W01",
+            "warehouse": "B",
+            "carrier": "RoadMax",
+            "shipments": 430,
+            "late_pct": 7.9,
+            "damage_pct": 1.4,
+            "cost": 24100
+          },
+          {
+            "week": "2026-W02",
+            "warehouse": "A",
+            "carrier": "FastShip",
+            "shipments": 545,
+            "late_pct": 3.8,
+            "damage_pct": 0.7,
+            "cost": 29200
+          },
+          {
+            "week": "2026-W02",
+            "warehouse": "C",
+            "carrier": "AirSwift",
+            "shipments": 310,
+            "late_pct": 2.1,
+            "damage_pct": 0.5,
+            "cost": 35100
+          },
+          {
+            "week": "2026-W03",
+            "warehouse": "B",
+            "carrier": "RoadMax",
+            "shipments": 470,
+            "late_pct": 8.4,
+            "damage_pct": 1.7,
+            "cost": 26000
+          },
+          {
+            "week": "2026-W03",
+            "warehouse": "C",
+            "carrier": "AirSwift",
+            "shipments": 330,
+            "late_pct": 2.4,
+            "damage_pct": 0.6,
+            "cost": 36500
+          }
+        ],
+        "profile": {
+          "sampled_rows": 6,
+          "column_roles": {
+            "measures": [
+              "shipments",
+              "late_pct",
+              "damage_pct",
+              "cost"
+            ],
+            "dimensions": [
+              "week",
+              "warehouse",
+              "carrier"
+            ],
+            "dates": [],
+            "identifiers": []
+          }
+        },
+        "parser": {
+          "encoding": "utf-8",
+          "separator": ","
+        }
+      },
+      "preprocessed_path": null,
+      "preprocessing_description": null,
+      "preprocessing_impact": null,
+      "filtered_path": null,
+      "filter_description": null,
+      "filter_impact": null
+    },
+    {
+      "original_filename": "incident_log.xlsx",
+      "path": "workspace/uploads/734abf0c-9543-4ec3-9d74-82b398e6811b.xlsx",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "incident_log.xlsx",
+        "shape": {
+          "rows": 4,
+          "columns": 3
+        },
+        "columns": [
+          {
+            "name": "warehouse",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.75,
+            "top_values": [
+              {
+                "value": "B",
+                "count": 2
+              },
+              {
+                "value": "A",
+                "count": 1
+              },
+              {
+                "value": "C",
+                "count": 1
+              }
+            ]
+          },
+          {
+            "name": "incident_type",
+            "type": "str",
+            "role": "identifier",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 4,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "Picking error",
+                "count": 1
+              },
+              {
+                "value": "Late pickup",
+                "count": 1
+              },
+              {
+                "value": "Damaged parcel",
+                "count": 1
+              },
+              {
+                "value": "Address issue",
+                "count": 1
+              }
+            ]
+          },
+          {
+            "name": "count",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 4,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "12",
+                "count": 1
+              },
+              {
+                "value": "31",
+                "count": 1
+              },
+              {
+                "value": "14",
+                "count": 1
+              },
+              {
+                "value": "8",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 16.25,
+              "median": 13.0,
+              "min": 8.0,
+              "max": 31.0,
+              "std": 10.1447851956888,
+              "q25": 11.0,
+              "q75": 18.25
+            }
+          }
+        ],
+        "sample": [
+          {
+            "warehouse": "A",
+            "incident_type": "Picking error",
+            "count": 12
+          },
+          {
+            "warehouse": "B",
+            "incident_type": "Late pickup",
+            "count": 31
+          },
+          {
+            "warehouse": "B",
+            "incident_type": "Damaged parcel",
+            "count": 14
+          },
+          {
+            "warehouse": "C",
+            "incident_type": "Address issue",
+            "count": 8
+          }
+        ],
+        "profile": {
+          "sampled_rows": 4,
+          "column_roles": {
+            "measures": [
+              "count"
+            ],
+            "dimensions": [
+              "warehouse"
+            ],
+            "dates": [],
+            "identifiers": [
+              "incident_type"
+            ]
+          }
+        },
+        "sheet_name": "Sheet1"
+      },
+      "raw_artifact": {
+        "filename": "incident_log.xlsx",
+        "shape": {
+          "rows": 4,
+          "columns": 3
+        },
+        "columns": [
+          {
+            "name": "warehouse",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.75,
+            "top_values": [
+              {
+                "value": "B",
+                "count": 2
+              },
+              {
+                "value": "A",
+                "count": 1
+              },
+              {
+                "value": "C",
+                "count": 1
+              }
+            ]
+          },
+          {
+            "name": "incident_type",
+            "type": "str",
+            "role": "identifier",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 4,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "Picking error",
+                "count": 1
+              },
+              {
+                "value": "Late pickup",
+                "count": 1
+              },
+              {
+                "value": "Damaged parcel",
+                "count": 1
+              },
+              {
+                "value": "Address issue",
+                "count": 1
+              }
+            ]
+          },
+          {
+            "name": "count",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 4,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "12",
+                "count": 1
+              },
+              {
+                "value": "31",
+                "count": 1
+              },
+              {
+                "value": "14",
+                "count": 1
+              },
+              {
+                "value": "8",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 16.25,
+              "median": 13.0,
+              "min": 8.0,
+              "max": 31.0,
+              "std": 10.1447851956888,
+              "q25": 11.0,
+              "q75": 18.25
+            }
+          }
+        ],
+        "sample": [
+          {
+            "warehouse": "A",
+            "incident_type": "Picking error",
+            "count": 12
+          },
+          {
+            "warehouse": "B",
+            "incident_type": "Late pickup",
+            "count": 31
+          },
+          {
+            "warehouse": "B",
+            "incident_type": "Damaged parcel",
+            "count": 14
+          },
+          {
+            "warehouse": "C",
+            "incident_type": "Address issue",
+            "count": 8
+          }
+        ],
+        "profile": {
+          "sampled_rows": 4,
+          "column_roles": {
+            "measures": [
+              "count"
+            ],
+            "dimensions": [
+              "warehouse"
+            ],
+            "dates": [],
+            "identifiers": [
+              "incident_type"
+            ]
+          }
+        },
+        "sheet_name": "Sheet1"
+      },
+      "preprocessed_path": null,
+      "preprocessing_description": null,
+      "preprocessing_impact": null,
+      "filtered_path": null,
+      "filter_description": null,
+      "filter_impact": null
+    },
+    {
+      "original_filename": "operations_brief.pdf",
+      "path": "workspace/uploads/19a9ab37-02a7-49b5-b910-60e022607e75.pdf",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "operations_brief.pdf",
+        "type": "pdf",
+        "size_bytes": 1266,
+        "pages": 1,
+        "text_preview": [
+          "D:20260524202843Z"
+        ],
+        "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe."
+      },
+      "raw_artifact": {
+        "filename": "operations_brief.pdf",
+        "type": "pdf",
+        "size_bytes": 1266,
+        "pages": 1,
+        "text_preview": [
+          "D:20260524202843Z"
+        ],
+        "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe."
+      },
+      "preprocessed_path": null,
+      "preprocessing_description": null,
+      "preprocessing_impact": null,
+      "filtered_path": null,
+      "filter_description": null,
+      "filter_impact": null
+    }
+  ],
+  "initial_prompt": "Build a logistics performance report that compares cost, late delivery rate, damage rate, and incident concentration by warehouse and carrier.",
+  "current_goal": "Build a logistics performance report that compares cost, late delivery rate, damage rate, and incident concentration by warehouse and carrier.",
+  "is_exploratory": false,
+  "refinement_history": [],
+  "artifacts": [
+    {
+      "id": "m_total_shipments",
+      "indicator": "Total de Remessas",
+      "type": "metric",
+      "reason": "Soma de todos os embarques para usar no resumo e na conclusão.",
+      "columns": [
+        "shipment_quality.csv:shipments"
+      ]
+    },
+    {
+      "id": "m_total_cost",
+      "indicator": "Custo Total",
+      "type": "metric",
+      "reason": "Soma dos custos de transporte para análise financeira.",
+      "columns": [
+        "shipment_quality.csv:cost"
+      ]
+    },
+    {
+      "id": "m_avg_late_pct",
+      "indicator": "Percentual Médio de Atraso",
+      "type": "metric",
+      "reason": "Média simples da taxa de atraso entre todas as combinações semana/armazém/transportadora.",
+      "columns": [
+        "shipment_quality.csv:late_pct"
+      ]
+    },
+    {
+      "id": "m_avg_damage_pct",
+      "indicator": "Percentual Médio de Danos",
+      "type": "metric",
+      "reason": "Média simples da taxa de danos para contexto geral de qualidade.",
+      "columns": [
+        "shipment_quality.csv:damage_pct"
+      ]
+    },
+    {
+      "id": "m_total_incidents",
+      "indicator": "Total de Incidentes",
+      "type": "metric",
+      "reason": "Soma de todas as ocorrências registradas no log de incidentes.",
+      "columns": [
+        "incident_log.xlsx:count"
+      ]
+    },
+    {
+      "id": "t_intro",
+      "indicator": "Resumo do Relatório",
+      "type": "text",
+      "sub_type": "kpi_resumo",
+      "reason": "Síntese inicial com os principais números (total de remessas, custo total, taxas médias de atraso e danos, total de incidentes).",
+      "columns": []
+    },
+    {
+      "id": "t_conclusion",
+      "indicator": "Conclusão e Recomendações",
+      "type": "text",
+      "sub_type": "kpi_conclusao",
+      "reason": "Síntese final comparando armazéns e transportadoras com base nos indicadores calculados, apontando ações prioritárias.",
+      "columns": []
+    },
+    {
+      "id": "g_cost_late_damage_by_warehouse",
+      "indicator": "Custo, Atraso e Danos por Armazém",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Comparação lado a lado dos indicadores chave por armazém (A, B, C). Gráfico de barras agrupadas para visualizar armazém mais crítico.",
+      "columns": [
+        "shipment_quality.csv:warehouse",
+        "shipment_quality.csv:cost",
+        "shipment_quality.csv:late_pct",
+        "shipment_quality.csv:damage_pct"
+      ]
+    },
+    {
+      "id": "g_late_trend_by_warehouse",
+      "indicator": "Evolução Semanal do Atraso por Armazém",
+      "type": "graphic",
+      "sub_type": "line",
+      "reason": "Tendência da taxa de atraso ao longo das semanas (W01 a W03) para cada armazém. Permite identificar pioras ou melhorias.",
+      "columns": [
+        "shipment_quality.csv:week",
+        "shipment_quality.csv:warehouse",
+        "shipment_quality.csv:late_pct"
+      ]
+    },
+    {
+      "id": "g_incidents_by_type",
+      "indicator": "Distribuição de Incidentes por Tipo",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Composição dos incidentes registrados (coleta tardia, pacote danificado, erro de picking, endereço). Gráfico de barras ordenado do maior para o menor.",
+      "columns": [
+        "incident_log.xlsx:incident_type",
+        "incident_log.xlsx:count"
+      ]
+    },
+    {
+      "id": "g_cost_vs_late_scatter",
+      "indicator": "Relação entre Custo e Atraso por Transportadora",
+      "type": "graphic",
+      "sub_type": "scatter",
+      "reason": "Dispersão dos pares (custo total, percentual de atraso) colorida por transportadora. Revela correlação e clusters de desempenho.",
+      "columns": [
+        "shipment_quality.csv:carrier",
+        "shipment_quality.csv:cost",
+        "shipment_quality.csv:late_pct"
+      ]
+    }
+  ],
+  "artifact_validation": [],
+  "template": [
+    {
+      "id": "t_intro",
+      "page": 1,
+      "x": 10,
+      "y": 30,
+      "w": 190,
+      "h": 30
+    },
+    {
+      "id": "g_cost_late_damage_by_warehouse",
+      "page": 1,
+      "x": 10,
+      "y": 70,
+      "w": 90,
+      "h": 65
+    },
+    {
+      "id": "g_late_trend_by_warehouse",
+      "page": 1,
+      "x": 110,
+      "y": 70,
+      "w": 90,
+      "h": 65
+    },
+    {
+      "id": "g_incidents_by_type",
+      "page": 1,
+      "x": 10,
+      "y": 145,
+      "w": 90,
+      "h": 65
+    },
+    {
+      "id": "g_cost_vs_late_scatter",
+      "page": 1,
+      "x": 110,
+      "y": 145,
+      "w": 90,
+      "h": 65
+    },
+    {
+      "id": "t_conclusion",
+      "page": 1,
+      "x": 10,
+      "y": 220,
+      "w": 190,
+      "h": 65
+    }
+  ],
+  "components": {
+    "g_cost_late_damage_by_warehouse": "def render_g_cost_late_damage_by_warehouse(pdf, dataframes, x, y, w, h):\n    # Get the primary dataset\n    df = dataframes.get('shipment_quality.csv')\n    if df is None or df.empty:\n        # fallback to any dataframe\n        for key, val in dataframes.items():\n            if isinstance(val, pd.DataFrame) and not val.empty:\n                df = val\n                break\n        if df is None:\n            return  # nothing to plot\n\n    # Required columns: warehouse, cost, late_pct, damage_pct\n    required = ['warehouse', 'cost', 'late_pct', 'damage_pct']\n    if not all(col in df.columns for col in required):\n        return\n\n    # Aggregate by warehouse: total cost, average late%, average damage%\n    agg = df.groupby('warehouse', sort=True).agg(\n        cost=('cost', 'sum'),\n        late_pct=('late_pct', 'mean'),\n        damage_pct=('damage_pct', 'mean')\n    ).reset_index()\n\n    warehouses = agg['warehouse'].tolist()\n    x_pos = np.arange(len(warehouses))\n    costs = agg['cost'].values / 1000  # scale to thousands for readability\n    late = agg['late_pct'].values\n    damage = agg['damage_pct'].values\n\n    # Figure size in inches\n    fig, ax1 = plt.subplots(figsize=(w / 25.4, h / 25.4))\n\n    # Bar width\n    bar_width = 0.25\n\n    # Plot cost on left y-axis\n    bars_cost = ax1.bar(x_pos - bar_width, costs, width=bar_width, label='Custo (R$ mil)', color='#3498db', alpha=0.85)\n\n    # Create twin axis for percentages\n    ax2 = ax1.twinx()\n    bars_late = ax2.bar(x_pos, late, width=bar_width, label='Atraso (%)', color='#e67e22', alpha=0.85)\n    bars_damage = ax2.bar(x_pos + bar_width, damage, width=bar_width, label='Danos (%)', color='#2ecc71', alpha=0.85)\n\n    # Set labels (compact: no x-axis label, only tick labels)\n    ax1.set_ylabel('Custo Total (R$ mil)', fontsize=CHART_LABEL_FONTSIZE)\n    ax2.set_ylabel('Percentual (%)', fontsize=CHART_LABEL_FONTSIZE)\n\n    # X ticks\n    ax1.set_xticks(x_pos)\n    ax1.set_xticklabels(warehouses, fontsize=CHART_TICK_FONTSIZE)\n\n    # Title\n    ax1.set_title('Custo, Atraso e Danos por Armazém', fontsize=CHART_TITLE_FONTSIZE,\n                  fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)\n\n    # Legend below chart (compact – avoid x-axis label)\n    # Place legend outside, below, with 3 columns\n    lines = [bars_cost, bars_late, bars_damage]\n    labels = ['Custo (R$ mil)', 'Atraso (%)', 'Danos (%)']\n    ax1.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, -0.20),\n               ncol=3, frameon=False, fontsize=CHART_LEGEND_FONTSIZE, handletextpad=0.5)\n\n    # Adjust bottom margin to make room for legend\n    fig.subplots_adjust(bottom=0.28, top=0.82)\n\n    # Remove top/right spines for cleaner look\n    ax1.spines['top'].set_visible(False)\n    ax2.spines['top'].set_visible(False)\n\n    # Save as temporary image\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_late_trend_by_warehouse": "def render_g_late_trend_by_warehouse(pdf, dataframes, x, y, w, h):\n    # Find the dataset that contains week, warehouse, late_pct\n    df = None\n    for name, candidate in dataframes.items():\n        if {'week', 'warehouse', 'late_pct'}.issubset(candidate.columns):\n            df = candidate\n            break\n    if df is None:\n        # Fallback: use the first non-empty dataframe\n        df = next(iter(dataframes.values()), None)\n    if df is None or df.empty:\n        return\n\n    # Pivot to get weeks as rows, warehouses as columns\n    pivot = df.pivot_table(index='week', columns='warehouse', values='late_pct', aggfunc='mean')\n    weeks = pivot.index.tolist()\n    warehouses = pivot.columns.tolist()\n\n    # Create figure with exact dimensions\n    fig_width = w / 25.4\n    fig_height = h / 25.4\n    fig, ax = plt.subplots(figsize=(fig_width, fig_height))\n\n    # Use standard chart typography constants\n    CHART_TITLE_FONTSIZE = 9\n    CHART_TITLE_FONTWEIGHT = 'bold'\n    CHART_TITLE_PAD = 6\n    CHART_LABEL_FONTSIZE = 7\n    CHART_TICK_FONTSIZE = 6\n    CHART_LEGEND_FONTSIZE = 6\n\n    # Plot lines for each warehouse\n    for wh in warehouses:\n        series = pivot[wh].dropna()\n        if not series.empty:\n            ax.plot(series.index, series.values, marker='o', label=wh, linewidth=1.5, markersize=4)\n\n    # Title\n    ax.set_title('Evolução Semanal do Atraso por Armazém',\n                 fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)\n\n    # Y-axis label\n    ax.set_ylabel('Atraso (%)', fontsize=CHART_LABEL_FONTSIZE)\n\n    # No x-axis label (to avoid clash with legend in compact mode)\n    ax.set_xlabel('')\n\n    # Tick font\n    ax.tick_params(axis='both', labelsize=CHART_TICK_FONTSIZE)\n\n    # Legend below the plot (since compact, no xlabel, legend below)\n    # Adjust bottom margin to leave room for legend\n    fig.subplots_adjust(bottom=0.28)\n    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.25),\n              ncol=len(warehouses), frameon=False, fontsize=CHART_LEGEND_FONTSIZE)\n\n    # Remove top/right spines\n    ax.spines['top'].set_visible(False)\n    ax.spines['right'].set_visible(False)\n\n    # Save as PNG and insert into PDF\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_incidents_by_type": "def render_g_incidents_by_type(pdf, dataframes, x, y, w, h):\n    # Load the specific dataframe from incident_log.xlsx\n    df = dataframes.get('incident_log.xlsx')\n    if df is None or df.empty:\n        # Fallback if file not found\n        return\n\n    # Ensure required columns exist\n    if 'incident_type' not in df.columns or 'count' not in df.columns:\n        return\n\n    # Sort by count descending (highest first)\n    df_sorted = df[['incident_type', 'count']].sort_values('count', ascending=False)\n\n    incident_types = df_sorted['incident_type'].tolist()\n    counts = df_sorted['count'].tolist()\n    total = sum(counts)\n\n    # Create figure with enforced constraints\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4), constrained_layout=True)\n\n    # Shared chart typography constants\n    CHART_TITLE_FONTSIZE = 9\n    CHART_TITLE_FONTWEIGHT = 'bold'\n    CHART_TITLE_PAD = 6\n    CHART_TICK_FONTSIZE = 6\n\n    # Plot bar chart\n    bars = ax.bar(incident_types, counts, color='#4C72B0', edgecolor='white', width=0.6)\n\n    # Title with total in parentheses\n    ax.set_title(f\"Distribuição de Incidentes por Tipo (Total: {total})\",\n                 fontsize=CHART_TITLE_FONTSIZE,\n                 fontweight=CHART_TITLE_FONTWEIGHT,\n                 pad=CHART_TITLE_PAD)\n\n    # Set tick parameters\n    ax.tick_params(axis='x', labelsize=CHART_TICK_FONTSIZE, rotation=0)\n    ax.tick_params(axis='y', labelsize=CHART_TICK_FONTSIZE)\n\n    # Y-axis start at 0\n    ax.set_ylim(0, max(counts) * 1.2)  # small headroom without annotations\n\n    # Remove top and right spines for cleaner look\n    ax.spines['top'].set_visible(False)\n    ax.spines['right'].set_visible(False)\n\n    # No x-axis label or legend (compact block – avoid both)\n    # No data labels (compact block – non-essential annotations avoided)\n\n    # Save as temporary image\n    import tempfile\n    import os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_cost_vs_late_scatter": "def render_g_cost_vs_late_scatter(pdf, dataframes, x, y, w, h):\n    # Access primary dataframe\n    df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        return\n\n    # Validate required columns\n    required = ['carrier', 'cost', 'late_pct']\n    if not all(col in df.columns for col in required):\n        return\n\n    # Prepare data\n    carriers = df['carrier'].unique()\n    # Fixed color palette for the three carriers (matching known values)\n    palette = {'FastShip': '#4c72b0', 'RoadMax': '#dd8452', 'AirSwift': '#55a868'}\n\n    # Create figure with size in inches\n    fig = plt.figure(figsize=(w/25.4, h/25.4))\n    ax = fig.add_subplot(111)\n\n    # Scatter per carrier\n    for carrier in carriers:\n        subset = df[df['carrier'] == carrier]\n        ax.scatter(subset['cost'], subset['late_pct'],\n                   color=palette.get(carrier, '#333333'),\n                   label=carrier, s=30, edgecolor='white', linewidth=0.5)\n\n    # Title (standard typography)\n    ax.set_title(\"Relação Custo vs Atraso\",\n                 fontsize=CHART_TITLE_FONTSIZE,\n                 fontweight=CHART_TITLE_FONTWEIGHT,\n                 pad=CHART_TITLE_PAD)\n\n    # Y-axis label only (compact: avoid x-axis label + bottom legend together)\n    ax.set_ylabel(\"Atraso (%)\", fontsize=CHART_LABEL_FONTSIZE)\n\n    # Tick parameters\n    ax.tick_params(labelsize=CHART_TICK_FONTSIZE)\n\n    # Legend below the axes (outside, compact layout)\n    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18),\n              ncol=3, frameon=False, fontsize=CHART_LEGEND_FONTSIZE)\n\n    # Adjust margins to give space for legend and title\n    fig.subplots_adjust(top=0.88, bottom=0.28, left=0.15, right=0.95)\n\n    # Save to temporary PNG and insert into PDF\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "t_intro": "def render_t_intro(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Este relat\\u00f3rio analisa 2.605 remessas realizadas no per\\u00edodo, totalizando um custo de R$ 179.300. A taxa m\\u00e9dia de atraso foi de 4,8%, enquanto a de danos ficou em 0,95%. Foram registrados 65 incidentes operacionais, com destaque para o armaz\\u00e9m B, que concentrou a maioria dos ocorridos. As an\\u00e1lises consideram tr\\u00eas armaz\\u00e9ns (A, B e C) e tr\\u00eas transportadoras (FastShip, RoadMax e AirSwift) ao longo de tr\\u00eas semanas.\", x, y, w, h, title=\"Resumo do Relat\\u00f3rio\")",
+    "t_conclusion": "def render_t_conclusion(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Com base nos indicadores, o Armaz\\u00e9m B apresenta os piores resultados com taxas de atraso acima de 8% e danos acima de 1,7%, concentrando 45 dos 65 incidentes com a RoadMax, indicando necessidade de auditoria e revis\\u00e3o contratual. O Armaz\\u00e9m C, operado pela AirSwift, tem melhor desempenho com atraso de 2,4% e danos de 0,6%, por\\u00e9m com custo mais elevado, sendo recomend\\u00e1vel expandi-lo para rotas de alto valor. O Armaz\\u00e9m A, com FastShip, tem desempenho intermedi\\u00e1rio com atraso de 4% e danos abaixo de 1%, mas 12 incidentes de picking sugerem treinamento ou automa\\u00e7\\u00e3o. As a\\u00e7\\u00f5es priorit\\u00e1rias incluem auditoria no Armaz\\u00e9m B e RoadMax, negocia\\u00e7\\u00e3o com AirSwift e melhorias no picking do Armaz\\u00e9m A, visando reduzir o custo total de R$ 179.300, ou cerca de R$ 68,80 por remessa, melhorando a efici\\u00eancia e satisfa\\u00e7\\u00e3o dos clientes.\", x, y, w, h, title=\"Conclus\\u00e3o e Recomenda\\u00e7\\u00f5es\")"
+  },
+  "calculated_metrics": {
+    "m_total_shipments": 2605,
+    "m_total_cost": 179300.0,
+    "m_avg_late_pct": 4.800000000000001,
+    "m_avg_damage_pct": 0.9500000000000001,
+    "m_total_incidents": 65
+  },
+  "semantic_model": {
+    "datasets": [
+      {
+        "filename": "shipment_quality.csv",
+        "type": "tabular",
+        "shape": {
+          "rows": 6,
+          "columns": 7
+        },
+        "roles": {
+          "measures": [
+            "shipments",
+            "late_pct",
+            "damage_pct",
+            "cost"
+          ],
+          "dimensions": [
+            "week",
+            "warehouse",
+            "carrier"
+          ],
+          "dates": [],
+          "identifiers": [],
+          "percentages": [
+            "late_pct",
+            "damage_pct"
+          ]
+        }
+      },
+      {
+        "filename": "incident_log.xlsx",
+        "type": "tabular",
+        "shape": {
+          "rows": 4,
+          "columns": 3
+        },
+        "roles": {
+          "measures": [
+            "count"
+          ],
+          "dimensions": [
+            "warehouse"
+          ],
+          "dates": [],
+          "identifiers": [
+            "incident_type"
+          ],
+          "percentages": []
+        }
+      },
+      {
+        "filename": "operations_brief.pdf",
+        "type": "pdf",
+        "shape": {},
+        "roles": {
+          "measures": [],
+          "dimensions": [],
+          "dates": [],
+          "identifiers": [],
+          "percentages": []
+        }
+      }
+    ],
+    "relationships": [
+      {
+        "column_name": "warehouse",
+        "references": [
+          {
+            "file": "shipment_quality.csv",
+            "column": "warehouse",
+            "role": "dimension",
+            "unique_values": 3
+          },
+          {
+            "file": "incident_log.xlsx",
+            "column": "warehouse",
+            "role": "dimension",
+            "unique_values": 3
+          }
+        ],
+        "confidence": "medium",
+        "reason": "Same normalized column name appears in multiple datasets"
+      }
+    ],
+    "summary": {
+      "dataset_count": 3,
+      "relationship_candidates": 1
+    }
+  },
+  "settings": {
+    "title": "Análise de Desempenho Logístico: Custo, Atraso, Danos e Incidentes por Armazém e Transportadora",
+    "font": "Arial",
+    "font_size": 10,
+    "alignment": "J",
+    "line_height": 5,
+    "language": "Portuguese",
+    "selected_template_id": "four_quadrant_dashboard"
+  },
+  "script": "import os\nos.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')\nimport json\nimport pandas as pd\nimport numpy as np\nimport matplotlib as mpl\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nfrom fpdf import FPDF, XPos, YPos\nimport tempfile\nimport textwrap\n\nCHART_TITLE_FONTSIZE = 9\nCHART_TITLE_FONTWEIGHT = 'bold'\nCHART_TITLE_PAD = 6\nCHART_LABEL_FONTSIZE = 7\nCHART_TICK_FONTSIZE = 6\nCHART_LEGEND_FONTSIZE = 6\nCHART_TABLE_FONTSIZE = 6\nsns.set_theme(style='whitegrid')\nmpl.rcParams.update({\n    'axes.titlesize': CHART_TITLE_FONTSIZE,\n    'axes.titleweight': CHART_TITLE_FONTWEIGHT,\n    'axes.labelsize': CHART_LABEL_FONTSIZE,\n    'xtick.labelsize': CHART_TICK_FONTSIZE,\n    'ytick.labelsize': CHART_TICK_FONTSIZE,\n    'legend.fontsize': CHART_LEGEND_FONTSIZE,\n})\n\ndef _install_standard_chart_style():\n    from matplotlib.axes import Axes\n    original_set_title = Axes.set_title\n    original_set_xlabel = Axes.set_xlabel\n    original_set_ylabel = Axes.set_ylabel\n    original_tick_params = Axes.tick_params\n    original_legend = Axes.legend\n    original_plt_legend = plt.legend\n    def set_title(self, label, fontdict=None, loc=None, pad=None, *, y=None, **kwargs):\n        fontdict = dict(fontdict or {})\n        fontdict['fontsize'] = CHART_TITLE_FONTSIZE\n        fontdict['fontweight'] = CHART_TITLE_FONTWEIGHT\n        kwargs['fontsize'] = CHART_TITLE_FONTSIZE\n        kwargs['fontweight'] = CHART_TITLE_FONTWEIGHT\n        return original_set_title(self, label, fontdict=fontdict, loc=loc, pad=CHART_TITLE_PAD if pad is None else pad, y=y, **kwargs)\n    def set_xlabel(self, xlabel, fontdict=None, labelpad=None, loc=None, **kwargs):\n        fontdict = dict(fontdict or {})\n        fontdict['fontsize'] = CHART_LABEL_FONTSIZE\n        fontdict['fontweight'] = 'normal'\n        kwargs['fontsize'] = CHART_LABEL_FONTSIZE\n        kwargs['fontweight'] = 'normal'\n        return original_set_xlabel(self, xlabel, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs)\n    def set_ylabel(self, ylabel, fontdict=None, labelpad=None, loc=None, **kwargs):\n        fontdict = dict(fontdict or {})\n        fontdict['fontsize'] = CHART_LABEL_FONTSIZE\n        fontdict['fontweight'] = 'normal'\n        kwargs['fontsize'] = CHART_LABEL_FONTSIZE\n        kwargs['fontweight'] = 'normal'\n        return original_set_ylabel(self, ylabel, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs)\n    def tick_params(self, axis='both', **kwargs):\n        kwargs['labelsize'] = CHART_TICK_FONTSIZE\n        return original_tick_params(self, axis=axis, **kwargs)\n    def legend(self, *args, **kwargs):\n        kwargs['fontsize'] = CHART_LEGEND_FONTSIZE\n        return original_legend(self, *args, **kwargs)\n    def plt_legend(*args, **kwargs):\n        kwargs['fontsize'] = CHART_LEGEND_FONTSIZE\n        return original_plt_legend(*args, **kwargs)\n    Axes.set_title = set_title\n    Axes.set_xlabel = set_xlabel\n    Axes.set_ylabel = set_ylabel\n    Axes.tick_params = tick_params\n    Axes.legend = legend\n    plt.legend = plt_legend\n\n_install_standard_chart_style()\n\ndef _safe_pdf_text(value):\n    replacements = {\n        '\\u2013': '-', '\\u2014': '-', '\\u2015': '-',\n        '\\u2018': \"'\", '\\u2019': \"'\", '\\u201c': '\"', '\\u201d': '\"',\n        '\\u2022': '-', '\\u00a0': ' ', '\\u2026': '...'\n    }\n    text = str(value or '')\n    for source, target in replacements.items():\n        text = text.replace(source, target)\n    return text.encode('latin-1', 'replace').decode('latin-1')\n\ndef _wrap_lines(text, max_chars):\n    lines = []\n    for paragraph in str(text).splitlines() or ['']:\n        wrapped = textwrap.wrap(paragraph.strip(), width=max_chars) or ['']\n        lines.extend(wrapped)\n    return lines\n\ndef _sentence_chunks(text):\n    normalized = ' '.join(str(text).split())\n    chunks, current = [], []\n    for token in normalized.split(' '):\n        current.append(token)\n        if token.rstrip().endswith(('.', '!', '?', ';')):\n            chunks.append(' '.join(current))\n            current = []\n    if current:\n        chunks.append(' '.join(current))\n    return chunks or [normalized]\n\ndef _fit_text_to_box(text, w, h, font_size, line_height):\n    max_chars = max(14, int(w * 0.55 * (10 / max(font_size, 1))))\n    max_lines = max(1, int(h / max(line_height, 1)))\n    if len(_wrap_lines(text, max_chars)) <= max_lines:\n        return text\n    selected = []\n    for sentence in _sentence_chunks(text):\n        candidate = ' '.join(selected + [sentence]).strip()\n        if not candidate:\n            continue\n        if len(_wrap_lines(candidate, max_chars)) <= max_lines:\n            selected.append(sentence)\n        elif selected:\n            break\n        else:\n            words = sentence.split()\n            compact = []\n            for word in words:\n                candidate = ' '.join(compact + [word])\n                if len(_wrap_lines(candidate, max_chars)) > max_lines:\n                    break\n                compact.append(word)\n            selected.append(' '.join(compact))\n            break\n    fitted = ' '.join(selected).strip()\n    return fitted\n\ndef _write_report_title(pdf, title, font_family):\n    clean_title = ' '.join(_safe_pdf_text(title or 'Relatório Analítico').split())\n    for size in range(16, 10, -1):\n        max_chars = max(28, int(58 * (16 / size)))\n        lines = textwrap.wrap(clean_title, width=max_chars) or [clean_title]\n        if len(lines) <= 2:\n            pdf.set_font(font_family, 'B', size)\n            pdf.multi_cell(0, 8, '\\n'.join(lines), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')\n            return\n    pdf.set_font(font_family, 'B', 11)\n    pdf.multi_cell(0, 7, '\\n'.join(textwrap.wrap(clean_title, width=84)), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')\n\ndef render_text_block(pdf, text, x, y, w, h, title=None):\n    font_size = 10\n    line_height = 5\n    text = _safe_pdf_text(text)\n    title = _safe_pdf_text(title) if title else None\n    body_height = h\n    pdf.set_xy(x, y)\n    if title:\n        pdf.set_font('helvetica', 'B', font_size)\n        pdf.cell(w, 7, title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)\n        body_height = max(1, h - 8)\n        pdf.set_xy(x, pdf.get_y())\n    \n    fitted_text = _fit_text_to_box(text, w, body_height, font_size, line_height)\n    pdf.set_font('helvetica', '', font_size)\n    pdf.multi_cell(w, line_height, fitted_text, align='J')\n\ndef render_g_cost_late_damage_by_warehouse(pdf, dataframes, x, y, w, h):\n    # Get the primary dataset\n    df = dataframes.get('shipment_quality.csv')\n    if df is None or df.empty:\n        # fallback to any dataframe\n        for key, val in dataframes.items():\n            if isinstance(val, pd.DataFrame) and not val.empty:\n                df = val\n                break\n        if df is None:\n            return  # nothing to plot\n\n    # Required columns: warehouse, cost, late_pct, damage_pct\n    required = ['warehouse', 'cost', 'late_pct', 'damage_pct']\n    if not all(col in df.columns for col in required):\n        return\n\n    # Aggregate by warehouse: total cost, average late%, average damage%\n    agg = df.groupby('warehouse', sort=True).agg(\n        cost=('cost', 'sum'),\n        late_pct=('late_pct', 'mean'),\n        damage_pct=('damage_pct', 'mean')\n    ).reset_index()\n\n    warehouses = agg['warehouse'].tolist()\n    x_pos = np.arange(len(warehouses))\n    costs = agg['cost'].values / 1000  # scale to thousands for readability\n    late = agg['late_pct'].values\n    damage = agg['damage_pct'].values\n\n    # Figure size in inches\n    fig, ax1 = plt.subplots(figsize=(w / 25.4, h / 25.4))\n\n    # Bar width\n    bar_width = 0.25\n\n    # Plot cost on left y-axis\n    bars_cost = ax1.bar(x_pos - bar_width, costs, width=bar_width, label='Custo (R$ mil)', color='#3498db', alpha=0.85)\n\n    # Create twin axis for percentages\n    ax2 = ax1.twinx()\n    bars_late = ax2.bar(x_pos, late, width=bar_width, label='Atraso (%)', color='#e67e22', alpha=0.85)\n    bars_damage = ax2.bar(x_pos + bar_width, damage, width=bar_width, label='Danos (%)', color='#2ecc71', alpha=0.85)\n\n    # Set labels (compact: no x-axis label, only tick labels)\n    ax1.set_ylabel('Custo Total (R$ mil)', fontsize=CHART_LABEL_FONTSIZE)\n    ax2.set_ylabel('Percentual (%)', fontsize=CHART_LABEL_FONTSIZE)\n\n    # X ticks\n    ax1.set_xticks(x_pos)\n    ax1.set_xticklabels(warehouses, fontsize=CHART_TICK_FONTSIZE)\n\n    # Title\n    ax1.set_title('Custo, Atraso e Danos por Armazém', fontsize=CHART_TITLE_FONTSIZE,\n                  fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)\n\n    # Legend below chart (compact – avoid x-axis label)\n    # Place legend outside, below, with 3 columns\n    lines = [bars_cost, bars_late, bars_damage]\n    labels = ['Custo (R$ mil)', 'Atraso (%)', 'Danos (%)']\n    ax1.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, -0.20),\n               ncol=3, frameon=False, fontsize=CHART_LEGEND_FONTSIZE, handletextpad=0.5)\n\n    # Adjust bottom margin to make room for legend\n    fig.subplots_adjust(bottom=0.28, top=0.82)\n\n    # Remove top/right spines for cleaner look\n    ax1.spines['top'].set_visible(False)\n    ax2.spines['top'].set_visible(False)\n\n    # Save as temporary image\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_late_trend_by_warehouse(pdf, dataframes, x, y, w, h):\n    # Find the dataset that contains week, warehouse, late_pct\n    df = None\n    for name, candidate in dataframes.items():\n        if {'week', 'warehouse', 'late_pct'}.issubset(candidate.columns):\n            df = candidate\n            break\n    if df is None:\n        # Fallback: use the first non-empty dataframe\n        df = next(iter(dataframes.values()), None)\n    if df is None or df.empty:\n        return\n\n    # Pivot to get weeks as rows, warehouses as columns\n    pivot = df.pivot_table(index='week', columns='warehouse', values='late_pct', aggfunc='mean')\n    weeks = pivot.index.tolist()\n    warehouses = pivot.columns.tolist()\n\n    # Create figure with exact dimensions\n    fig_width = w / 25.4\n    fig_height = h / 25.4\n    fig, ax = plt.subplots(figsize=(fig_width, fig_height))\n\n    # Use standard chart typography constants\n    CHART_TITLE_FONTSIZE = 9\n    CHART_TITLE_FONTWEIGHT = 'bold'\n    CHART_TITLE_PAD = 6\n    CHART_LABEL_FONTSIZE = 7\n    CHART_TICK_FONTSIZE = 6\n    CHART_LEGEND_FONTSIZE = 6\n\n    # Plot lines for each warehouse\n    for wh in warehouses:\n        series = pivot[wh].dropna()\n        if not series.empty:\n            ax.plot(series.index, series.values, marker='o', label=wh, linewidth=1.5, markersize=4)\n\n    # Title\n    ax.set_title('Evolução Semanal do Atraso por Armazém',\n                 fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)\n\n    # Y-axis label\n    ax.set_ylabel('Atraso (%)', fontsize=CHART_LABEL_FONTSIZE)\n\n    # No x-axis label (to avoid clash with legend in compact mode)\n    ax.set_xlabel('')\n\n    # Tick font\n    ax.tick_params(axis='both', labelsize=CHART_TICK_FONTSIZE)\n\n    # Legend below the plot (since compact, no xlabel, legend below)\n    # Adjust bottom margin to leave room for legend\n    fig.subplots_adjust(bottom=0.28)\n    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.25),\n              ncol=len(warehouses), frameon=False, fontsize=CHART_LEGEND_FONTSIZE)\n\n    # Remove top/right spines\n    ax.spines['top'].set_visible(False)\n    ax.spines['right'].set_visible(False)\n\n    # Save as PNG and insert into PDF\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_incidents_by_type(pdf, dataframes, x, y, w, h):\n    # Load the specific dataframe from incident_log.xlsx\n    df = dataframes.get('incident_log.xlsx')\n    if df is None or df.empty:\n        # Fallback if file not found\n        return\n\n    # Ensure required columns exist\n    if 'incident_type' not in df.columns or 'count' not in df.columns:\n        return\n\n    # Sort by count descending (highest first)\n    df_sorted = df[['incident_type', 'count']].sort_values('count', ascending=False)\n\n    incident_types = df_sorted['incident_type'].tolist()\n    counts = df_sorted['count'].tolist()\n    total = sum(counts)\n\n    # Create figure with enforced constraints\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4), constrained_layout=True)\n\n    # Shared chart typography constants\n    CHART_TITLE_FONTSIZE = 9\n    CHART_TITLE_FONTWEIGHT = 'bold'\n    CHART_TITLE_PAD = 6\n    CHART_TICK_FONTSIZE = 6\n\n    # Plot bar chart\n    bars = ax.bar(incident_types, counts, color='#4C72B0', edgecolor='white', width=0.6)\n\n    # Title with total in parentheses\n    ax.set_title(f\"Distribuição de Incidentes por Tipo (Total: {total})\",\n                 fontsize=CHART_TITLE_FONTSIZE,\n                 fontweight=CHART_TITLE_FONTWEIGHT,\n                 pad=CHART_TITLE_PAD)\n\n    # Set tick parameters\n    ax.tick_params(axis='x', labelsize=CHART_TICK_FONTSIZE, rotation=0)\n    ax.tick_params(axis='y', labelsize=CHART_TICK_FONTSIZE)\n\n    # Y-axis start at 0\n    ax.set_ylim(0, max(counts) * 1.2)  # small headroom without annotations\n\n    # Remove top and right spines for cleaner look\n    ax.spines['top'].set_visible(False)\n    ax.spines['right'].set_visible(False)\n\n    # No x-axis label or legend (compact block – avoid both)\n    # No data labels (compact block – non-essential annotations avoided)\n\n    # Save as temporary image\n    import tempfile\n    import os\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_cost_vs_late_scatter(pdf, dataframes, x, y, w, h):\n    # Access primary dataframe\n    df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        return\n\n    # Validate required columns\n    required = ['carrier', 'cost', 'late_pct']\n    if not all(col in df.columns for col in required):\n        return\n\n    # Prepare data\n    carriers = df['carrier'].unique()\n    # Fixed color palette for the three carriers (matching known values)\n    palette = {'FastShip': '#4c72b0', 'RoadMax': '#dd8452', 'AirSwift': '#55a868'}\n\n    # Create figure with size in inches\n    fig = plt.figure(figsize=(w/25.4, h/25.4))\n    ax = fig.add_subplot(111)\n\n    # Scatter per carrier\n    for carrier in carriers:\n        subset = df[df['carrier'] == carrier]\n        ax.scatter(subset['cost'], subset['late_pct'],\n                   color=palette.get(carrier, '#333333'),\n                   label=carrier, s=30, edgecolor='white', linewidth=0.5)\n\n    # Title (standard typography)\n    ax.set_title(\"Relação Custo vs Atraso\",\n                 fontsize=CHART_TITLE_FONTSIZE,\n                 fontweight=CHART_TITLE_FONTWEIGHT,\n                 pad=CHART_TITLE_PAD)\n\n    # Y-axis label only (compact: avoid x-axis label + bottom legend together)\n    ax.set_ylabel(\"Atraso (%)\", fontsize=CHART_LABEL_FONTSIZE)\n\n    # Tick parameters\n    ax.tick_params(labelsize=CHART_TICK_FONTSIZE)\n\n    # Legend below the axes (outside, compact layout)\n    ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18),\n              ncol=3, frameon=False, fontsize=CHART_LEGEND_FONTSIZE)\n\n    # Adjust margins to give space for legend and title\n    fig.subplots_adjust(top=0.88, bottom=0.28, left=0.15, right=0.95)\n\n    # Save to temporary PNG and insert into PDF\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_t_intro(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Este relat\\u00f3rio analisa 2.605 remessas realizadas no per\\u00edodo, totalizando um custo de R$ 179.300. A taxa m\\u00e9dia de atraso foi de 4,8%, enquanto a de danos ficou em 0,95%. Foram registrados 65 incidentes operacionais, com destaque para o armaz\\u00e9m B, que concentrou a maioria dos ocorridos. As an\\u00e1lises consideram tr\\u00eas armaz\\u00e9ns (A, B e C) e tr\\u00eas transportadoras (FastShip, RoadMax e AirSwift) ao longo de tr\\u00eas semanas.\", x, y, w, h, title=\"Resumo do Relat\\u00f3rio\")\n\ndef render_t_conclusion(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Com base nos indicadores, o Armaz\\u00e9m B apresenta os piores resultados com taxas de atraso acima de 8% e danos acima de 1,7%, concentrando 45 dos 65 incidentes com a RoadMax, indicando necessidade de auditoria e revis\\u00e3o contratual. O Armaz\\u00e9m C, operado pela AirSwift, tem melhor desempenho com atraso de 2,4% e danos de 0,6%, por\\u00e9m com custo mais elevado, sendo recomend\\u00e1vel expandi-lo para rotas de alto valor. O Armaz\\u00e9m A, com FastShip, tem desempenho intermedi\\u00e1rio com atraso de 4% e danos abaixo de 1%, mas 12 incidentes de picking sugerem treinamento ou automa\\u00e7\\u00e3o. As a\\u00e7\\u00f5es priorit\\u00e1rias incluem auditoria no Armaz\\u00e9m B e RoadMax, negocia\\u00e7\\u00e3o com AirSwift e melhorias no picking do Armaz\\u00e9m A, visando reduzir o custo total de R$ 179.300, ou cerca de R$ 68,80 por remessa, melhorando a efici\\u00eancia e satisfa\\u00e7\\u00e3o dos clientes.\", x, y, w, h, title=\"Conclus\\u00e3o e Recomenda\\u00e7\\u00f5es\")\n\ndef generate_report():\n    dataframes = {}\n    dataframes[\"shipment_quality.csv\"] = pd.read_csv(r'/home/gengar/codes/pdf-report-generator/workspace/uploads/1064566d-b3cc-4cd7-ac3a-6a305567f1a5.csv')\n    dataframes[\"incident_log.xlsx\"] = pd.read_excel(r'/home/gengar/codes/pdf-report-generator/workspace/uploads/734abf0c-9543-4ec3-9d74-82b398e6811b.xlsx')\n    pdf = FPDF()\n    pdf.set_auto_page_break(auto=False)\n    current_page = 0\n    component_manifest = []\n    def ensure_page(page):\n        nonlocal current_page\n        while current_page < page:\n            pdf.add_page()\n            current_page += 1\n            if current_page == 1:\n                _write_report_title(pdf, \"An\\u00e1lise de Desempenho Log\\u00edstico: Custo, Atraso, Danos e Incidentes por Armaz\\u00e9m e Transportadora\", 'helvetica')\n                pdf.ln(3)\n    ensure_page(1)\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_t_intro(pdf, dataframes, 10, 30, 190, 30, df=primary_df)\n        except TypeError:\n            render_t_intro(pdf, dataframes, 10, 30, 190, 30)\n        component_manifest.append({'id': \"t_intro\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"t_intro\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente t_intro: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_g_cost_late_damage_by_warehouse(pdf, dataframes, 10, 70, 90, 65, df=primary_df)\n        except TypeError:\n            render_g_cost_late_damage_by_warehouse(pdf, dataframes, 10, 70, 90, 65)\n        component_manifest.append({'id': \"g_cost_late_damage_by_warehouse\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"g_cost_late_damage_by_warehouse\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente g_cost_late_damage_by_warehouse: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_g_late_trend_by_warehouse(pdf, dataframes, 110, 70, 90, 65, df=primary_df)\n        except TypeError:\n            render_g_late_trend_by_warehouse(pdf, dataframes, 110, 70, 90, 65)\n        component_manifest.append({'id': \"g_late_trend_by_warehouse\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"g_late_trend_by_warehouse\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente g_late_trend_by_warehouse: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_g_incidents_by_type(pdf, dataframes, 10, 145, 90, 65, df=primary_df)\n        except TypeError:\n            render_g_incidents_by_type(pdf, dataframes, 10, 145, 90, 65)\n        component_manifest.append({'id': \"g_incidents_by_type\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"g_incidents_by_type\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente g_incidents_by_type: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_g_cost_vs_late_scatter(pdf, dataframes, 110, 145, 90, 65, df=primary_df)\n        except TypeError:\n            render_g_cost_vs_late_scatter(pdf, dataframes, 110, 145, 90, 65)\n        component_manifest.append({'id': \"g_cost_vs_late_scatter\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"g_cost_vs_late_scatter\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente g_cost_vs_late_scatter: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_t_conclusion(pdf, dataframes, 10, 220, 190, 65, df=primary_df)\n        except TypeError:\n            render_t_conclusion(pdf, dataframes, 10, 220, 190, 65)\n        component_manifest.append({'id': \"t_conclusion\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"t_conclusion\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente t_conclusion: {e}')\n        import traceback; traceback.print_exc()\n    manifest_path = r'/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-logistics_quality-9469d0d6.pdf.manifest.json'\n    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:\n        json.dump({'components': component_manifest}, manifest_file, indent=2, ensure_ascii=False)\n    failed_components = [item for item in component_manifest if item.get('status') != 'rendered']\n    if failed_components:\n        raise RuntimeError('Report component rendering failed: ' + ', '.join(item['id'] for item in failed_components))\n    pdf.output(r'/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-logistics_quality-9469d0d6.pdf')\n\nif __name__ == '__main__':\n    generate_report()",
+  "script_path": "workspace/scripts/canonical-logistics_quality-9469d0d6.py",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-logistics_quality-9469d0d6.pdf",
+  "provider": "deepseek",
+  "model_name": "deepseek-v4-flash",
+  "data_filter": {
+    "needs_filter": false,
+    "needs_preprocessing": false,
+    "description": "",
+    "code": ""
+  },
+  "data_preprocessing": {
+    "needs_filter": false,
+    "needs_preprocessing": false,
+    "description": "",
+    "code": ""
+  },
+  "pdf_version": 1,
+  "retry_count": 0,
+  "explore_history": []
+}

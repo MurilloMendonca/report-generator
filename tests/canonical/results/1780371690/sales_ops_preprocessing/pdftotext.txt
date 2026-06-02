@@ -1,0 +1,16 @@
+Relatório de Vendas: Receita Líquida, Descontos e
+Desempenho Regional
+Resumo Executivo de Vendas
+O relatório analisa o desempenho de vendas dos meses de janeiro a abril de 2026. A receita total acumulada foi de R$
+870.500, com receita líquida de R$ 791.910 após descontos que representaram, em média, 9,5% do valor bruto. O
+volume total de unidades vendidas foi de 2.925, gerando um ticket médio de R$ 297,22. A tendência mensal mostra um
+crescimento consistente até março, atingindo pico de R$ 246.500, seguido por uma queda em abril para R$ 195.000, o
+que sugere uma desaceleração que merece atenção.
+
+Conclusão e Recomendações
+Em síntese, o desempenho geral foi positivo, com receita líquida de R$ 791.910 e ticket médio de R$ 297,22. No
+entanto, a análise regional mostra que a região Oeste ficou abaixo da meta trimestral de R$ 210.000, atingindo R$
+175.000, enquanto Norte e Sul superaram as metas. Recomenda-se revisar a política de descontos, que em média é de
+9,5%, especialmente nas regiões com baixo desempenho, para proteger a margem.
+
+

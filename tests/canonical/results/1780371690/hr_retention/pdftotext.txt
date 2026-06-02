@@ -1,0 +1,46 @@
+Risco de Retenção por Departamento: Onde o RH Deve Atuar
+Primeiro
+Introdução - Resumo de Risco de Retenção
+A taxa de atrito geral é de 37,5%, com tempo médio de
+casa de 18 meses e engajamento médio de 64,5
+pontos. Este relatório analisa os padrões de retenção
+por departamento, considerando esses indicadores e a
+avaliação dos gestores, em um cenário com 19 vagas
+abertas. O objetivo é identificar os departamentos de
+maior risco e orientar ações prioritárias de RH.
+
+Desenvolvimento - Padrões de Retenção por Departamento
+A análise departamental mostra padrões distintos.
+Vendas teve 100% de atrito (2 saídas), com as
+menores médias de engajamento (51,5) e avaliação do
+gestor (59,5) e tempo de casa de 11,5 meses.
+Engenharia e Suporte não tiveram perdas; Engenharia
+teve os maiores índices de engajamento (76,5) e nota
+do gestor (85). Operações apresentou 50% de atrito
+com notas mistas. Baixo engajamento e baixa avaliação
+do gestor aumentam o risco de atrito, como em Vendas.
+Em Operações, o colaborador demitido tinha 7 meses
+de casa e notas abaixo da média, indicando fragilidade
+na integração. A pressão de contratação é maior em
+Vendas (7 vagas) e Operações (5), enquanto
+Engenharia (4) e Suporte (3) têm menos urgência,
+apesar do longo prazo de preenchimento em
+Engenharia (42 dias). A retenção associa-se à
+qualidade da gestão e engajamento; a alta rotatividade
+em Vendas e Operações pressiona o pipeline de
+contratação.
+
+Conclusão - Recomendações Prioritárias
+O departamento de Vendas é o mais crítico,
+combinando 100% de atrito com 7 vagas abertas.
+Recomenda-se ação imediata de RH em Vendas,
+focada em melhorar a gestão e o engajamento, com
+programas de desenvolvimento de líderes. Operações
+também requer atenção, especialmente na integração
+de novos colaboradores. Para Engenharia e Suporte, o
+foco deve ser manter os bons níveis atuais. Reduzir a
+rotatividade em Vendas e Operações aliviará a pressão
+sobre o pipeline de contratação, que hoje soma 19
+vagas.
+
+

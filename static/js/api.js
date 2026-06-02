@@ -93,11 +93,15 @@ const API = {
         return await this.parseResponse(res, 'Could not send feedback');
     },
 
-    async syncArtifacts(jobId, artifacts, components) {
+    async syncArtifacts(jobId, artifacts, components, options = {}) {
         const res = await fetch(`/api/sessions/${jobId}/artifacts`, {
             method: 'PUT',
             headers: this.authHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ artifacts, components })
+            body: JSON.stringify({
+                artifacts,
+                components,
+                defer_pipeline: Boolean(options.deferPipeline)
+            })
         });
         return await this.parseResponse(res, 'Could not update artifacts');
     },
@@ -120,11 +124,11 @@ const API = {
         return await this.parseResponse(res, 'Could not update settings');
     },
 
-    async regenerate(jobId, scope, settings = null) {
+    async regenerate(jobId, scope, settings = null, componentId = null) {
         const res = await fetch(`/api/sessions/${jobId}/regenerate`, {
             method: 'POST',
             headers: this.authHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({ scope, settings })
+            body: JSON.stringify({ scope, settings, component_id: componentId })
         });
         if (!res.ok) throw new Error('Could not update report');
         return await res.json();
@@ -149,6 +153,15 @@ const API = {
             headers: this.authHeaders()
         });
         if (!res.ok) throw new Error('Could not load PDF');
+        const blob = await res.blob();
+        return URL.createObjectURL(blob);
+    },
+
+    async getComponentPreviewObjectUrl(jobId, componentId, version) {
+        const res = await fetch(`/api/sessions/${jobId}/components/${encodeURIComponent(componentId)}/preview?v=${version || Date.now()}`, {
+            headers: this.authHeaders()
+        });
+        if (!res.ok) throw new Error('Could not load component preview');
         const blob = await res.blob();
         return URL.createObjectURL(blob);
     }

@@ -1,0 +1,1440 @@
+{
+  "schema_version": 1,
+  "job_id": "canonical-sales_ops_preprocessing-627bac0e",
+  "created_at": "2026-06-02T03:45:01.818323+00:00",
+  "updated_at": "2026-06-02T03:46:55.523911+00:00",
+  "status": "Relatório concluído em 1.5s",
+  "current_step": "completed",
+  "progress": 100,
+  "error": {},
+  "logs": [
+    "Canonical test: Sales operations with calculated preprocessing columns",
+    "[00:45:01] Avaliando pré-processamento de dados solicitado...",
+    "[00:45:06] Aplicando pré-processamento de dados: Adiciona colunas calculadas 'net_revenue_after_discount' (faturamento líquido após desconto) e 'revenue_per_unit' (receita por unidade) ao arquivo sales_pipeline.csv, conforme solicitado.",
+    "[00:45:06] Planejando indicadores (Metric, Graphic, Text) - T1...",
+    "[00:45:21] Gerando título do relatório...",
+    "[00:45:30] Calculando métrica: Receita Total Bruta...",
+    "[00:45:35] Calculando métrica: Receita Líquida Total...",
+    "[00:45:38] Calculando métrica: Percentual Médio de Desconto...",
+    "[00:45:42] Calculando métrica: Unidades Vendidas Totais...",
+    "[00:45:45] Calculando métrica: Receita Média por Unidade...",
+    "[00:45:49] Aplicando template de layout: Executivo com gráfico central...",
+    "[00:45:49] Gerando gráfico: Evolução da Receita Mensal...",
+    "[00:46:00] Gerando gráfico: Receita Líquida por Região vs Meta Trimestral...",
+    "[00:46:26] Gerando gráfico: Desconto Médio por Produto...",
+    "[00:46:38] Gerando narrativas consistentes (2)...",
+    "[00:46:53] Montando script final modular...",
+    "[00:46:53] Renderizando PDF (Tentativa 1/5)...",
+    "[00:46:55] Relatório concluído em 1.5s"
+  ],
+  "files": [
+    {
+      "original_filename": "sales_pipeline.csv",
+      "path": "workspace/uploads/080c7eea-d74b-4517-a780-87532b525f26.csv",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "sales_pipeline.csv",
+        "shape": {
+          "rows": 8,
+          "columns": 9
+        },
+        "columns": [
+          {
+            "name": "month",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 4,
+            "unique_ratio": 0.5,
+            "top_values": [
+              {
+                "value": "2026-01",
+                "count": 2
+              },
+              {
+                "value": "2026-02",
+                "count": 2
+              },
+              {
+                "value": "2026-03",
+                "count": 2
+              },
+              {
+                "value": "2026-04",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "region",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.375,
+            "top_values": [
+              {
+                "value": "North",
+                "count": 3
+              },
+              {
+                "value": "South",
+                "count": 3
+              },
+              {
+                "value": "West",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "product",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.375,
+            "top_values": [
+              {
+                "value": "Alpha",
+                "count": 3
+              },
+              {
+                "value": "Beta",
+                "count": 3
+              },
+              {
+                "value": "Gamma",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "revenue",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 8,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "124000",
+                "count": 1
+              },
+              {
+                "value": "91000",
+                "count": 1
+              },
+              {
+                "value": "138000",
+                "count": 1
+              },
+              {
+                "value": "76000",
+                "count": 1
+              },
+              {
+                "value": "147500",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 108812.5,
+              "median": 105500.0,
+              "min": 76000.0,
+              "max": 147500.0,
+              "std": 26038.347407511978,
+              "q25": 89000.0,
+              "q75": 127500.0
+            }
+          },
+          {
+            "name": "units",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 8,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "410",
+                "count": 1
+              },
+              {
+                "value": "360",
+                "count": 1
+              },
+              {
+                "value": "445",
+                "count": 1
+              },
+              {
+                "value": "250",
+                "count": 1
+              },
+              {
+                "value": "470",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 365.625,
+              "median": 375.0,
+              "min": 250.0,
+              "max": 470.0,
+              "std": 78.89584001345426,
+              "q25": 315.0,
+              "q75": 418.75
+            }
+          },
+          {
+            "name": "discount_pct",
+            "type": "int64",
+            "role": "percentage",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 8,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "7",
+                "count": 1
+              },
+              {
+                "value": "11",
+                "count": 1
+              },
+              {
+                "value": "6",
+                "count": 1
+              },
+              {
+                "value": "13",
+                "count": 1
+              },
+              {
+                "value": "8",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 9.5,
+              "median": 9.5,
+              "min": 6.0,
+              "max": 13.0,
+              "std": 2.449489742783178,
+              "q25": 7.75,
+              "q75": 11.25
+            }
+          },
+          {
+            "name": "channel",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.375,
+            "top_values": [
+              {
+                "value": "Direct",
+                "count": 3
+              },
+              {
+                "value": "Partner",
+                "count": 3
+              },
+              {
+                "value": "Online",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "net_revenue_after_discount",
+            "type": "float64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 8,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "115320.0",
+                "count": 1
+              },
+              {
+                "value": "80990.0",
+                "count": 1
+              },
+              {
+                "value": "129720.0",
+                "count": 1
+              },
+              {
+                "value": "66120.0",
+                "count": 1
+              },
+              {
+                "value": "135700.0",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 98988.75,
+              "median": 95510.0,
+              "min": 66120.0,
+              "max": 135700.0,
+              "std": 26029.824343570643,
+              "q25": 79002.5,
+              "q75": 118920.0
+            }
+          },
+          {
+            "name": "revenue_per_unit",
+            "type": "float64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 8,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "302.4390243902439",
+                "count": 1
+              },
+              {
+                "value": "252.77777777777777",
+                "count": 1
+              },
+              {
+                "value": "310.1123595505618",
+                "count": 1
+              },
+              {
+                "value": "304.0",
+                "count": 1
+              },
+              {
+                "value": "313.82978723404256",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 297.2182304424401,
+              "median": 303.219512195122,
+              "min": 252.77777777777777,
+              "max": 313.82978723404256,
+              "std": 19.649570117832017,
+              "q25": 296.7948717948718,
+              "q75": 308.083645443196
+            }
+          }
+        ],
+        "sample": [
+          {
+            "month": "2026-01",
+            "region": "North",
+            "product": "Alpha",
+            "revenue": 124000,
+            "units": 410,
+            "discount_pct": 7,
+            "channel": "Direct",
+            "net_revenue_after_discount": 115320.0,
+            "revenue_per_unit": 302.4390243902439
+          },
+          {
+            "month": "2026-01",
+            "region": "South",
+            "product": "Beta",
+            "revenue": 91000,
+            "units": 360,
+            "discount_pct": 11,
+            "channel": "Partner",
+            "net_revenue_after_discount": 80990.0,
+            "revenue_per_unit": 252.77777777777777
+          },
+          {
+            "month": "2026-02",
+            "region": "North",
+            "product": "Alpha",
+            "revenue": 138000,
+            "units": 445,
+            "discount_pct": 6,
+            "channel": "Direct",
+            "net_revenue_after_discount": 129720.0,
+            "revenue_per_unit": 310.1123595505618
+          },
+          {
+            "month": "2026-02",
+            "region": "West",
+            "product": "Gamma",
+            "revenue": 76000,
+            "units": 250,
+            "discount_pct": 13,
+            "channel": "Online",
+            "net_revenue_after_discount": 66120.0,
+            "revenue_per_unit": 304.0
+          },
+          {
+            "month": "2026-03",
+            "region": "South",
+            "product": "Alpha",
+            "revenue": 147500,
+            "units": 470,
+            "discount_pct": 8,
+            "channel": "Partner",
+            "net_revenue_after_discount": 135700.0,
+            "revenue_per_unit": 313.82978723404256
+          },
+          {
+            "month": "2026-03",
+            "region": "West",
+            "product": "Beta",
+            "revenue": 99000,
+            "units": 330,
+            "discount_pct": 10,
+            "channel": "Online",
+            "net_revenue_after_discount": 89100.0,
+            "revenue_per_unit": 300.0
+          },
+          {
+            "month": "2026-04",
+            "region": "North",
+            "product": "Gamma",
+            "revenue": 83000,
+            "units": 270,
+            "discount_pct": 12,
+            "channel": "Direct",
+            "net_revenue_after_discount": 73040.0,
+            "revenue_per_unit": 307.4074074074074
+          },
+          {
+            "month": "2026-04",
+            "region": "South",
+            "product": "Beta",
+            "revenue": 112000,
+            "units": 390,
+            "discount_pct": 9,
+            "channel": "Partner",
+            "net_revenue_after_discount": 101920.0,
+            "revenue_per_unit": 287.1794871794872
+          }
+        ],
+        "profile": {
+          "sampled_rows": 8,
+          "column_roles": {
+            "measures": [
+              "revenue",
+              "units",
+              "discount_pct",
+              "net_revenue_after_discount",
+              "revenue_per_unit"
+            ],
+            "dimensions": [
+              "month",
+              "region",
+              "product",
+              "channel"
+            ],
+            "dates": [],
+            "identifiers": []
+          }
+        },
+        "parser": {
+          "encoding": "utf-8",
+          "separator": ","
+        }
+      },
+      "raw_artifact": {
+        "filename": "sales_pipeline.csv",
+        "shape": {
+          "rows": 8,
+          "columns": 7
+        },
+        "columns": [
+          {
+            "name": "month",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 4,
+            "unique_ratio": 0.5,
+            "top_values": [
+              {
+                "value": "2026-01",
+                "count": 2
+              },
+              {
+                "value": "2026-02",
+                "count": 2
+              },
+              {
+                "value": "2026-03",
+                "count": 2
+              },
+              {
+                "value": "2026-04",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "region",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.375,
+            "top_values": [
+              {
+                "value": "North",
+                "count": 3
+              },
+              {
+                "value": "South",
+                "count": 3
+              },
+              {
+                "value": "West",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "product",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.375,
+            "top_values": [
+              {
+                "value": "Alpha",
+                "count": 3
+              },
+              {
+                "value": "Beta",
+                "count": 3
+              },
+              {
+                "value": "Gamma",
+                "count": 2
+              }
+            ]
+          },
+          {
+            "name": "revenue",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 8,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "124000",
+                "count": 1
+              },
+              {
+                "value": "91000",
+                "count": 1
+              },
+              {
+                "value": "138000",
+                "count": 1
+              },
+              {
+                "value": "76000",
+                "count": 1
+              },
+              {
+                "value": "147500",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 108812.5,
+              "median": 105500.0,
+              "min": 76000.0,
+              "max": 147500.0,
+              "std": 26038.347407511978,
+              "q25": 89000.0,
+              "q75": 127500.0
+            }
+          },
+          {
+            "name": "units",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 8,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "410",
+                "count": 1
+              },
+              {
+                "value": "360",
+                "count": 1
+              },
+              {
+                "value": "445",
+                "count": 1
+              },
+              {
+                "value": "250",
+                "count": 1
+              },
+              {
+                "value": "470",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 365.625,
+              "median": 375.0,
+              "min": 250.0,
+              "max": 470.0,
+              "std": 78.89584001345426,
+              "q25": 315.0,
+              "q75": 418.75
+            }
+          },
+          {
+            "name": "discount_pct",
+            "type": "int64",
+            "role": "percentage",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 8,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "7",
+                "count": 1
+              },
+              {
+                "value": "11",
+                "count": 1
+              },
+              {
+                "value": "6",
+                "count": 1
+              },
+              {
+                "value": "13",
+                "count": 1
+              },
+              {
+                "value": "8",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 9.5,
+              "median": 9.5,
+              "min": 6.0,
+              "max": 13.0,
+              "std": 2.449489742783178,
+              "q25": 7.75,
+              "q75": 11.25
+            }
+          },
+          {
+            "name": "channel",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 0.375,
+            "top_values": [
+              {
+                "value": "Direct",
+                "count": 3
+              },
+              {
+                "value": "Partner",
+                "count": 3
+              },
+              {
+                "value": "Online",
+                "count": 2
+              }
+            ]
+          }
+        ],
+        "sample": [
+          {
+            "month": "2026-01",
+            "region": "North",
+            "product": "Alpha",
+            "revenue": 124000,
+            "units": 410,
+            "discount_pct": 7,
+            "channel": "Direct"
+          },
+          {
+            "month": "2026-01",
+            "region": "South",
+            "product": "Beta",
+            "revenue": 91000,
+            "units": 360,
+            "discount_pct": 11,
+            "channel": "Partner"
+          },
+          {
+            "month": "2026-02",
+            "region": "North",
+            "product": "Alpha",
+            "revenue": 138000,
+            "units": 445,
+            "discount_pct": 6,
+            "channel": "Direct"
+          },
+          {
+            "month": "2026-02",
+            "region": "West",
+            "product": "Gamma",
+            "revenue": 76000,
+            "units": 250,
+            "discount_pct": 13,
+            "channel": "Online"
+          },
+          {
+            "month": "2026-03",
+            "region": "South",
+            "product": "Alpha",
+            "revenue": 147500,
+            "units": 470,
+            "discount_pct": 8,
+            "channel": "Partner"
+          },
+          {
+            "month": "2026-03",
+            "region": "West",
+            "product": "Beta",
+            "revenue": 99000,
+            "units": 330,
+            "discount_pct": 10,
+            "channel": "Online"
+          },
+          {
+            "month": "2026-04",
+            "region": "North",
+            "product": "Gamma",
+            "revenue": 83000,
+            "units": 270,
+            "discount_pct": 12,
+            "channel": "Direct"
+          },
+          {
+            "month": "2026-04",
+            "region": "South",
+            "product": "Beta",
+            "revenue": 112000,
+            "units": 390,
+            "discount_pct": 9,
+            "channel": "Partner"
+          }
+        ],
+        "profile": {
+          "sampled_rows": 8,
+          "column_roles": {
+            "measures": [
+              "revenue",
+              "units",
+              "discount_pct"
+            ],
+            "dimensions": [
+              "month",
+              "region",
+              "product",
+              "channel"
+            ],
+            "dates": [],
+            "identifiers": []
+          }
+        },
+        "parser": {
+          "encoding": "utf-8",
+          "separator": ","
+        }
+      },
+      "preprocessed_path": "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_preprocessing-627bac0e_35223a84108d4a48a45dfeedada3d591_preprocessed.csv",
+      "preprocessing_description": "Adiciona colunas calculadas 'net_revenue_after_discount' (faturamento líquido após desconto) e 'revenue_per_unit' (receita por unidade) ao arquivo sales_pipeline.csv, conforme solicitado.",
+      "preprocessing_impact": {
+        "rows_before": 8,
+        "rows_after": 8,
+        "rows_removed": 0,
+        "rows_removed_ratio": 0.0,
+        "columns_before": 7,
+        "columns_after": 9,
+        "columns_added": [
+          "net_revenue_after_discount",
+          "revenue_per_unit"
+        ],
+        "columns_removed": []
+      },
+      "filtered_path": "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_preprocessing-627bac0e_35223a84108d4a48a45dfeedada3d591_preprocessed.csv",
+      "filter_description": "Adiciona colunas calculadas 'net_revenue_after_discount' (faturamento líquido após desconto) e 'revenue_per_unit' (receita por unidade) ao arquivo sales_pipeline.csv, conforme solicitado.",
+      "filter_impact": {
+        "rows_before": 8,
+        "rows_after": 8,
+        "rows_removed": 0,
+        "rows_removed_ratio": 0.0,
+        "columns_before": 7,
+        "columns_after": 9,
+        "columns_added": [
+          "net_revenue_after_discount",
+          "revenue_per_unit"
+        ],
+        "columns_removed": []
+      }
+    },
+    {
+      "original_filename": "regional_targets.xlsx",
+      "path": "workspace/uploads/098cb63f-61c2-4187-8a88-6ca5f493a02f.xlsx",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "regional_targets.xlsx",
+        "shape": {
+          "rows": 3,
+          "columns": 3
+        },
+        "columns": [
+          {
+            "name": "region",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "North",
+                "count": 1
+              },
+              {
+                "value": "South",
+                "count": 1
+              },
+              {
+                "value": "West",
+                "count": 1
+              }
+            ]
+          },
+          {
+            "name": "quarterly_target",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "330000",
+                "count": 1
+              },
+              {
+                "value": "310000",
+                "count": 1
+              },
+              {
+                "value": "210000",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 283333.3333333333,
+              "median": 310000.0,
+              "min": 210000.0,
+              "max": 330000.0,
+              "std": 64291.00507328637,
+              "q25": 260000.0,
+              "q75": 320000.0
+            }
+          },
+          {
+            "name": "owner",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "Aline",
+                "count": 1
+              },
+              {
+                "value": "Bruno",
+                "count": 1
+              },
+              {
+                "value": "Carla",
+                "count": 1
+              }
+            ]
+          }
+        ],
+        "sample": [
+          {
+            "region": "North",
+            "quarterly_target": 330000,
+            "owner": "Aline"
+          },
+          {
+            "region": "South",
+            "quarterly_target": 310000,
+            "owner": "Bruno"
+          },
+          {
+            "region": "West",
+            "quarterly_target": 210000,
+            "owner": "Carla"
+          }
+        ],
+        "profile": {
+          "sampled_rows": 3,
+          "column_roles": {
+            "measures": [
+              "quarterly_target"
+            ],
+            "dimensions": [
+              "region",
+              "owner"
+            ],
+            "dates": [],
+            "identifiers": []
+          }
+        },
+        "parser": {
+          "encoding": "utf-8",
+          "separator": ","
+        }
+      },
+      "raw_artifact": {
+        "filename": "regional_targets.xlsx",
+        "shape": {
+          "rows": 3,
+          "columns": 3
+        },
+        "columns": [
+          {
+            "name": "region",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "North",
+                "count": 1
+              },
+              {
+                "value": "South",
+                "count": 1
+              },
+              {
+                "value": "West",
+                "count": 1
+              }
+            ]
+          },
+          {
+            "name": "quarterly_target",
+            "type": "int64",
+            "role": "measure",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "330000",
+                "count": 1
+              },
+              {
+                "value": "310000",
+                "count": 1
+              },
+              {
+                "value": "210000",
+                "count": 1
+              }
+            ],
+            "stats": {
+              "mean": 283333.3333333333,
+              "median": 310000.0,
+              "min": 210000.0,
+              "max": 330000.0,
+              "std": 64291.00507328637,
+              "q25": 260000.0,
+              "q75": 320000.0
+            }
+          },
+          {
+            "name": "owner",
+            "type": "str",
+            "role": "dimension",
+            "null_count": 0,
+            "null_ratio": 0.0,
+            "unique_values": 3,
+            "unique_ratio": 1.0,
+            "top_values": [
+              {
+                "value": "Aline",
+                "count": 1
+              },
+              {
+                "value": "Bruno",
+                "count": 1
+              },
+              {
+                "value": "Carla",
+                "count": 1
+              }
+            ]
+          }
+        ],
+        "sample": [
+          {
+            "region": "North",
+            "quarterly_target": 330000,
+            "owner": "Aline"
+          },
+          {
+            "region": "South",
+            "quarterly_target": 310000,
+            "owner": "Bruno"
+          },
+          {
+            "region": "West",
+            "quarterly_target": 210000,
+            "owner": "Carla"
+          }
+        ],
+        "profile": {
+          "sampled_rows": 3,
+          "column_roles": {
+            "measures": [
+              "quarterly_target"
+            ],
+            "dimensions": [
+              "region",
+              "owner"
+            ],
+            "dates": [],
+            "identifiers": []
+          }
+        },
+        "sheet_name": "Sheet1"
+      },
+      "preprocessed_path": "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_preprocessing-627bac0e_83f35728df8f42d2bf9b29b5816bcdad_preprocessed.csv",
+      "preprocessing_description": "Adiciona colunas calculadas 'net_revenue_after_discount' (faturamento líquido após desconto) e 'revenue_per_unit' (receita por unidade) ao arquivo sales_pipeline.csv, conforme solicitado.",
+      "preprocessing_impact": {
+        "rows_before": 3,
+        "rows_after": 3,
+        "rows_removed": 0,
+        "rows_removed_ratio": 0.0,
+        "columns_before": 3,
+        "columns_after": 3,
+        "columns_added": [],
+        "columns_removed": []
+      },
+      "filtered_path": "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_preprocessing-627bac0e_83f35728df8f42d2bf9b29b5816bcdad_preprocessed.csv",
+      "filter_description": "Adiciona colunas calculadas 'net_revenue_after_discount' (faturamento líquido após desconto) e 'revenue_per_unit' (receita por unidade) ao arquivo sales_pipeline.csv, conforme solicitado.",
+      "filter_impact": {
+        "rows_before": 3,
+        "rows_after": 3,
+        "rows_removed": 0,
+        "rows_removed_ratio": 0.0,
+        "columns_before": 3,
+        "columns_after": 3,
+        "columns_added": [],
+        "columns_removed": []
+      }
+    },
+    {
+      "original_filename": "sales_context.pdf",
+      "path": "workspace/uploads/1f289533-dba4-4f4d-8cb8-19737e21183b.pdf",
+      "size_bytes": null,
+      "mime_type": null,
+      "artifact": {
+        "filename": "sales_context.pdf",
+        "type": "pdf",
+        "size_bytes": 1259,
+        "pages": 1,
+        "text_preview": [
+          "_õ\u0016îýûp³ßÂVÿ±íÎ4ÝÂº\u0013ã-S Ht\u0000Ágñq`\\\"OÈ\u0007\u0014>Æ,æpa\u0019ysÉaô>^× P*GV*EéYÔüù¢n:Ó6hëæÇùRb.Qã\u0007ÏSä5úeÝç~f\u0003é¬\u001bpÈ\u0005þD\"@",
+          "D:20260524202843Z"
+        ],
+        "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe."
+      },
+      "raw_artifact": {
+        "filename": "sales_context.pdf",
+        "type": "pdf",
+        "size_bytes": 1259,
+        "pages": 1,
+        "text_preview": [
+          "_õ\u0016îýûp³ßÂVÿ±íÎ4ÝÂº\u0013ã-S Ht\u0000Ágñq`\\\"OÈ\u0007\u0014>Æ,æpa\u0019ysÉaô>^× P*GV*EéYÔüù¢n:Ó6hëæÇùRb.Qã\u0007ÏSä5úeÝç~f\u0003é¬\u001bpÈ\u0005þD\"@",
+          "D:20260524202843Z"
+        ],
+        "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe."
+      },
+      "preprocessed_path": null,
+      "preprocessing_description": null,
+      "preprocessing_impact": null,
+      "filtered_path": null,
+      "filter_description": null,
+      "filter_impact": null
+    }
+  ],
+  "initial_prompt": "Create an executive sales performance report. Before analysis, preprocess sales_pipeline.csv by adding two calculated columns: net_revenue_after_discount = revenue * (1 - discount_pct / 100) and revenue_per_unit = revenue / units. Use those preprocessed columns when discussing revenue quality, discount discipline, and regional performance.",
+  "current_goal": "Create an executive sales performance report. Before analysis, preprocess sales_pipeline.csv by adding two calculated columns: net_revenue_after_discount = revenue * (1 - discount_pct / 100) and revenue_per_unit = revenue / units. Use those preprocessed columns when discussing revenue quality, discount discipline, and regional performance.",
+  "is_exploratory": false,
+  "refinement_history": [],
+  "artifacts": [
+    {
+      "id": "m_total_revenue",
+      "indicator": "Receita Total Bruta",
+      "type": "metric",
+      "reason": "Calcular a soma total de revenue para compor o resumo executivo e a conclusão.",
+      "columns": [
+        "sales_pipeline.csv:revenue"
+      ]
+    },
+    {
+      "id": "m_total_net_revenue",
+      "indicator": "Receita Líquida Total",
+      "type": "metric",
+      "reason": "Soma de net_revenue_after_discount para avaliar o impacto dos descontos no faturamento real.",
+      "columns": [
+        "sales_pipeline.csv:net_revenue_after_discount"
+      ]
+    },
+    {
+      "id": "m_avg_discount",
+      "indicator": "Percentual Médio de Desconto",
+      "type": "metric",
+      "reason": "Média simples de discount_pct para medir a disciplina de descontos da equipe.",
+      "columns": [
+        "sales_pipeline.csv:discount_pct"
+      ]
+    },
+    {
+      "id": "m_total_units",
+      "indicator": "Unidades Vendidas Totais",
+      "type": "metric",
+      "reason": "Soma de units para contextualizar o volume de vendas.",
+      "columns": [
+        "sales_pipeline.csv:units"
+      ]
+    },
+    {
+      "id": "m_avg_revenue_per_unit",
+      "indicator": "Receita Média por Unidade",
+      "type": "metric",
+      "reason": "Média de revenue_per_unit para avaliar a qualidade de receita (ticket médio).",
+      "columns": [
+        "sales_pipeline.csv:revenue_per_unit"
+      ]
+    },
+    {
+      "id": "t_resumo",
+      "indicator": "Resumo Executivo de Vendas",
+      "type": "text",
+      "sub_type": "kpi_resumo",
+      "reason": "Abertura do relatório com objetivo, principais métricas (receita total, líquida, descontos) e o insight principal sobre tendência mensal.",
+      "columns": []
+    },
+    {
+      "id": "t_conclusao",
+      "indicator": "Conclusão e Recomendações",
+      "type": "text",
+      "sub_type": "kpi_conclusao",
+      "reason": "Síntese final referenciando as métricas e gráficos, com recomendações sobre descontos e regiões com baixo desempenho em relação à meta.",
+      "columns": []
+    },
+    {
+      "id": "g_revenue_month",
+      "indicator": "Evolução da Receita Mensal",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Gráfico principal que mostra a tendência de receita bruta ao longo dos meses, destacando o pico e a queda.",
+      "columns": [
+        "sales_pipeline.csv:month",
+        "sales_pipeline.csv:revenue"
+      ]
+    },
+    {
+      "id": "g_region_vs_target",
+      "indicator": "Receita Líquida por Região vs Meta Trimestral",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Compara a receita líquida total (net_revenue_after_discount) de cada região com a meta trimestral do arquivo regional_targets.xlsx. Essencial para avaliar desempenho regional.",
+      "columns": [
+        "sales_pipeline.csv:region",
+        "sales_pipeline.csv:net_revenue_after_discount",
+        "regional_targets.xlsx:region",
+        "regional_targets.xlsx:quarterly_target"
+      ]
+    },
+    {
+      "id": "g_discount_product",
+      "indicator": "Desconto Médio por Produto",
+      "type": "graphic",
+      "sub_type": "bar",
+      "reason": "Mostra a média de discount_pct para cada produto, revelando onde a disciplina de descontos precisa ser ajustada.",
+      "columns": [
+        "sales_pipeline.csv:product",
+        "sales_pipeline.csv:discount_pct"
+      ]
+    }
+  ],
+  "artifact_validation": [],
+  "template": [
+    {
+      "id": "t_resumo",
+      "page": 1,
+      "x": 10,
+      "y": 30,
+      "w": 190,
+      "h": 35
+    },
+    {
+      "id": "g_revenue_month",
+      "page": 1,
+      "x": 10,
+      "y": 70,
+      "w": 190,
+      "h": 105
+    },
+    {
+      "id": "g_region_vs_target",
+      "page": 1,
+      "x": 10,
+      "y": 185,
+      "w": 90,
+      "h": 55
+    },
+    {
+      "id": "g_discount_product",
+      "page": 1,
+      "x": 110,
+      "y": 185,
+      "w": 90,
+      "h": 55
+    },
+    {
+      "id": "t_conclusao",
+      "page": 1,
+      "x": 10,
+      "y": 250,
+      "w": 190,
+      "h": 35
+    }
+  ],
+  "components": {
+    "g_revenue_month": "def render_g_revenue_month(pdf, dataframes, x, y, w, h):\n    # Access primary dataset\n    df = dataframes.get('sales_pipeline.csv')\n    if df is None:\n        # fallback if filename not found\n        df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        return\n\n    # Aggregate revenue by month\n    df['month'] = df['month'].astype(str)\n    monthly = df.groupby('month', as_index=False)['revenue'].sum()\n    monthly = monthly.sort_values('month')  # chronological order\n\n    months = monthly['month'].tolist()\n    revenues = monthly['revenue'].tolist()\n\n    # Create matplotlib figure with exact size in inches\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))\n\n    # Bar chart\n    bars = ax.bar(months, revenues, color='#2E86AB', edgecolor='white', width=0.6)\n\n    # Title using standard constants\n    ax.set_title('Evolução da Receita Mensal',\n                 fontsize=CHART_TITLE_FONTSIZE,\n                 fontweight=CHART_TITLE_FONTWEIGHT,\n                 pad=CHART_TITLE_PAD)\n\n    # Y-axis label\n    ax.set_ylabel('Receita Bruta (R$)',\n                  fontsize=CHART_LABEL_FONTSIZE)\n\n    # Format y-axis tick labels (use FuncFormatter for readability)\n    from matplotlib.ticker import FuncFormatter\n    def mil_fmt(x, p):\n        return f'R$ {x:,.0f}'\n    ax.yaxis.set_major_formatter(FuncFormatter(mil_fmt))\n    ax.tick_params(axis='y', labelsize=CHART_TICK_FONTSIZE)\n    ax.tick_params(axis='x', labelsize=CHART_TICK_FONTSIZE)\n\n    # Add value labels on top of bars with padding\n    max_val = max(revenues) if revenues else 1\n    ax.set_ylim(0, max_val * 1.2)  # 20% headroom for labels\n    bar_labels = [f'R$ {v:,.0f}' for v in revenues]\n    ax.bar_label(bars, labels=bar_labels, padding=3,\n                 fontsize=CHART_TICK_FONTSIZE, color='#1a1a1a')\n\n    # Adjust layout to ensure everything fits\n    fig.subplots_adjust(top=0.85, bottom=0.22, left=0.15, right=0.92)\n\n    # Save temporary image and insert into PDF\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_region_vs_target": "def render_g_region_vs_target(pdf, dataframes, x, y, w, h):\n    # Retrieve dataframes\n    df_sales = dataframes.get('sales_pipeline.csv')\n    df_targets = dataframes.get('regional_targets.xlsx')\n    if df_sales is None or df_sales.empty or df_targets is None or df_targets.empty:\n        return\n\n    # Aggregate net revenue by region\n    region_net = df_sales.groupby('region', as_index=False)['net_revenue_after_discount'].sum()\n\n    # Merge with targets\n    merged = region_net.merge(df_targets, on='region', how='inner')\n    merged = merged.sort_values('region')  # deterministic order\n\n    regions = merged['region'].tolist()\n    net_rev = merged['net_revenue_after_discount'].values\n    targets = merged['quarterly_target'].values\n\n    # Chart typography constants (shared by renderer)\n    CHART_TITLE_FONTSIZE = 9\n    CHART_TITLE_FONTWEIGHT = 'bold'\n    CHART_TITLE_PAD = 6\n    CHART_LABEL_FONTSIZE = 7\n    CHART_TICK_FONTSIZE = 6\n    CHART_LEGEND_FONTSIZE = 6\n\n    # Create figure sized exactly to the slot (mm -> inches)\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))\n\n    # Compact layout: reserve space only for x‑tick labels and a small legend\n    fig.subplots_adjust(left=0.15, right=0.95, top=0.82, bottom=0.20)\n\n    n = len(regions)\n    x_pos = np.arange(n)\n    width = 0.35\n\n    # Grouped bars: net revenue (left) vs target (right)\n    ax.bar(x_pos - width / 2, net_rev, width, label='Receita Líquida', color='steelblue')\n    ax.bar(x_pos + width / 2, targets, width, label='Meta Trimestral', color='coral', alpha=0.7)\n\n    ax.set_xticks(x_pos)\n    ax.set_xticklabels(regions, fontsize=CHART_TICK_FONTSIZE)\n    ax.tick_params(axis='y', labelsize=CHART_TICK_FONTSIZE)\n    ax.set_title('Receita vs Meta por Região',\n                 fontsize=CHART_TITLE_FONTSIZE,\n                 fontweight=CHART_TITLE_FONTWEIGHT,\n                 pad=CHART_TITLE_PAD)\n\n    # Legend placed inside to avoid overlapping with bars (compact slot)\n    ax.legend(loc='upper left', fontsize=CHART_LEGEND_FONTSIZE)\n\n    # Add a little headroom above the highest bar\n    max_val = max(net_rev.max(), targets.max())\n    ax.set_ylim(0, max_val * 1.2)\n\n    # Remove top/right spines for a cleaner look\n    sns.despine(ax=ax)\n\n    # Save to temporary file and insert into PDF\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "g_discount_product": "def render_g_discount_product(pdf, dataframes, x, y, w, h):\n    # ------------------------------------------------------------\n    # 1. Access data\n    # ------------------------------------------------------------\n    df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        return\n\n    required = {\"product\", \"discount_pct\"}\n    if not required.issubset(set(df.columns)):\n        return\n\n    # ------------------------------------------------------------\n    # 2. Compute metric: average discount % per product\n    # ------------------------------------------------------------\n    agg = df.groupby(\"product\", sort=False)[\"discount_pct\"].mean().reset_index()\n    # Convert to float for safety\n    agg[\"discount_pct\"] = agg[\"discount_pct\"].astype(float)\n\n    # Only 3 products – no aggregation needed\n    products = agg[\"product\"].tolist()\n    values = agg[\"discount_pct\"].tolist()\n\n    # ------------------------------------------------------------\n    # 3. Build the compact bar chart\n    # ------------------------------------------------------------\n    # Convert mm -> inches\n    fig_w = w / 25.4\n    fig_h = h / 25.4\n\n    fig, ax = plt.subplots(figsize=(fig_w, fig_h), constrained_layout=False)\n\n    # Colours\n    palette = sns.color_palette(\"Set2\", n_colors=len(products))\n    bars = ax.bar(products, values, color=palette, width=0.6, edgecolor=\"white\", linewidth=0.5)\n\n    # Title (compact, no extra headroom needed)\n    ax.set_title(\n        \"Desconto Médio por Produto\",\n        fontsize=CHART_TITLE_FONTSIZE,\n        fontweight=CHART_TITLE_FONTWEIGHT,\n        pad=CHART_TITLE_PAD\n    )\n\n    # Y‑axis label (short)\n    ax.set_ylabel(\"%\", fontsize=CHART_LABEL_FONTSIZE)\n\n    # X‑ticks with product names (no xlabel – compact)\n    ax.set_xticks(range(len(products)))\n    ax.set_xticklabels(products, fontsize=CHART_TICK_FONTSIZE, rotation=0)\n\n    # Y‑tick format\n    ax.tick_params(axis=\"y\", labelsize=CHART_TICK_FONTSIZE)\n    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f\"{int(v)}\"))\n\n    # Adjust layout tight to the small box\n    fig.subplots_adjust(left=0.12, right=0.96, top=0.80, bottom=0.18)\n\n    # ------------------------------------------------------------\n    # 4. Save & inject into PDF\n    # ------------------------------------------------------------\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches=\"tight\", pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)",
+    "t_resumo": "def render_t_resumo(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"O relat\\u00f3rio analisa o desempenho de vendas dos meses de janeiro a abril de 2026. A receita total acumulada foi de R$ 870.500, com receita l\\u00edquida de R$ 791.910 ap\\u00f3s descontos que representaram, em m\\u00e9dia, 9,5% do valor bruto. O volume total de unidades vendidas foi de 2.925, gerando um ticket m\\u00e9dio de R$ 297,22. A tend\\u00eancia mensal mostra um crescimento consistente at\\u00e9 mar\\u00e7o, atingindo pico de R$ 246.500, seguido por uma queda em abril para R$ 195.000, o que sugere uma desacelera\\u00e7\\u00e3o que merece aten\\u00e7\\u00e3o.\", x, y, w, h, title=\"Resumo Executivo de Vendas\")",
+    "t_conclusao": "def render_t_conclusao(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Em s\\u00edntese, o desempenho geral foi positivo, com receita l\\u00edquida de R$ 791.910 e ticket m\\u00e9dio de R$ 297,22. No entanto, a an\\u00e1lise regional mostra que a regi\\u00e3o Oeste ficou abaixo da meta trimestral de R$ 210.000, atingindo R$ 175.000, enquanto Norte e Sul superaram as metas. Recomenda-se revisar a pol\\u00edtica de descontos, que em m\\u00e9dia \\u00e9 de 9,5%, especialmente nas regi\\u00f5es com baixo desempenho, para proteger a margem. Al\\u00e9m disso, a retra\\u00e7\\u00e3o observada em abril sugere a necessidade de a\\u00e7\\u00f5es corretivas imediatas para reverter a tend\\u00eancia.\", x, y, w, h, title=\"Conclus\\u00e3o e Recomenda\\u00e7\\u00f5es\")"
+  },
+  "calculated_metrics": {
+    "m_total_revenue": 870500.0,
+    "m_total_net_revenue": 791910.0,
+    "m_avg_discount": 9.5,
+    "m_total_units": 2925,
+    "m_avg_revenue_per_unit": 297.2182304424401
+  },
+  "semantic_model": {
+    "datasets": [
+      {
+        "filename": "sales_pipeline.csv",
+        "type": "tabular",
+        "shape": {
+          "rows": 8,
+          "columns": 9
+        },
+        "roles": {
+          "measures": [
+            "revenue",
+            "units",
+            "discount_pct",
+            "net_revenue_after_discount",
+            "revenue_per_unit"
+          ],
+          "dimensions": [
+            "month",
+            "region",
+            "product",
+            "channel"
+          ],
+          "dates": [],
+          "identifiers": [],
+          "percentages": [
+            "discount_pct"
+          ]
+        }
+      },
+      {
+        "filename": "regional_targets.xlsx",
+        "type": "tabular",
+        "shape": {
+          "rows": 3,
+          "columns": 3
+        },
+        "roles": {
+          "measures": [
+            "quarterly_target"
+          ],
+          "dimensions": [
+            "region",
+            "owner"
+          ],
+          "dates": [],
+          "identifiers": [],
+          "percentages": []
+        }
+      },
+      {
+        "filename": "sales_context.pdf",
+        "type": "pdf",
+        "shape": {},
+        "roles": {
+          "measures": [],
+          "dimensions": [],
+          "dates": [],
+          "identifiers": [],
+          "percentages": []
+        }
+      }
+    ],
+    "relationships": [
+      {
+        "column_name": "region",
+        "references": [
+          {
+            "file": "sales_pipeline.csv",
+            "column": "region",
+            "role": "dimension",
+            "unique_values": 3
+          },
+          {
+            "file": "regional_targets.xlsx",
+            "column": "region",
+            "role": "dimension",
+            "unique_values": 3
+          }
+        ],
+        "confidence": "medium",
+        "reason": "Same normalized column name appears in multiple datasets"
+      }
+    ],
+    "summary": {
+      "dataset_count": 3,
+      "relationship_candidates": 1
+    }
+  },
+  "settings": {
+    "title": "Relatório de Vendas: Receita Líquida, Descontos e Desempenho Regional",
+    "font": "Arial",
+    "font_size": 10,
+    "alignment": "J",
+    "line_height": 5,
+    "language": "Portuguese",
+    "selected_template_id": "executive_hero_chart"
+  },
+  "script": "import os\nos.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')\nimport json\nimport pandas as pd\nimport numpy as np\nimport matplotlib as mpl\nimport matplotlib.pyplot as plt\nimport seaborn as sns\nfrom fpdf import FPDF, XPos, YPos\nimport tempfile\nimport textwrap\n\nCHART_TITLE_FONTSIZE = 9\nCHART_TITLE_FONTWEIGHT = 'bold'\nCHART_TITLE_PAD = 6\nCHART_LABEL_FONTSIZE = 7\nCHART_TICK_FONTSIZE = 6\nCHART_LEGEND_FONTSIZE = 6\nCHART_TABLE_FONTSIZE = 6\nsns.set_theme(style='whitegrid')\nmpl.rcParams.update({\n    'axes.titlesize': CHART_TITLE_FONTSIZE,\n    'axes.titleweight': CHART_TITLE_FONTWEIGHT,\n    'axes.labelsize': CHART_LABEL_FONTSIZE,\n    'xtick.labelsize': CHART_TICK_FONTSIZE,\n    'ytick.labelsize': CHART_TICK_FONTSIZE,\n    'legend.fontsize': CHART_LEGEND_FONTSIZE,\n})\n\ndef _install_standard_chart_style():\n    from matplotlib.axes import Axes\n    original_set_title = Axes.set_title\n    original_set_xlabel = Axes.set_xlabel\n    original_set_ylabel = Axes.set_ylabel\n    original_tick_params = Axes.tick_params\n    original_legend = Axes.legend\n    original_plt_legend = plt.legend\n    def set_title(self, label, fontdict=None, loc=None, pad=None, *, y=None, **kwargs):\n        fontdict = dict(fontdict or {})\n        fontdict['fontsize'] = CHART_TITLE_FONTSIZE\n        fontdict['fontweight'] = CHART_TITLE_FONTWEIGHT\n        kwargs['fontsize'] = CHART_TITLE_FONTSIZE\n        kwargs['fontweight'] = CHART_TITLE_FONTWEIGHT\n        return original_set_title(self, label, fontdict=fontdict, loc=loc, pad=CHART_TITLE_PAD if pad is None else pad, y=y, **kwargs)\n    def set_xlabel(self, xlabel, fontdict=None, labelpad=None, loc=None, **kwargs):\n        fontdict = dict(fontdict or {})\n        fontdict['fontsize'] = CHART_LABEL_FONTSIZE\n        fontdict['fontweight'] = 'normal'\n        kwargs['fontsize'] = CHART_LABEL_FONTSIZE\n        kwargs['fontweight'] = 'normal'\n        return original_set_xlabel(self, xlabel, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs)\n    def set_ylabel(self, ylabel, fontdict=None, labelpad=None, loc=None, **kwargs):\n        fontdict = dict(fontdict or {})\n        fontdict['fontsize'] = CHART_LABEL_FONTSIZE\n        fontdict['fontweight'] = 'normal'\n        kwargs['fontsize'] = CHART_LABEL_FONTSIZE\n        kwargs['fontweight'] = 'normal'\n        return original_set_ylabel(self, ylabel, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs)\n    def tick_params(self, axis='both', **kwargs):\n        kwargs['labelsize'] = CHART_TICK_FONTSIZE\n        return original_tick_params(self, axis=axis, **kwargs)\n    def legend(self, *args, **kwargs):\n        kwargs['fontsize'] = CHART_LEGEND_FONTSIZE\n        return original_legend(self, *args, **kwargs)\n    def plt_legend(*args, **kwargs):\n        kwargs['fontsize'] = CHART_LEGEND_FONTSIZE\n        return original_plt_legend(*args, **kwargs)\n    Axes.set_title = set_title\n    Axes.set_xlabel = set_xlabel\n    Axes.set_ylabel = set_ylabel\n    Axes.tick_params = tick_params\n    Axes.legend = legend\n    plt.legend = plt_legend\n\n_install_standard_chart_style()\n\ndef _safe_pdf_text(value):\n    replacements = {\n        '\\u2013': '-', '\\u2014': '-', '\\u2015': '-',\n        '\\u2018': \"'\", '\\u2019': \"'\", '\\u201c': '\"', '\\u201d': '\"',\n        '\\u2022': '-', '\\u00a0': ' ', '\\u2026': '...'\n    }\n    text = str(value or '')\n    for source, target in replacements.items():\n        text = text.replace(source, target)\n    return text.encode('latin-1', 'replace').decode('latin-1')\n\ndef _wrap_lines(text, max_chars):\n    lines = []\n    for paragraph in str(text).splitlines() or ['']:\n        wrapped = textwrap.wrap(paragraph.strip(), width=max_chars) or ['']\n        lines.extend(wrapped)\n    return lines\n\ndef _sentence_chunks(text):\n    normalized = ' '.join(str(text).split())\n    chunks, current = [], []\n    for token in normalized.split(' '):\n        current.append(token)\n        if token.rstrip().endswith(('.', '!', '?', ';')):\n            chunks.append(' '.join(current))\n            current = []\n    if current:\n        chunks.append(' '.join(current))\n    return chunks or [normalized]\n\ndef _fit_text_to_box(text, w, h, font_size, line_height):\n    max_chars = max(14, int(w * 0.55 * (10 / max(font_size, 1))))\n    max_lines = max(1, int(h / max(line_height, 1)))\n    if len(_wrap_lines(text, max_chars)) <= max_lines:\n        return text\n    selected = []\n    for sentence in _sentence_chunks(text):\n        candidate = ' '.join(selected + [sentence]).strip()\n        if not candidate:\n            continue\n        if len(_wrap_lines(candidate, max_chars)) <= max_lines:\n            selected.append(sentence)\n        elif selected:\n            break\n        else:\n            words = sentence.split()\n            compact = []\n            for word in words:\n                candidate = ' '.join(compact + [word])\n                if len(_wrap_lines(candidate, max_chars)) > max_lines:\n                    break\n                compact.append(word)\n            selected.append(' '.join(compact))\n            break\n    fitted = ' '.join(selected).strip()\n    return fitted\n\ndef _write_report_title(pdf, title, font_family):\n    clean_title = ' '.join(_safe_pdf_text(title or 'Relatório Analítico').split())\n    for size in range(16, 10, -1):\n        max_chars = max(28, int(58 * (16 / size)))\n        lines = textwrap.wrap(clean_title, width=max_chars) or [clean_title]\n        if len(lines) <= 2:\n            pdf.set_font(font_family, 'B', size)\n            pdf.multi_cell(0, 8, '\\n'.join(lines), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')\n            return\n    pdf.set_font(font_family, 'B', 11)\n    pdf.multi_cell(0, 7, '\\n'.join(textwrap.wrap(clean_title, width=84)), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')\n\ndef render_text_block(pdf, text, x, y, w, h, title=None):\n    font_size = 10\n    line_height = 5\n    text = _safe_pdf_text(text)\n    title = _safe_pdf_text(title) if title else None\n    body_height = h\n    pdf.set_xy(x, y)\n    if title:\n        pdf.set_font('helvetica', 'B', font_size)\n        pdf.cell(w, 7, title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)\n        body_height = max(1, h - 8)\n        pdf.set_xy(x, pdf.get_y())\n    \n    fitted_text = _fit_text_to_box(text, w, body_height, font_size, line_height)\n    pdf.set_font('helvetica', '', font_size)\n    pdf.multi_cell(w, line_height, fitted_text, align='J')\n\ndef render_g_revenue_month(pdf, dataframes, x, y, w, h):\n    # Access primary dataset\n    df = dataframes.get('sales_pipeline.csv')\n    if df is None:\n        # fallback if filename not found\n        df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        return\n\n    # Aggregate revenue by month\n    df['month'] = df['month'].astype(str)\n    monthly = df.groupby('month', as_index=False)['revenue'].sum()\n    monthly = monthly.sort_values('month')  # chronological order\n\n    months = monthly['month'].tolist()\n    revenues = monthly['revenue'].tolist()\n\n    # Create matplotlib figure with exact size in inches\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))\n\n    # Bar chart\n    bars = ax.bar(months, revenues, color='#2E86AB', edgecolor='white', width=0.6)\n\n    # Title using standard constants\n    ax.set_title('Evolução da Receita Mensal',\n                 fontsize=CHART_TITLE_FONTSIZE,\n                 fontweight=CHART_TITLE_FONTWEIGHT,\n                 pad=CHART_TITLE_PAD)\n\n    # Y-axis label\n    ax.set_ylabel('Receita Bruta (R$)',\n                  fontsize=CHART_LABEL_FONTSIZE)\n\n    # Format y-axis tick labels (use FuncFormatter for readability)\n    from matplotlib.ticker import FuncFormatter\n    def mil_fmt(x, p):\n        return f'R$ {x:,.0f}'\n    ax.yaxis.set_major_formatter(FuncFormatter(mil_fmt))\n    ax.tick_params(axis='y', labelsize=CHART_TICK_FONTSIZE)\n    ax.tick_params(axis='x', labelsize=CHART_TICK_FONTSIZE)\n\n    # Add value labels on top of bars with padding\n    max_val = max(revenues) if revenues else 1\n    ax.set_ylim(0, max_val * 1.2)  # 20% headroom for labels\n    bar_labels = [f'R$ {v:,.0f}' for v in revenues]\n    ax.bar_label(bars, labels=bar_labels, padding=3,\n                 fontsize=CHART_TICK_FONTSIZE, color='#1a1a1a')\n\n    # Adjust layout to ensure everything fits\n    fig.subplots_adjust(top=0.85, bottom=0.22, left=0.15, right=0.92)\n\n    # Save temporary image and insert into PDF\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close()\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_region_vs_target(pdf, dataframes, x, y, w, h):\n    # Retrieve dataframes\n    df_sales = dataframes.get('sales_pipeline.csv')\n    df_targets = dataframes.get('regional_targets.xlsx')\n    if df_sales is None or df_sales.empty or df_targets is None or df_targets.empty:\n        return\n\n    # Aggregate net revenue by region\n    region_net = df_sales.groupby('region', as_index=False)['net_revenue_after_discount'].sum()\n\n    # Merge with targets\n    merged = region_net.merge(df_targets, on='region', how='inner')\n    merged = merged.sort_values('region')  # deterministic order\n\n    regions = merged['region'].tolist()\n    net_rev = merged['net_revenue_after_discount'].values\n    targets = merged['quarterly_target'].values\n\n    # Chart typography constants (shared by renderer)\n    CHART_TITLE_FONTSIZE = 9\n    CHART_TITLE_FONTWEIGHT = 'bold'\n    CHART_TITLE_PAD = 6\n    CHART_LABEL_FONTSIZE = 7\n    CHART_TICK_FONTSIZE = 6\n    CHART_LEGEND_FONTSIZE = 6\n\n    # Create figure sized exactly to the slot (mm -> inches)\n    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))\n\n    # Compact layout: reserve space only for x‑tick labels and a small legend\n    fig.subplots_adjust(left=0.15, right=0.95, top=0.82, bottom=0.20)\n\n    n = len(regions)\n    x_pos = np.arange(n)\n    width = 0.35\n\n    # Grouped bars: net revenue (left) vs target (right)\n    ax.bar(x_pos - width / 2, net_rev, width, label='Receita Líquida', color='steelblue')\n    ax.bar(x_pos + width / 2, targets, width, label='Meta Trimestral', color='coral', alpha=0.7)\n\n    ax.set_xticks(x_pos)\n    ax.set_xticklabels(regions, fontsize=CHART_TICK_FONTSIZE)\n    ax.tick_params(axis='y', labelsize=CHART_TICK_FONTSIZE)\n    ax.set_title('Receita vs Meta por Região',\n                 fontsize=CHART_TITLE_FONTSIZE,\n                 fontweight=CHART_TITLE_FONTWEIGHT,\n                 pad=CHART_TITLE_PAD)\n\n    # Legend placed inside to avoid overlapping with bars (compact slot)\n    ax.legend(loc='upper left', fontsize=CHART_LEGEND_FONTSIZE)\n\n    # Add a little headroom above the highest bar\n    max_val = max(net_rev.max(), targets.max())\n    ax.set_ylim(0, max_val * 1.2)\n\n    # Remove top/right spines for a cleaner look\n    sns.despine(ax=ax)\n\n    # Save to temporary file and insert into PDF\n    import tempfile, os\n    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_g_discount_product(pdf, dataframes, x, y, w, h):\n    # ------------------------------------------------------------\n    # 1. Access data\n    # ------------------------------------------------------------\n    df = list(dataframes.values())[0]\n    if df is None or df.empty:\n        return\n\n    required = {\"product\", \"discount_pct\"}\n    if not required.issubset(set(df.columns)):\n        return\n\n    # ------------------------------------------------------------\n    # 2. Compute metric: average discount % per product\n    # ------------------------------------------------------------\n    agg = df.groupby(\"product\", sort=False)[\"discount_pct\"].mean().reset_index()\n    # Convert to float for safety\n    agg[\"discount_pct\"] = agg[\"discount_pct\"].astype(float)\n\n    # Only 3 products – no aggregation needed\n    products = agg[\"product\"].tolist()\n    values = agg[\"discount_pct\"].tolist()\n\n    # ------------------------------------------------------------\n    # 3. Build the compact bar chart\n    # ------------------------------------------------------------\n    # Convert mm -> inches\n    fig_w = w / 25.4\n    fig_h = h / 25.4\n\n    fig, ax = plt.subplots(figsize=(fig_w, fig_h), constrained_layout=False)\n\n    # Colours\n    palette = sns.color_palette(\"Set2\", n_colors=len(products))\n    bars = ax.bar(products, values, color=palette, width=0.6, edgecolor=\"white\", linewidth=0.5)\n\n    # Title (compact, no extra headroom needed)\n    ax.set_title(\n        \"Desconto Médio por Produto\",\n        fontsize=CHART_TITLE_FONTSIZE,\n        fontweight=CHART_TITLE_FONTWEIGHT,\n        pad=CHART_TITLE_PAD\n    )\n\n    # Y‑axis label (short)\n    ax.set_ylabel(\"%\", fontsize=CHART_LABEL_FONTSIZE)\n\n    # X‑ticks with product names (no xlabel – compact)\n    ax.set_xticks(range(len(products)))\n    ax.set_xticklabels(products, fontsize=CHART_TICK_FONTSIZE, rotation=0)\n\n    # Y‑tick format\n    ax.tick_params(axis=\"y\", labelsize=CHART_TICK_FONTSIZE)\n    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f\"{int(v)}\"))\n\n    # Adjust layout tight to the small box\n    fig.subplots_adjust(left=0.12, right=0.96, top=0.80, bottom=0.18)\n\n    # ------------------------------------------------------------\n    # 4. Save & inject into PDF\n    # ------------------------------------------------------------\n    with tempfile.NamedTemporaryFile(suffix=\".png\", delete=False) as tmp:\n        plt.savefig(tmp.name, dpi=300, bbox_inches=\"tight\", pad_inches=0.05)\n        plt.close(fig)\n        pdf.image(tmp.name, x=x, y=y, w=w, h=h)\n        os.unlink(tmp.name)\n\ndef render_t_resumo(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"O relat\\u00f3rio analisa o desempenho de vendas dos meses de janeiro a abril de 2026. A receita total acumulada foi de R$ 870.500, com receita l\\u00edquida de R$ 791.910 ap\\u00f3s descontos que representaram, em m\\u00e9dia, 9,5% do valor bruto. O volume total de unidades vendidas foi de 2.925, gerando um ticket m\\u00e9dio de R$ 297,22. A tend\\u00eancia mensal mostra um crescimento consistente at\\u00e9 mar\\u00e7o, atingindo pico de R$ 246.500, seguido por uma queda em abril para R$ 195.000, o que sugere uma desacelera\\u00e7\\u00e3o que merece aten\\u00e7\\u00e3o.\", x, y, w, h, title=\"Resumo Executivo de Vendas\")\n\ndef render_t_conclusao(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, \"Em s\\u00edntese, o desempenho geral foi positivo, com receita l\\u00edquida de R$ 791.910 e ticket m\\u00e9dio de R$ 297,22. No entanto, a an\\u00e1lise regional mostra que a regi\\u00e3o Oeste ficou abaixo da meta trimestral de R$ 210.000, atingindo R$ 175.000, enquanto Norte e Sul superaram as metas. Recomenda-se revisar a pol\\u00edtica de descontos, que em m\\u00e9dia \\u00e9 de 9,5%, especialmente nas regi\\u00f5es com baixo desempenho, para proteger a margem. Al\\u00e9m disso, a retra\\u00e7\\u00e3o observada em abril sugere a necessidade de a\\u00e7\\u00f5es corretivas imediatas para reverter a tend\\u00eancia.\", x, y, w, h, title=\"Conclus\\u00e3o e Recomenda\\u00e7\\u00f5es\")\n\ndef generate_report():\n    dataframes = {}\n    dataframes[\"sales_pipeline.csv\"] = pd.read_csv(r'/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_preprocessing-627bac0e_35223a84108d4a48a45dfeedada3d591_preprocessed.csv')\n    dataframes[\"regional_targets.xlsx\"] = pd.read_csv(r'/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_preprocessing-627bac0e_83f35728df8f42d2bf9b29b5816bcdad_preprocessed.csv')\n    pdf = FPDF()\n    pdf.set_auto_page_break(auto=False)\n    current_page = 0\n    component_manifest = []\n    def ensure_page(page):\n        nonlocal current_page\n        while current_page < page:\n            pdf.add_page()\n            current_page += 1\n            if current_page == 1:\n                _write_report_title(pdf, \"Relat\\u00f3rio de Vendas: Receita L\\u00edquida, Descontos e Desempenho Regional\", 'helvetica')\n                pdf.ln(3)\n    ensure_page(1)\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_t_resumo(pdf, dataframes, 10, 30, 190, 35, df=primary_df)\n        except TypeError:\n            render_t_resumo(pdf, dataframes, 10, 30, 190, 35)\n        component_manifest.append({'id': \"t_resumo\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"t_resumo\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente t_resumo: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_g_revenue_month(pdf, dataframes, 10, 70, 190, 105, df=primary_df)\n        except TypeError:\n            render_g_revenue_month(pdf, dataframes, 10, 70, 190, 105)\n        component_manifest.append({'id': \"g_revenue_month\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"g_revenue_month\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente g_revenue_month: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_g_region_vs_target(pdf, dataframes, 10, 185, 90, 55, df=primary_df)\n        except TypeError:\n            render_g_region_vs_target(pdf, dataframes, 10, 185, 90, 55)\n        component_manifest.append({'id': \"g_region_vs_target\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"g_region_vs_target\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente g_region_vs_target: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_g_discount_product(pdf, dataframes, 110, 185, 90, 55, df=primary_df)\n        except TypeError:\n            render_g_discount_product(pdf, dataframes, 110, 185, 90, 55)\n        component_manifest.append({'id': \"g_discount_product\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"g_discount_product\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente g_discount_product: {e}')\n        import traceback; traceback.print_exc()\n    ensure_page(1)\n    try:\n        # Provide a default 'df' for backward compatibility with older prompts/scripts\n        primary_df = list(dataframes.values())[0] if dataframes else None\n        try:\n            render_t_conclusao(pdf, dataframes, 10, 250, 190, 35, df=primary_df)\n        except TypeError:\n            render_t_conclusao(pdf, dataframes, 10, 250, 190, 35)\n        component_manifest.append({'id': \"t_conclusao\", 'status': 'rendered'})\n    except Exception as e: \n        component_manifest.append({'id': \"t_conclusao\", 'status': 'failed', 'error': str(e)})\n        print(f'Erro no componente t_conclusao: {e}')\n        import traceback; traceback.print_exc()\n    manifest_path = r'/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_preprocessing-627bac0e.pdf.manifest.json'\n    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:\n        json.dump({'components': component_manifest}, manifest_file, indent=2, ensure_ascii=False)\n    failed_components = [item for item in component_manifest if item.get('status') != 'rendered']\n    if failed_components:\n        raise RuntimeError('Report component rendering failed: ' + ', '.join(item['id'] for item in failed_components))\n    pdf.output(r'/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_preprocessing-627bac0e.pdf')\n\nif __name__ == '__main__':\n    generate_report()",
+  "script_path": "workspace/scripts/canonical-sales_ops_preprocessing-627bac0e.py",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_preprocessing-627bac0e.pdf",
+  "provider": "deepseek",
+  "model_name": "deepseek-v4-flash",
+  "data_filter": {
+    "needs_filter": true,
+    "needs_preprocessing": true,
+    "description": "Adiciona colunas calculadas 'net_revenue_after_discount' (faturamento líquido após desconto) e 'revenue_per_unit' (receita por unidade) ao arquivo sales_pipeline.csv, conforme solicitado.",
+    "code": "def preprocess_dataframes(dataframes):\n    processed = {}\n    for filename, df in dataframes.items():\n        if filename == 'sales_pipeline.csv':\n            df_copy = df.copy()\n            if all(col in df_copy.columns for col in ['revenue', 'discount_pct', 'units']):\n                df_copy['net_revenue_after_discount'] = df_copy['revenue'] * (1 - df_copy['discount_pct'] / 100)\n                df_copy['revenue_per_unit'] = df_copy['revenue'] / df_copy['units']\n            processed[filename] = df_copy\n        else:\n            processed[filename] = df.copy()\n    return processed",
+    "impact": {
+      "sales_pipeline.csv": {
+        "rows_before": 8,
+        "rows_after": 8,
+        "rows_removed": 0,
+        "rows_removed_ratio": 0.0,
+        "columns_before": 7,
+        "columns_after": 9,
+        "columns_added": [
+          "net_revenue_after_discount",
+          "revenue_per_unit"
+        ],
+        "columns_removed": []
+      },
+      "regional_targets.xlsx": {
+        "rows_before": 3,
+        "rows_after": 3,
+        "rows_removed": 0,
+        "rows_removed_ratio": 0.0,
+        "columns_before": 3,
+        "columns_after": 3,
+        "columns_added": [],
+        "columns_removed": []
+      }
+    }
+  },
+  "data_preprocessing": {
+    "needs_filter": true,
+    "needs_preprocessing": true,
+    "description": "Adiciona colunas calculadas 'net_revenue_after_discount' (faturamento líquido após desconto) e 'revenue_per_unit' (receita por unidade) ao arquivo sales_pipeline.csv, conforme solicitado.",
+    "code": "def preprocess_dataframes(dataframes):\n    processed = {}\n    for filename, df in dataframes.items():\n        if filename == 'sales_pipeline.csv':\n            df_copy = df.copy()\n            if all(col in df_copy.columns for col in ['revenue', 'discount_pct', 'units']):\n                df_copy['net_revenue_after_discount'] = df_copy['revenue'] * (1 - df_copy['discount_pct'] / 100)\n                df_copy['revenue_per_unit'] = df_copy['revenue'] / df_copy['units']\n            processed[filename] = df_copy\n        else:\n            processed[filename] = df.copy()\n    return processed",
+    "impact": {
+      "sales_pipeline.csv": {
+        "rows_before": 8,
+        "rows_after": 8,
+        "rows_removed": 0,
+        "rows_removed_ratio": 0.0,
+        "columns_before": 7,
+        "columns_after": 9,
+        "columns_added": [
+          "net_revenue_after_discount",
+          "revenue_per_unit"
+        ],
+        "columns_removed": []
+      },
+      "regional_targets.xlsx": {
+        "rows_before": 3,
+        "rows_after": 3,
+        "rows_removed": 0,
+        "rows_removed_ratio": 0.0,
+        "columns_before": 3,
+        "columns_after": 3,
+        "columns_added": [],
+        "columns_removed": []
+      }
+    }
+  },
+  "pdf_version": 1,
+  "retry_count": 0,
+  "explore_history": []
+}

@@ -1,0 +1,18 @@
+Análise de Desempenho Logístico: Custo, Atraso, Danos e
+Incidentes por Armazém e Transportadora
+Resumo do Relatório
+Este relatório analisa 2.605 remessas realizadas no período, totalizando um custo de R$ 179.300. A taxa média de
+atraso foi de 4,8%, enquanto a de danos ficou em 0,95%. Foram registrados 65 incidentes operacionais, com destaque
+para o armazém B, que concentrou a maioria dos ocorridos.
+
+Conclusão e Recomendações
+Com base nos indicadores, o Armazém B apresenta os piores resultados com taxas de atraso acima de 8% e danos
+acima de 1,7%, concentrando 45 dos 65 incidentes com a RoadMax, indicando necessidade de auditoria e revisão
+contratual. O Armazém C, operado pela AirSwift, tem melhor desempenho com atraso de 2,4% e danos de 0,6%,
+porém com custo mais elevado, sendo recomendável expandi-lo para rotas de alto valor. O Armazém A, com FastShip,
+tem desempenho intermediário com atraso de 4% e danos abaixo de 1%, mas 12 incidentes de picking sugerem
+treinamento ou automação. As ações prioritárias incluem auditoria no Armazém B e RoadMax, negociação com AirSwift
+e melhorias no picking do Armazém A, visando reduzir o custo total de R$ 179.300, ou cerca de R$ 68,80 por remessa,
+melhorando a eficiência e satisfação dos clientes.
+
+

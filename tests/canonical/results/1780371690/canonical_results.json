@@ -1,0 +1,1670 @@
+[
+  {
+    "case_id": "sales_ops",
+    "job_id": "canonical-sales_ops-e467c070",
+    "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops-e467c070.pdf",
+    "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/sales_ops",
+    "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/sales_ops__canonical-sales_ops-e467c070.pdf",
+    "passed": true,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops-e467c070.pdf"
+      },
+      {
+        "name": "pdf_size_gt_20kb",
+        "passed": true,
+        "detail": 139750
+      },
+      {
+        "name": "pdf_pages_match_template",
+        "passed": true,
+        "detail": 2
+      },
+      {
+        "name": "status_completed",
+        "passed": true,
+        "detail": "Relatório concluído em 1.8s"
+      },
+      {
+        "name": "has_title",
+        "passed": true,
+        "detail": "Relatório Executivo de Vendas - Receita, Metas e Disciplina de Descontos"
+      },
+      {
+        "name": "has_artifacts",
+        "passed": true,
+        "detail": 8
+      },
+      {
+        "name": "has_template",
+        "passed": true,
+        "detail": 5
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_intro",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 35
+          },
+          {
+            "id": "g_revenue_by_region",
+            "page": 1,
+            "x": 10,
+            "y": 70,
+            "w": 190,
+            "h": 105
+          },
+          {
+            "id": "g_revenue_by_product",
+            "page": 1,
+            "x": 10,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "g_discount_by_region",
+            "page": 1,
+            "x": 110,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "t_conclusion",
+            "page": 1,
+            "x": 10,
+            "y": 250,
+            "w": 190,
+            "h": 35
+          }
+        ]
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_intro",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 35
+          },
+          {
+            "id": "g_revenue_by_region",
+            "page": 1,
+            "x": 10,
+            "y": 70,
+            "w": 190,
+            "h": 105
+          },
+          {
+            "id": "g_revenue_by_product",
+            "page": 1,
+            "x": 10,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "g_discount_by_region",
+            "page": 1,
+            "x": 110,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "t_conclusion",
+            "page": 1,
+            "x": 10,
+            "y": 250,
+            "w": 190,
+            "h": 35
+          }
+        ]
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": true,
+        "detail": {
+          "m_total_revenue": 870500.0,
+          "m_avg_discount": 9.5,
+          "m_revenue_attainment": 1.0241176470588236
+        }
+      },
+      {
+        "name": "chart_annotations_do_not_overlap_legends",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "metadata_column_revenue",
+        "passed": true,
+        "detail": "revenue"
+      },
+      {
+        "name": "metadata_column_region",
+        "passed": true,
+        "detail": "region"
+      },
+      {
+        "name": "metadata_column_product",
+        "passed": true,
+        "detail": "product"
+      },
+      {
+        "name": "pdf_text_min_chars",
+        "passed": true,
+        "detail": 989
+      },
+      {
+        "name": "pdf_text_no_cut_ellipsis",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "pdf_text_title_present",
+        "passed": true,
+        "detail": "Relatório Executivo de Vendas - Receita, Metas e Disciplina de Descontos"
+      },
+      {
+        "name": "page_1_png_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/sales_ops/page-1.png"
+      },
+      {
+        "name": "page_1_png_size_gt_10kb",
+        "passed": true,
+        "detail": 213134
+      },
+      {
+        "name": "report_keyword_revenue",
+        "passed": true,
+        "detail": "revenue"
+      },
+      {
+        "name": "report_keyword_region",
+        "passed": true,
+        "detail": "region"
+      },
+      {
+        "name": "report_keyword_target",
+        "passed": true,
+        "detail": "target"
+      }
+    ]
+  },
+  {
+    "case_id": "sales_ops_filter",
+    "job_id": "canonical-sales_ops_filter-ee820dc3",
+    "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_filter-ee820dc3.pdf",
+    "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/sales_ops_filter",
+    "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/sales_ops_filter__canonical-sales_ops_filter-ee820dc3.pdf",
+    "passed": true,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_filter-ee820dc3.pdf"
+      },
+      {
+        "name": "pdf_size_gt_20kb",
+        "passed": true,
+        "detail": 127618
+      },
+      {
+        "name": "pdf_pages_match_template",
+        "passed": true,
+        "detail": 2
+      },
+      {
+        "name": "status_completed",
+        "passed": true,
+        "detail": "Relatório concluído em 1.6s"
+      },
+      {
+        "name": "has_title",
+        "passed": true,
+        "detail": "Relatório Executivo de Vendas: Receita por Região, Mix de Produtos e Metas"
+      },
+      {
+        "name": "has_artifacts",
+        "passed": true,
+        "detail": 9
+      },
+      {
+        "name": "has_template",
+        "passed": true,
+        "detail": 5
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_intro",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 35
+          },
+          {
+            "id": "g_revenue_by_product",
+            "page": 1,
+            "x": 10,
+            "y": 70,
+            "w": 190,
+            "h": 105
+          },
+          {
+            "id": "g_monthly_revenue",
+            "page": 1,
+            "x": 10,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "g_revenue_by_region",
+            "page": 1,
+            "x": 110,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "t_conclusion",
+            "page": 1,
+            "x": 10,
+            "y": 250,
+            "w": 190,
+            "h": 35
+          }
+        ]
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_intro",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 35
+          },
+          {
+            "id": "g_revenue_by_product",
+            "page": 1,
+            "x": 10,
+            "y": 70,
+            "w": 190,
+            "h": 105
+          },
+          {
+            "id": "g_monthly_revenue",
+            "page": 1,
+            "x": 10,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "g_revenue_by_region",
+            "page": 1,
+            "x": 110,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "t_conclusion",
+            "page": 1,
+            "x": 10,
+            "y": 250,
+            "w": 190,
+            "h": 35
+          }
+        ]
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": true,
+        "detail": {
+          "m_total_revenue": 520000.0,
+          "m_growth_rate": -33.064516129032256,
+          "m_attainment_north": 104.54545454545455,
+          "m_attainment_west": 83.33
+        }
+      },
+      {
+        "name": "chart_annotations_do_not_overlap_legends",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "metadata_column_revenue",
+        "passed": true,
+        "detail": "revenue"
+      },
+      {
+        "name": "metadata_column_region",
+        "passed": true,
+        "detail": "region"
+      },
+      {
+        "name": "metadata_column_channel",
+        "passed": true,
+        "detail": "channel"
+      },
+      {
+        "name": "pdf_text_min_chars",
+        "passed": true,
+        "detail": 942
+      },
+      {
+        "name": "pdf_text_no_cut_ellipsis",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "pdf_text_title_present",
+        "passed": true,
+        "detail": "Relatório Executivo de Vendas: Receita por Região, Mix de Produtos e Metas"
+      },
+      {
+        "name": "page_1_png_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/sales_ops_filter/page-1.png"
+      },
+      {
+        "name": "page_1_png_size_gt_10kb",
+        "passed": true,
+        "detail": 183645
+      },
+      {
+        "name": "report_keyword_revenue",
+        "passed": true,
+        "detail": "revenue"
+      },
+      {
+        "name": "report_keyword_region",
+        "passed": true,
+        "detail": "region"
+      },
+      {
+        "name": "report_keyword_channel",
+        "passed": true,
+        "detail": "channel"
+      },
+      {
+        "name": "data_preprocessing_needed",
+        "passed": true,
+        "detail": {
+          "needs_filter": true,
+          "needs_preprocessing": true,
+          "description": "Filtrar as linhas do canal 'Partner' do arquivo sales_pipeline.csv para focar apenas nos canais Direct e Online.",
+          "code": "def preprocess_dataframes(dataframes):\n    processed = {}\n    for filename, df in dataframes.items():\n        df_copy = df.copy()\n        if filename == 'sales_pipeline.csv' and 'channel' in df_copy.columns:\n            df_copy = df_copy[df_copy['channel'].str.lower() != 'partner']\n        processed[filename] = df_copy\n    return processed",
+          "impact": {
+            "sales_pipeline.csv": {
+              "rows_before": 8,
+              "rows_after": 5,
+              "rows_removed": 3,
+              "rows_removed_ratio": 0.375,
+              "columns_before": 7,
+              "columns_after": 7,
+              "columns_added": [],
+              "columns_removed": []
+            },
+            "regional_targets.xlsx": {
+              "rows_before": 3,
+              "rows_after": 3,
+              "rows_removed": 0,
+              "rows_removed_ratio": 0.0,
+              "columns_before": 3,
+              "columns_after": 3,
+              "columns_added": [],
+              "columns_removed": []
+            }
+          }
+        }
+      },
+      {
+        "name": "data_preprocessing_has_output_path",
+        "passed": true,
+        "detail": [
+          "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_filter-ee820dc3_7febcd3027174411a1309427960a3845_preprocessed.csv",
+          "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_filter-ee820dc3_cc18cc508b2b4c349c8fbbb4665609c0_preprocessed.csv",
+          null
+        ]
+      },
+      {
+        "name": "script_uses_filtered_file",
+        "passed": true,
+        "detail": "workspace/filtered"
+      },
+      {
+        "name": "data_filter_changed_row_count",
+        "passed": true,
+        "detail": [
+          {
+            "file": "sales_pipeline.csv",
+            "raw_rows": 8,
+            "filtered_rows": 5
+          },
+          {
+            "file": "regional_targets.xlsx",
+            "raw_rows": 3,
+            "filtered_rows": 3
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "case_id": "sales_ops_preprocessing",
+    "job_id": "canonical-sales_ops_preprocessing-627bac0e",
+    "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_preprocessing-627bac0e.pdf",
+    "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/sales_ops_preprocessing",
+    "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/sales_ops_preprocessing__canonical-sales_ops_preprocessing-627bac0e.pdf",
+    "passed": true,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_preprocessing-627bac0e.pdf"
+      },
+      {
+        "name": "pdf_size_gt_20kb",
+        "passed": true,
+        "detail": 127319
+      },
+      {
+        "name": "pdf_pages_match_template",
+        "passed": true,
+        "detail": 2
+      },
+      {
+        "name": "status_completed",
+        "passed": true,
+        "detail": "Relatório concluído em 1.5s"
+      },
+      {
+        "name": "has_title",
+        "passed": true,
+        "detail": "Relatório de Vendas: Receita Líquida, Descontos e Desempenho Regional"
+      },
+      {
+        "name": "has_artifacts",
+        "passed": true,
+        "detail": 10
+      },
+      {
+        "name": "has_template",
+        "passed": true,
+        "detail": 5
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_resumo",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 35
+          },
+          {
+            "id": "g_revenue_month",
+            "page": 1,
+            "x": 10,
+            "y": 70,
+            "w": 190,
+            "h": 105
+          },
+          {
+            "id": "g_region_vs_target",
+            "page": 1,
+            "x": 10,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "g_discount_product",
+            "page": 1,
+            "x": 110,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "t_conclusao",
+            "page": 1,
+            "x": 10,
+            "y": 250,
+            "w": 190,
+            "h": 35
+          }
+        ]
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_resumo",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 35
+          },
+          {
+            "id": "g_revenue_month",
+            "page": 1,
+            "x": 10,
+            "y": 70,
+            "w": 190,
+            "h": 105
+          },
+          {
+            "id": "g_region_vs_target",
+            "page": 1,
+            "x": 10,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "g_discount_product",
+            "page": 1,
+            "x": 110,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "t_conclusao",
+            "page": 1,
+            "x": 10,
+            "y": 250,
+            "w": 190,
+            "h": 35
+          }
+        ]
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": true,
+        "detail": {
+          "m_total_revenue": 870500.0,
+          "m_total_net_revenue": 791910.0,
+          "m_avg_discount": 9.5,
+          "m_total_units": 2925,
+          "m_avg_revenue_per_unit": 297.2182304424401
+        }
+      },
+      {
+        "name": "chart_annotations_do_not_overlap_legends",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "metadata_column_revenue",
+        "passed": true,
+        "detail": "revenue"
+      },
+      {
+        "name": "metadata_column_region",
+        "passed": true,
+        "detail": "region"
+      },
+      {
+        "name": "metadata_column_discount_pct",
+        "passed": true,
+        "detail": "discount_pct"
+      },
+      {
+        "name": "metadata_column_net_revenue_after_discount",
+        "passed": true,
+        "detail": "net_revenue_after_discount"
+      },
+      {
+        "name": "metadata_column_revenue_per_unit",
+        "passed": true,
+        "detail": "revenue_per_unit"
+      },
+      {
+        "name": "pdf_text_min_chars",
+        "passed": true,
+        "detail": 1046
+      },
+      {
+        "name": "pdf_text_no_cut_ellipsis",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "pdf_text_title_present",
+        "passed": true,
+        "detail": "Relatório de Vendas: Receita Líquida, Descontos e Desempenho Regional"
+      },
+      {
+        "name": "page_1_png_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/sales_ops_preprocessing/page-1.png"
+      },
+      {
+        "name": "page_1_png_size_gt_10kb",
+        "passed": true,
+        "detail": 207988
+      },
+      {
+        "name": "report_keyword_revenue",
+        "passed": true,
+        "detail": "revenue"
+      },
+      {
+        "name": "report_keyword_discount",
+        "passed": true,
+        "detail": "discount"
+      },
+      {
+        "name": "report_keyword_region",
+        "passed": true,
+        "detail": "region"
+      },
+      {
+        "name": "data_preprocessing_needed",
+        "passed": true,
+        "detail": {
+          "needs_filter": true,
+          "needs_preprocessing": true,
+          "description": "Adiciona colunas calculadas 'net_revenue_after_discount' (faturamento líquido após desconto) e 'revenue_per_unit' (receita por unidade) ao arquivo sales_pipeline.csv, conforme solicitado.",
+          "code": "def preprocess_dataframes(dataframes):\n    processed = {}\n    for filename, df in dataframes.items():\n        if filename == 'sales_pipeline.csv':\n            df_copy = df.copy()\n            if all(col in df_copy.columns for col in ['revenue', 'discount_pct', 'units']):\n                df_copy['net_revenue_after_discount'] = df_copy['revenue'] * (1 - df_copy['discount_pct'] / 100)\n                df_copy['revenue_per_unit'] = df_copy['revenue'] / df_copy['units']\n            processed[filename] = df_copy\n        else:\n            processed[filename] = df.copy()\n    return processed",
+          "impact": {
+            "sales_pipeline.csv": {
+              "rows_before": 8,
+              "rows_after": 8,
+              "rows_removed": 0,
+              "rows_removed_ratio": 0.0,
+              "columns_before": 7,
+              "columns_after": 9,
+              "columns_added": [
+                "net_revenue_after_discount",
+                "revenue_per_unit"
+              ],
+              "columns_removed": []
+            },
+            "regional_targets.xlsx": {
+              "rows_before": 3,
+              "rows_after": 3,
+              "rows_removed": 0,
+              "rows_removed_ratio": 0.0,
+              "columns_before": 3,
+              "columns_after": 3,
+              "columns_added": [],
+              "columns_removed": []
+            }
+          }
+        }
+      },
+      {
+        "name": "data_preprocessing_has_output_path",
+        "passed": true,
+        "detail": [
+          "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_preprocessing-627bac0e_35223a84108d4a48a45dfeedada3d591_preprocessed.csv",
+          "/home/gengar/codes/pdf-report-generator/workspace/filtered/canonical-sales_ops_preprocessing-627bac0e_83f35728df8f42d2bf9b29b5816bcdad_preprocessed.csv",
+          null
+        ]
+      },
+      {
+        "name": "script_uses_filtered_file",
+        "passed": true,
+        "detail": "workspace/filtered"
+      },
+      {
+        "name": "data_preprocessing_computed_column_net_revenue_after_discount",
+        "passed": true,
+        "detail": "net_revenue_after_discount"
+      },
+      {
+        "name": "data_preprocessing_computed_column_revenue_per_unit",
+        "passed": true,
+        "detail": "revenue_per_unit"
+      }
+    ]
+  },
+  {
+    "case_id": "sales_ops_exploratory",
+    "job_id": "canonical-sales_ops_exploratory-cdab1c92",
+    "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_exploratory-cdab1c92.pdf",
+    "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/sales_ops_exploratory",
+    "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/sales_ops_exploratory__canonical-sales_ops_exploratory-cdab1c92.pdf",
+    "passed": true,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-sales_ops_exploratory-cdab1c92.pdf"
+      },
+      {
+        "name": "pdf_size_gt_20kb",
+        "passed": true,
+        "detail": 144997
+      },
+      {
+        "name": "pdf_pages_match_template",
+        "passed": true,
+        "detail": 2
+      },
+      {
+        "name": "status_completed",
+        "passed": true,
+        "detail": "Relatório concluído em 1.8s"
+      },
+      {
+        "name": "has_title",
+        "passed": true,
+        "detail": "Explorando o Pipeline de Vendas: Tendências, Metas e Canais"
+      },
+      {
+        "name": "has_artifacts",
+        "passed": true,
+        "detail": 8
+      },
+      {
+        "name": "has_template",
+        "passed": true,
+        "detail": 5
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_intro",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 35
+          },
+          {
+            "id": "g_main_trend",
+            "page": 1,
+            "x": 10,
+            "y": 70,
+            "w": 190,
+            "h": 105
+          },
+          {
+            "id": "g_support1_region",
+            "page": 1,
+            "x": 10,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "g_support2_channel",
+            "page": 1,
+            "x": 110,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "t_conclusion",
+            "page": 1,
+            "x": 10,
+            "y": 250,
+            "w": 190,
+            "h": 35
+          }
+        ]
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_intro",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 35
+          },
+          {
+            "id": "g_main_trend",
+            "page": 1,
+            "x": 10,
+            "y": 70,
+            "w": 190,
+            "h": 105
+          },
+          {
+            "id": "g_support1_region",
+            "page": 1,
+            "x": 10,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "g_support2_channel",
+            "page": 1,
+            "x": 110,
+            "y": 185,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "t_conclusion",
+            "page": 1,
+            "x": 10,
+            "y": 250,
+            "w": 190,
+            "h": 35
+          }
+        ]
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": true,
+        "detail": {
+          "m_total_revenue": 870500.0,
+          "m_avg_discount": 9.5,
+          "m_revenue_vs_target": {
+            "North": 1.0454545454545454,
+            "South": 1.1306451612903226,
+            "West": 0.8333333333333334
+          }
+        }
+      },
+      {
+        "name": "chart_annotations_do_not_overlap_legends",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "metadata_column_revenue",
+        "passed": true,
+        "detail": "revenue"
+      },
+      {
+        "name": "metadata_column_region",
+        "passed": true,
+        "detail": "region"
+      },
+      {
+        "name": "metadata_column_product",
+        "passed": true,
+        "detail": "product"
+      },
+      {
+        "name": "pdf_text_min_chars",
+        "passed": true,
+        "detail": 977
+      },
+      {
+        "name": "pdf_text_no_cut_ellipsis",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "pdf_text_title_present",
+        "passed": true,
+        "detail": "Explorando o Pipeline de Vendas: Tendências, Metas e Canais"
+      },
+      {
+        "name": "page_1_png_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/sales_ops_exploratory/page-1.png"
+      },
+      {
+        "name": "page_1_png_size_gt_10kb",
+        "passed": true,
+        "detail": 206422
+      },
+      {
+        "name": "report_keyword_revenue",
+        "passed": true,
+        "detail": "revenue"
+      },
+      {
+        "name": "report_keyword_region",
+        "passed": true,
+        "detail": "region"
+      }
+    ]
+  },
+  {
+    "case_id": "hr_retention",
+    "job_id": "canonical-hr_retention-146dd8e9",
+    "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-hr_retention-146dd8e9.pdf",
+    "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/hr_retention",
+    "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/hr_retention__canonical-hr_retention-146dd8e9.pdf",
+    "passed": true,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-hr_retention-146dd8e9.pdf"
+      },
+      {
+        "name": "pdf_size_gt_20kb",
+        "passed": true,
+        "detail": 124797
+      },
+      {
+        "name": "pdf_pages_match_template",
+        "passed": true,
+        "detail": 2
+      },
+      {
+        "name": "status_completed",
+        "passed": true,
+        "detail": "Relatório concluído em 1.7s"
+      },
+      {
+        "name": "has_title",
+        "passed": true,
+        "detail": "Risco de Retenção por Departamento: Onde o RH Deve Atuar Primeiro"
+      },
+      {
+        "name": "has_artifacts",
+        "passed": true,
+        "detail": 10
+      },
+      {
+        "name": "has_template",
+        "passed": true,
+        "detail": 6
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_introduction",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "g_attrition_by_dept",
+            "page": 1,
+            "x": 110,
+            "y": 30,
+            "w": 90,
+            "h": 75
+          },
+          {
+            "id": "t_development",
+            "page": 1,
+            "x": 10,
+            "y": 95,
+            "w": 90,
+            "h": 110
+          },
+          {
+            "id": "g_hiring_pressure",
+            "page": 1,
+            "x": 110,
+            "y": 115,
+            "w": 90,
+            "h": 75
+          },
+          {
+            "id": "g_engagement_vs_manager",
+            "page": 1,
+            "x": 110,
+            "y": 200,
+            "w": 90,
+            "h": 85
+          },
+          {
+            "id": "t_conclusion",
+            "page": 1,
+            "x": 10,
+            "y": 215,
+            "w": 90,
+            "h": 70
+          }
+        ]
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_introduction",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 90,
+            "h": 55
+          },
+          {
+            "id": "g_attrition_by_dept",
+            "page": 1,
+            "x": 110,
+            "y": 30,
+            "w": 90,
+            "h": 75
+          },
+          {
+            "id": "t_development",
+            "page": 1,
+            "x": 10,
+            "y": 95,
+            "w": 90,
+            "h": 110
+          },
+          {
+            "id": "g_hiring_pressure",
+            "page": 1,
+            "x": 110,
+            "y": 115,
+            "w": 90,
+            "h": 75
+          },
+          {
+            "id": "g_engagement_vs_manager",
+            "page": 1,
+            "x": 110,
+            "y": 200,
+            "w": 90,
+            "h": 85
+          },
+          {
+            "id": "t_conclusion",
+            "page": 1,
+            "x": 10,
+            "y": 215,
+            "w": 90,
+            "h": 70
+          }
+        ]
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": true,
+        "detail": {
+          "m_attrition_rate": 0.375,
+          "m_avg_tenure": 18.0,
+          "m_avg_engagement": 64.5,
+          "m_open_roles_total": 19
+        }
+      },
+      {
+        "name": "chart_annotations_do_not_overlap_legends",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "metadata_column_department",
+        "passed": true,
+        "detail": "department"
+      },
+      {
+        "name": "metadata_column_engagement",
+        "passed": true,
+        "detail": "engagement"
+      },
+      {
+        "name": "metadata_column_left_company",
+        "passed": true,
+        "detail": "left_company"
+      },
+      {
+        "name": "pdf_text_min_chars",
+        "passed": true,
+        "detail": 1973
+      },
+      {
+        "name": "pdf_text_no_cut_ellipsis",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "pdf_text_title_present",
+        "passed": true,
+        "detail": "Risco de Retenção por Departamento: Onde o RH Deve Atuar Primeiro"
+      },
+      {
+        "name": "page_1_png_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/hr_retention/page-1.png"
+      },
+      {
+        "name": "page_1_png_size_gt_10kb",
+        "passed": true,
+        "detail": 353554
+      },
+      {
+        "name": "report_keyword_retention",
+        "passed": true,
+        "detail": "retention"
+      },
+      {
+        "name": "report_keyword_department",
+        "passed": true,
+        "detail": "department"
+      },
+      {
+        "name": "report_keyword_engagement",
+        "passed": true,
+        "detail": "engagement"
+      }
+    ]
+  },
+  {
+    "case_id": "logistics_quality",
+    "job_id": "canonical-logistics_quality-9469d0d6",
+    "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-logistics_quality-9469d0d6.pdf",
+    "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/logistics_quality",
+    "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/logistics_quality__canonical-logistics_quality-9469d0d6.pdf",
+    "passed": true,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-logistics_quality-9469d0d6.pdf"
+      },
+      {
+        "name": "pdf_size_gt_20kb",
+        "passed": true,
+        "detail": 156758
+      },
+      {
+        "name": "pdf_pages_match_template",
+        "passed": true,
+        "detail": 2
+      },
+      {
+        "name": "status_completed",
+        "passed": true,
+        "detail": "Relatório concluído em 1.9s"
+      },
+      {
+        "name": "has_title",
+        "passed": true,
+        "detail": "Análise de Desempenho Logístico: Custo, Atraso, Danos e Incidentes por Armazém e Transportadora"
+      },
+      {
+        "name": "has_artifacts",
+        "passed": true,
+        "detail": 11
+      },
+      {
+        "name": "has_template",
+        "passed": true,
+        "detail": 6
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_intro",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 30
+          },
+          {
+            "id": "g_cost_late_damage_by_warehouse",
+            "page": 1,
+            "x": 10,
+            "y": 70,
+            "w": 90,
+            "h": 65
+          },
+          {
+            "id": "g_late_trend_by_warehouse",
+            "page": 1,
+            "x": 110,
+            "y": 70,
+            "w": 90,
+            "h": 65
+          },
+          {
+            "id": "g_incidents_by_type",
+            "page": 1,
+            "x": 10,
+            "y": 145,
+            "w": 90,
+            "h": 65
+          },
+          {
+            "id": "g_cost_vs_late_scatter",
+            "page": 1,
+            "x": 110,
+            "y": 145,
+            "w": 90,
+            "h": 65
+          },
+          {
+            "id": "t_conclusion",
+            "page": 1,
+            "x": 10,
+            "y": 220,
+            "w": 190,
+            "h": 65
+          }
+        ]
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_intro",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 30
+          },
+          {
+            "id": "g_cost_late_damage_by_warehouse",
+            "page": 1,
+            "x": 10,
+            "y": 70,
+            "w": 90,
+            "h": 65
+          },
+          {
+            "id": "g_late_trend_by_warehouse",
+            "page": 1,
+            "x": 110,
+            "y": 70,
+            "w": 90,
+            "h": 65
+          },
+          {
+            "id": "g_incidents_by_type",
+            "page": 1,
+            "x": 10,
+            "y": 145,
+            "w": 90,
+            "h": 65
+          },
+          {
+            "id": "g_cost_vs_late_scatter",
+            "page": 1,
+            "x": 110,
+            "y": 145,
+            "w": 90,
+            "h": 65
+          },
+          {
+            "id": "t_conclusion",
+            "page": 1,
+            "x": 10,
+            "y": 220,
+            "w": 190,
+            "h": 65
+          }
+        ]
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": true,
+        "detail": {
+          "m_total_shipments": 2605,
+          "m_total_cost": 179300.0,
+          "m_avg_late_pct": 4.800000000000001,
+          "m_avg_damage_pct": 0.9500000000000001,
+          "m_total_incidents": 65
+        }
+      },
+      {
+        "name": "chart_annotations_do_not_overlap_legends",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "metadata_column_warehouse",
+        "passed": true,
+        "detail": "warehouse"
+      },
+      {
+        "name": "metadata_column_carrier",
+        "passed": true,
+        "detail": "carrier"
+      },
+      {
+        "name": "metadata_column_late_pct",
+        "passed": true,
+        "detail": "late_pct"
+      },
+      {
+        "name": "metadata_column_damage_pct",
+        "passed": true,
+        "detail": "damage_pct"
+      },
+      {
+        "name": "pdf_text_min_chars",
+        "passed": true,
+        "detail": 1251
+      },
+      {
+        "name": "pdf_text_no_cut_ellipsis",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "pdf_text_title_present",
+        "passed": true,
+        "detail": "Análise de Desempenho Logístico: Custo, Atraso, Danos e Incidentes por Armazém e Transportadora"
+      },
+      {
+        "name": "page_1_png_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/logistics_quality/page-1.png"
+      },
+      {
+        "name": "page_1_png_size_gt_10kb",
+        "passed": true,
+        "detail": 243776
+      },
+      {
+        "name": "report_keyword_warehouse",
+        "passed": true,
+        "detail": "warehouse"
+      },
+      {
+        "name": "report_keyword_carrier",
+        "passed": true,
+        "detail": "carrier"
+      },
+      {
+        "name": "report_keyword_late",
+        "passed": true,
+        "detail": "late"
+      }
+    ]
+  },
+  {
+    "case_id": "education_outcomes",
+    "job_id": "canonical-education_outcomes-2041d3c3",
+    "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-education_outcomes-2041d3c3.pdf",
+    "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/education_outcomes",
+    "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/education_outcomes__canonical-education_outcomes-2041d3c3.pdf",
+    "passed": true,
+    "checks": [
+      {
+        "name": "pdf_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-education_outcomes-2041d3c3.pdf"
+      },
+      {
+        "name": "pdf_size_gt_20kb",
+        "passed": true,
+        "detail": 199951
+      },
+      {
+        "name": "pdf_pages_match_template",
+        "passed": true,
+        "detail": 3
+      },
+      {
+        "name": "status_completed",
+        "passed": true,
+        "detail": "Relatório concluído em 2.2s"
+      },
+      {
+        "name": "has_title",
+        "passed": true,
+        "detail": "Resultados Acadêmicos por Campus e Programa: Onde o Orçamento é Mais Efetivo"
+      },
+      {
+        "name": "has_artifacts",
+        "passed": true,
+        "detail": 11
+      },
+      {
+        "name": "has_template",
+        "passed": true,
+        "detail": 8
+      },
+      {
+        "name": "template_in_bounds",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_resumo_executivo",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 35
+          },
+          {
+            "id": "g_indicadores_por_campus",
+            "page": 1,
+            "x": 10,
+            "y": 75,
+            "w": 190,
+            "h": 95
+          },
+          {
+            "id": "t_sintese_indicadores",
+            "page": 1,
+            "x": 10,
+            "y": 180,
+            "w": 190,
+            "h": 45
+          },
+          {
+            "id": "g_taxas_por_programa",
+            "page": 1,
+            "x": 10,
+            "y": 235,
+            "w": 90,
+            "h": 50
+          },
+          {
+            "id": "g_orcamento_por_campus",
+            "page": 1,
+            "x": 110,
+            "y": 235,
+            "w": 90,
+            "h": 50
+          },
+          {
+            "id": "t_analise_detalhada",
+            "page": 2,
+            "x": 10,
+            "y": 30,
+            "w": 90,
+            "h": 160
+          },
+          {
+            "id": "g_custo_vs_colocacao",
+            "page": 2,
+            "x": 110,
+            "y": 30,
+            "w": 90,
+            "h": 110
+          },
+          {
+            "id": "t_conclusao",
+            "page": 2,
+            "x": 10,
+            "y": 200,
+            "w": 190,
+            "h": 85
+          }
+        ]
+      },
+      {
+        "name": "template_no_overlap",
+        "passed": true,
+        "detail": [
+          {
+            "id": "t_resumo_executivo",
+            "page": 1,
+            "x": 10,
+            "y": 30,
+            "w": 190,
+            "h": 35
+          },
+          {
+            "id": "g_indicadores_por_campus",
+            "page": 1,
+            "x": 10,
+            "y": 75,
+            "w": 190,
+            "h": 95
+          },
+          {
+            "id": "t_sintese_indicadores",
+            "page": 1,
+            "x": 10,
+            "y": 180,
+            "w": 190,
+            "h": 45
+          },
+          {
+            "id": "g_taxas_por_programa",
+            "page": 1,
+            "x": 10,
+            "y": 235,
+            "w": 90,
+            "h": 50
+          },
+          {
+            "id": "g_orcamento_por_campus",
+            "page": 1,
+            "x": 110,
+            "y": 235,
+            "w": 90,
+            "h": 50
+          },
+          {
+            "id": "t_analise_detalhada",
+            "page": 2,
+            "x": 10,
+            "y": 30,
+            "w": 90,
+            "h": 160
+          },
+          {
+            "id": "g_custo_vs_colocacao",
+            "page": 2,
+            "x": 110,
+            "y": 30,
+            "w": 90,
+            "h": 110
+          },
+          {
+            "id": "t_conclusao",
+            "page": 2,
+            "x": 10,
+            "y": 200,
+            "w": 190,
+            "h": 85
+          }
+        ]
+      },
+      {
+        "name": "has_non_na_metrics",
+        "passed": true,
+        "detail": {
+          "m_media_taxa_conclusao": 0.8016666666666666,
+          "m_media_taxa_emprego": 0.7266666666666666,
+          "m_media_satisfacao": 8.266666666666667
+        }
+      },
+      {
+        "name": "chart_annotations_do_not_overlap_legends",
+        "passed": true,
+        "detail": []
+      },
+      {
+        "name": "metadata_column_campus",
+        "passed": true,
+        "detail": "campus"
+      },
+      {
+        "name": "metadata_column_program",
+        "passed": true,
+        "detail": "program"
+      },
+      {
+        "name": "metadata_column_completion_rate",
+        "passed": true,
+        "detail": "completion_rate"
+      },
+      {
+        "name": "metadata_column_placement_rate",
+        "passed": true,
+        "detail": "placement_rate"
+      },
+      {
+        "name": "pdf_text_min_chars",
+        "passed": true,
+        "detail": 3776
+      },
+      {
+        "name": "pdf_text_no_cut_ellipsis",
+        "passed": true,
+        "detail": "ok"
+      },
+      {
+        "name": "pdf_text_title_present",
+        "passed": true,
+        "detail": "Resultados Acadêmicos por Campus e Programa: Onde o Orçamento é Mais Efetivo"
+      },
+      {
+        "name": "page_1_png_exists",
+        "passed": true,
+        "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/education_outcomes/page-1.png"
+      },
+      {
+        "name": "page_1_png_size_gt_10kb",
+        "passed": true,
+        "detail": 210825
+      },
+      {
+        "name": "report_keyword_campus",
+        "passed": true,
+        "detail": "campus"
+      },
+      {
+        "name": "report_keyword_completion",
+        "passed": true,
+        "detail": "completion"
+      },
+      {
+        "name": "report_keyword_placement",
+        "passed": true,
+        "detail": "placement"
+      }
+    ]
+  }
+]

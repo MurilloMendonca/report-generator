@@ -167,6 +167,9 @@ class SandboxExecutor:
         _ensure_runtime_dirs()
         start_time = time.perf_counter()
         run_id = uuid.uuid4().hex
+        tmp_dir = Path(tempfile.mkdtemp(prefix=f"pdf-report-sandbox-{run_id}-"))
+        (tmp_dir / "matplotlib").mkdir(parents=True, exist_ok=True)
+
         requested_script_path = Path(script_path)
         if not requested_script_path.is_absolute():
             requested_script_path = ROOT_DIR / requested_script_path
@@ -178,13 +181,10 @@ class SandboxExecutor:
         if relative_to_workspace:
             execution_script_path = requested_script_path
         else:
-            execution_script_path = SCRIPT_DIR / f"sandbox_{run_id}.py"
+            execution_script_path = tmp_dir / f"sandbox_{run_id}.py"
 
         execution_script_path.parent.mkdir(parents=True, exist_ok=True)
         execution_script_path.write_text(script_content, encoding="utf-8")
-
-        tmp_dir = Path(tempfile.mkdtemp(prefix=f"pdf-report-sandbox-{run_id}-"))
-        (tmp_dir / "matplotlib").mkdir(parents=True, exist_ok=True)
 
         read_dirs = _existing_paths([
             UPLOADS_DIR,

@@ -25,6 +25,15 @@ def render_{id}(pdf, dataframes, x, y, w, h):
 ### Visualizations (type: 'graphic', 'bar', 'line', 'pie', 'scatter', 'table')
 - **Everything is an Image**: To ensure robustness and perfect scaling, ALL visual components (including tables) must be rendered using `matplotlib` and inserted into the PDF as an image.
 - **Spatial Constraints**: Use the provided `w` (width) and `h` (height) in mm to set the figure size. Matplotlib uses inches, so use `plt.figure(figsize=(w/25.4, h/25.4))`. This ensures the aspect ratio is always correct even if the block is resized.
+- **Standard Chart Typography**: All visual components must use the shared chart typography constants already available in the renderer:
+  - `CHART_TITLE_FONTSIZE = 9`, `CHART_TITLE_FONTWEIGHT = 'bold'`, `CHART_TITLE_PAD = 6`
+  - `CHART_LABEL_FONTSIZE = 7`
+  - `CHART_TICK_FONTSIZE = 6`
+  - `CHART_LEGEND_FONTSIZE = 6`
+  - `CHART_TABLE_FONTSIZE = 6`
+  - Do not invent different title sizes or mix bold/non-bold titles between charts. Use `ax.set_title(..., fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)`.
+  - Use `ax.set_xlabel(..., fontsize=CHART_LABEL_FONTSIZE)` and `ax.set_ylabel(..., fontsize=CHART_LABEL_FONTSIZE)` when axis labels are needed.
+  - Use `ax.tick_params(..., labelsize=CHART_TICK_FONTSIZE)` and `ax.legend(..., fontsize=CHART_LEGEND_FONTSIZE)` when ticks or legends are used.
 - **Table Rendering**: For `type: table`, use `ax.axis('off')` and `ax.table(cellText=..., colLabels=..., loc='center')`. Adjust font sizes dynamically if `h` is small.
 - **Quality**: Always save with high DPI for professional results: `plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)`.
 - **Readability Optimization**: If a categorical column has many unique values (e.g., > 10 for pie charts or > 15 for bar charts), AGGREGATE the less significant values into an 'Others' (or equivalent in the Target Language) category.
@@ -37,7 +46,7 @@ def render_{id}(pdf, dataframes, x, y, w, h):
   - If the chart is short (`h < 70`) or narrow (`w < 110`), avoid non-essential annotations entirely. Use axis labels, legends, and concise titles instead.
   - Do not put value labels or percentage annotations above bars unless you also increase the y-axis limit with at least 20% headroom: `ax.set_ylim(0, max_value * 1.25)`.
   - For compact bar charts, prefer labels inside bars (`va='top'`, small white text) or omit labels.
-  - Keep chart titles separate from data labels: use a small title (`fontsize=9` or `10`), `pad=8`, and reserve top margin with `fig.subplots_adjust(top=0.82)`.
+  - Keep chart titles separate from data labels: use the standard title constants, and reserve top margin with `fig.subplots_adjust(top=0.82)` when needed.
   - Do not combine data annotations (`ax.text`, `plt.text`, `ax.annotate`, `plt.annotate`) with `ax.legend(loc='upper right')`, `ax.legend(loc='upper left')`, `plt.legend(loc='upper right')`, or `plt.legend(loc='upper left')`.
   - Prefer `fig, ax = plt.subplots(..., constrained_layout=True)` or explicit `fig.subplots_adjust(...)`; do not rely on `plt.tight_layout()` alone when the chart has legends, long tick labels, or annotations.
 - **Clean insertion**:
@@ -53,7 +62,7 @@ def render_{id}(pdf, dataframes, x, y, w, h):
 ## Mandatory Constraints
 1. **NO Imports**: Assume `pandas as pd`, `numpy as np`, `matplotlib.pyplot as plt`, `seaborn as sns`, `FPDF`, `tempfile`, and `os` are already imported.
 2. **NO Markdown**: Return ONLY the raw Python function code.
-3. **Internal Title**: Render a small bold title at the top of the chart/table using `plt.title()` or `pdf.cell()` before the image. Prefer `plt.title` to keep it inside the image box.
+3. **Internal Title**: Render a small bold title at the top of the chart/table using the shared chart typography constants. Prefer `ax.set_title(...)` to keep it inside the image box.
 4. **Coordinate Discipline**: Never draw outside the provided `(x, y, w, h)` box.
 5. **Custom Instructions**: Priority goes to the `reason` field in the Component JSON.
 

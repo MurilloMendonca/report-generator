@@ -1,0 +1,259 @@
+{
+  "case_id": "education_outcomes",
+  "job_id": "canonical-education_outcomes-2041d3c3",
+  "pdf_path": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-education_outcomes-2041d3c3.pdf",
+  "artifact_dir": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/education_outcomes",
+  "review_pdf_path": "/home/gengar/codes/pdf-report-generator/tests/canonical/generated_pdfs/education_outcomes__canonical-education_outcomes-2041d3c3.pdf",
+  "passed": true,
+  "checks": [
+    {
+      "name": "pdf_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/workspace/reports/canonical-education_outcomes-2041d3c3.pdf"
+    },
+    {
+      "name": "pdf_size_gt_20kb",
+      "passed": true,
+      "detail": 199951
+    },
+    {
+      "name": "pdf_pages_match_template",
+      "passed": true,
+      "detail": 3
+    },
+    {
+      "name": "status_completed",
+      "passed": true,
+      "detail": "Relatório concluído em 2.2s"
+    },
+    {
+      "name": "has_title",
+      "passed": true,
+      "detail": "Resultados Acadêmicos por Campus e Programa: Onde o Orçamento é Mais Efetivo"
+    },
+    {
+      "name": "has_artifacts",
+      "passed": true,
+      "detail": 11
+    },
+    {
+      "name": "has_template",
+      "passed": true,
+      "detail": 8
+    },
+    {
+      "name": "template_in_bounds",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_resumo_executivo",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_indicadores_por_campus",
+          "page": 1,
+          "x": 10,
+          "y": 75,
+          "w": 190,
+          "h": 95
+        },
+        {
+          "id": "t_sintese_indicadores",
+          "page": 1,
+          "x": 10,
+          "y": 180,
+          "w": 190,
+          "h": 45
+        },
+        {
+          "id": "g_taxas_por_programa",
+          "page": 1,
+          "x": 10,
+          "y": 235,
+          "w": 90,
+          "h": 50
+        },
+        {
+          "id": "g_orcamento_por_campus",
+          "page": 1,
+          "x": 110,
+          "y": 235,
+          "w": 90,
+          "h": 50
+        },
+        {
+          "id": "t_analise_detalhada",
+          "page": 2,
+          "x": 10,
+          "y": 30,
+          "w": 90,
+          "h": 160
+        },
+        {
+          "id": "g_custo_vs_colocacao",
+          "page": 2,
+          "x": 110,
+          "y": 30,
+          "w": 90,
+          "h": 110
+        },
+        {
+          "id": "t_conclusao",
+          "page": 2,
+          "x": 10,
+          "y": 200,
+          "w": 190,
+          "h": 85
+        }
+      ]
+    },
+    {
+      "name": "template_no_overlap",
+      "passed": true,
+      "detail": [
+        {
+          "id": "t_resumo_executivo",
+          "page": 1,
+          "x": 10,
+          "y": 30,
+          "w": 190,
+          "h": 35
+        },
+        {
+          "id": "g_indicadores_por_campus",
+          "page": 1,
+          "x": 10,
+          "y": 75,
+          "w": 190,
+          "h": 95
+        },
+        {
+          "id": "t_sintese_indicadores",
+          "page": 1,
+          "x": 10,
+          "y": 180,
+          "w": 190,
+          "h": 45
+        },
+        {
+          "id": "g_taxas_por_programa",
+          "page": 1,
+          "x": 10,
+          "y": 235,
+          "w": 90,
+          "h": 50
+        },
+        {
+          "id": "g_orcamento_por_campus",
+          "page": 1,
+          "x": 110,
+          "y": 235,
+          "w": 90,
+          "h": 50
+        },
+        {
+          "id": "t_analise_detalhada",
+          "page": 2,
+          "x": 10,
+          "y": 30,
+          "w": 90,
+          "h": 160
+        },
+        {
+          "id": "g_custo_vs_colocacao",
+          "page": 2,
+          "x": 110,
+          "y": 30,
+          "w": 90,
+          "h": 110
+        },
+        {
+          "id": "t_conclusao",
+          "page": 2,
+          "x": 10,
+          "y": 200,
+          "w": 190,
+          "h": 85
+        }
+      ]
+    },
+    {
+      "name": "has_non_na_metrics",
+      "passed": true,
+      "detail": {
+        "m_media_taxa_conclusao": 0.8016666666666666,
+        "m_media_taxa_emprego": 0.7266666666666666,
+        "m_media_satisfacao": 8.266666666666667
+      }
+    },
+    {
+      "name": "chart_annotations_do_not_overlap_legends",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "name": "metadata_column_campus",
+      "passed": true,
+      "detail": "campus"
+    },
+    {
+      "name": "metadata_column_program",
+      "passed": true,
+      "detail": "program"
+    },
+    {
+      "name": "metadata_column_completion_rate",
+      "passed": true,
+      "detail": "completion_rate"
+    },
+    {
+      "name": "metadata_column_placement_rate",
+      "passed": true,
+      "detail": "placement_rate"
+    },
+    {
+      "name": "pdf_text_min_chars",
+      "passed": true,
+      "detail": 3776
+    },
+    {
+      "name": "pdf_text_no_cut_ellipsis",
+      "passed": true,
+      "detail": "ok"
+    },
+    {
+      "name": "pdf_text_title_present",
+      "passed": true,
+      "detail": "Resultados Acadêmicos por Campus e Programa: Onde o Orçamento é Mais Efetivo"
+    },
+    {
+      "name": "page_1_png_exists",
+      "passed": true,
+      "detail": "/home/gengar/codes/pdf-report-generator/tests/canonical/results/1780371690/education_outcomes/page-1.png"
+    },
+    {
+      "name": "page_1_png_size_gt_10kb",
+      "passed": true,
+      "detail": 210825
+    },
+    {
+      "name": "report_keyword_campus",
+      "passed": true,
+      "detail": "campus"
+    },
+    {
+      "name": "report_keyword_completion",
+      "passed": true,
+      "detail": "completion"
+    },
+    {
+      "name": "report_keyword_placement",
+      "passed": true,
+      "detail": "placement"
+    }
+  ]
+}

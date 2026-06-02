@@ -3,6 +3,9 @@ const App = {
     pollInterval: null,
     lastPdfVersion: 0,
     pdfObjectUrl: null,
+    indicatorPreviewUrl: null,
+    indicatorPreviewVersion: 0,
+    indicatorPreviewLoading: false,
     filePreviewUrl: null,
     filePreviewIndex: null,
     filePreviewVariant: 'original',
@@ -143,6 +146,9 @@ const App = {
                 this.filePreviewUrl = null;
             }
         });
+        document.getElementById('indicator-modal').addEventListener('close', () => {
+            this.clearIndicatorPreview();
+        });
     },
 
     setupFileDropzone() {
@@ -237,6 +243,17 @@ const App = {
 
         if (session.pdf_version > this.lastPdfVersion) {
             this.refreshPdf(session);
+        }
+
+        const indicatorModal = document.getElementById('indicator-modal');
+        if (indicatorModal && indicatorModal.open && !this.indicatorPreviewLoading && session.pdf_version > this.indicatorPreviewVersion) {
+            this.refreshIndicatorPreview(session);
+        } else if (indicatorModal && indicatorModal.open && String(session.status || '').includes('Falha')) {
+            const button = document.getElementById('modal-regenerate-btn');
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Salvar e regerar';
+            }
         }
     },
 
@@ -439,12 +456,16 @@ const App = {
         document.getElementById('m-code').value = index === -1 
             ? "" 
             : (this.currentSession.components[art.id] || "");
+        document.getElementById('modal-regenerate-btn').disabled = index === -1;
+        this.renderIndicatorPreviewPlaceholder(index);
         
         document.getElementById('indicator-modal').showModal();
+        if (index !== -1 && this.currentSession.components[art.id]) {
+            this.refreshIndicatorPreview(this.currentSession);
+        }
     },
 
-    async handleSaveIndicator(e) {
-        e.preventDefault();
+    currentIndicatorPayload() {
         const idx = parseInt(document.getElementById('edit-index').value);
         const id = idx === -1 ? `kpi_${Date.now()}` : this.currentSession.artifacts[idx].id;
         
@@ -455,6 +476,11 @@ const App = {
             columns: document.getElementById('m-cols').value.split(',').map(s => s.trim()),
             reason: document.getElementById('m-reason').value
         };
+        return { idx, id, newArt };
+    },
+
+    async saveCurrentIndicator(options = {}) {
+        const { idx, id, newArt } = this.currentIndicatorPayload();
 
         if (idx === -1) {
             this.currentSession.artifacts.push(newArt);
@@ -466,13 +492,92 @@ const App = {
         const code = document.getElementById('m-code').value;
         if (code) overrides[id] = code;
 
+        await API.syncArtifacts(this.currentSession.job_id, this.currentSession.artifacts, overrides, {
+            deferPipeline: Boolean(options.deferPipeline)
+        });
+        return { idx, id };
+    },
+
+    async handleSaveIndicator(e) {
+        e.preventDefault();
         try {
-            await API.syncArtifacts(this.currentSession.job_id, this.currentSession.artifacts, overrides);
+            await this.saveCurrentIndicator();
             document.getElementById('indicator-modal').close();
             this.startPolling();
         } catch (error) {
             alert(error.message || 'Não foi possível salvar o componente.');
         }
+    },
+
+    async handleRegenerateCurrentIndicator() {
+        const button = document.getElementById('modal-regenerate-btn');
+        const preview = document.getElementById('indicator-preview-body');
+        try {
+            button.disabled = true;
+            button.textContent = 'Regenerando...';
+            preview.innerHTML = '<div class="preview-loading">Salvando alterações e regenerando este componente...</div>';
+            const { id } = await this.saveCurrentIndicator({ deferPipeline: true });
+            await API.regenerate(this.currentSession.job_id, 'component', this.collectSettings(), id);
+            this.startPolling();
+        } catch (error) {
+            preview.innerHTML = `<div class="preview-empty">${UI.escapeHtml(error.message || 'Não foi possível regenerar o componente.')}</div>`;
+            button.disabled = false;
+            button.textContent = 'Salvar e regerar';
+        }
+    },
+
+    renderIndicatorPreviewPlaceholder(index) {
+        const preview = document.getElementById('indicator-preview-body');
+        if (index === -1) {
+            preview.innerHTML = '<div class="preview-empty">Salve o componente antes de gerar uma prévia.</div>';
+            return;
+        }
+
+        const art = this.currentSession.artifacts[index];
+        if (!art || !this.currentSession.components[art.id]) {
+            preview.innerHTML = '<div class="preview-empty">A prévia aparecerá depois que o componente for gerado.</div>';
+        } else {
+            preview.innerHTML = '<div class="preview-loading">Carregando prévia...</div>';
+        }
+    },
+
+    async refreshIndicatorPreview(session) {
+        const preview = document.getElementById('indicator-preview-body');
+        if (!preview) return;
+        if (this.indicatorPreviewLoading) return;
+        const idx = parseInt(document.getElementById('edit-index').value);
+        const art = idx === -1 ? null : session.artifacts[idx];
+        if (!art || !session.components || !session.components[art.id]) {
+            preview.innerHTML = '<div class="preview-empty">Aguardando o código renderizável deste componente.</div>';
+            return;
+        }
+
+        this.indicatorPreviewLoading = true;
+        try {
+            const url = await API.getComponentPreviewObjectUrl(session.job_id, art.id, session.pdf_version);
+            if (this.indicatorPreviewUrl) URL.revokeObjectURL(this.indicatorPreviewUrl);
+            this.indicatorPreviewUrl = url;
+            this.indicatorPreviewVersion = session.pdf_version;
+            preview.innerHTML = `<iframe class="indicator-preview-frame" title="Prévia do componente" src="${url}#toolbar=0&navpanes=0&view=Fit"></iframe>`;
+            const button = document.getElementById('modal-regenerate-btn');
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Salvar e regerar';
+            }
+        } catch (error) {
+            preview.innerHTML = '<div class="preview-empty">Não foi possível carregar a prévia renderizada.</div>';
+        } finally {
+            this.indicatorPreviewLoading = false;
+        }
+    },
+
+    clearIndicatorPreview() {
+        if (this.indicatorPreviewUrl) {
+            URL.revokeObjectURL(this.indicatorPreviewUrl);
+            this.indicatorPreviewUrl = null;
+        }
+        this.indicatorPreviewVersion = 0;
+        this.indicatorPreviewLoading = false;
     },
 
     async handleDeleteIndicator(index) {
@@ -543,6 +648,7 @@ const App = {
         const labels = {
             texts: 'atualizar os textos',
             graphics: 'atualizar os gráficos',
+            component: 'atualizar este componente',
             all: 'atualizar todo o relatório'
         };
         if (!confirm(`Deseja ${labels[scope] || 'atualizar o relatório'} com o provider e modelo atuais?`)) return;

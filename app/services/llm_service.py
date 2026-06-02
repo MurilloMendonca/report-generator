@@ -583,9 +583,18 @@ def fallback_report_title(prompt: str) -> str:
         return "Relatório Analítico"
     return clean_prompt
 
-def assemble_script(components: dict, template: list, files_map: dict, output_pdf_path: str, settings: dict = None) -> str:
+def assemble_script(
+    components: dict,
+    template: list,
+    files_map: dict,
+    output_pdf_path: str,
+    settings: dict = None,
+    page_format: tuple[float, float] | None = None,
+    include_title: bool = True,
+    normalize_layout: bool = True,
+) -> str:
     template = sorted(
-        normalize_template(template),
+        normalize_template(template) if normalize_layout else [item.copy() for item in template or []],
         key=lambda item: (item.get("page", 1), item.get("y", 0), item.get("x", 0))
     )
     # Default settings if none provided
@@ -605,9 +614,72 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
     script = [
         "import os", "os.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')",
         "import json",
-        "import pandas as pd", "import numpy as np", "import matplotlib.pyplot as plt", "import seaborn as sns",
+        "import pandas as pd", "import numpy as np", "import matplotlib as mpl", "import matplotlib.pyplot as plt", "import seaborn as sns",
         "from fpdf import FPDF, XPos, YPos", "import tempfile", "import textwrap", "",
-        "sns.set_theme(style='whitegrid')", "",
+        "CHART_TITLE_FONTSIZE = 9",
+        "CHART_TITLE_FONTWEIGHT = 'bold'",
+        "CHART_TITLE_PAD = 6",
+        "CHART_LABEL_FONTSIZE = 7",
+        "CHART_TICK_FONTSIZE = 6",
+        "CHART_LEGEND_FONTSIZE = 6",
+        "CHART_TABLE_FONTSIZE = 6",
+        "sns.set_theme(style='whitegrid')",
+        "mpl.rcParams.update({",
+        "    'axes.titlesize': CHART_TITLE_FONTSIZE,",
+        "    'axes.titleweight': CHART_TITLE_FONTWEIGHT,",
+        "    'axes.labelsize': CHART_LABEL_FONTSIZE,",
+        "    'xtick.labelsize': CHART_TICK_FONTSIZE,",
+        "    'ytick.labelsize': CHART_TICK_FONTSIZE,",
+        "    'legend.fontsize': CHART_LEGEND_FONTSIZE,",
+        "})",
+        "",
+        "def _install_standard_chart_style():",
+        "    from matplotlib.axes import Axes",
+        "    original_set_title = Axes.set_title",
+        "    original_set_xlabel = Axes.set_xlabel",
+        "    original_set_ylabel = Axes.set_ylabel",
+        "    original_tick_params = Axes.tick_params",
+        "    original_legend = Axes.legend",
+        "    original_plt_legend = plt.legend",
+        "    def set_title(self, label, fontdict=None, loc=None, pad=None, *, y=None, **kwargs):",
+        "        fontdict = dict(fontdict or {})",
+        "        fontdict['fontsize'] = CHART_TITLE_FONTSIZE",
+        "        fontdict['fontweight'] = CHART_TITLE_FONTWEIGHT",
+        "        kwargs['fontsize'] = CHART_TITLE_FONTSIZE",
+        "        kwargs['fontweight'] = CHART_TITLE_FONTWEIGHT",
+        "        return original_set_title(self, label, fontdict=fontdict, loc=loc, pad=CHART_TITLE_PAD if pad is None else pad, y=y, **kwargs)",
+        "    def set_xlabel(self, xlabel, fontdict=None, labelpad=None, loc=None, **kwargs):",
+        "        fontdict = dict(fontdict or {})",
+        "        fontdict['fontsize'] = CHART_LABEL_FONTSIZE",
+        "        fontdict['fontweight'] = 'normal'",
+        "        kwargs['fontsize'] = CHART_LABEL_FONTSIZE",
+        "        kwargs['fontweight'] = 'normal'",
+        "        return original_set_xlabel(self, xlabel, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs)",
+        "    def set_ylabel(self, ylabel, fontdict=None, labelpad=None, loc=None, **kwargs):",
+        "        fontdict = dict(fontdict or {})",
+        "        fontdict['fontsize'] = CHART_LABEL_FONTSIZE",
+        "        fontdict['fontweight'] = 'normal'",
+        "        kwargs['fontsize'] = CHART_LABEL_FONTSIZE",
+        "        kwargs['fontweight'] = 'normal'",
+        "        return original_set_ylabel(self, ylabel, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs)",
+        "    def tick_params(self, axis='both', **kwargs):",
+        "        kwargs['labelsize'] = CHART_TICK_FONTSIZE",
+        "        return original_tick_params(self, axis=axis, **kwargs)",
+        "    def legend(self, *args, **kwargs):",
+        "        kwargs['fontsize'] = CHART_LEGEND_FONTSIZE",
+        "        return original_legend(self, *args, **kwargs)",
+        "    def plt_legend(*args, **kwargs):",
+        "        kwargs['fontsize'] = CHART_LEGEND_FONTSIZE",
+        "        return original_plt_legend(*args, **kwargs)",
+        "    Axes.set_title = set_title",
+        "    Axes.set_xlabel = set_xlabel",
+        "    Axes.set_ylabel = set_ylabel",
+        "    Axes.tick_params = tick_params",
+        "    Axes.legend = legend",
+        "    plt.legend = plt_legend",
+        "",
+        "_install_standard_chart_style()",
+        "",
         "def _safe_pdf_text(value):",
         "    replacements = {",
         "        '\\u2013': '-', '\\u2014': '-', '\\u2015': '-',",
@@ -705,7 +777,10 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
         if line:
             script.append(line)
 
-    script.append("    pdf = FPDF()")
+    if page_format:
+        script.append(f"    pdf = FPDF(format=({float(page_format[0])}, {float(page_format[1])}))")
+    else:
+        script.append("    pdf = FPDF()")
     script.append("    pdf.set_auto_page_break(auto=False)")
     script.append("    current_page = 0")
     script.append("    component_manifest = []")
@@ -714,9 +789,12 @@ def assemble_script(components: dict, template: list, files_map: dict, output_pd
     script.append("        while current_page < page:")
     script.append("            pdf.add_page()")
     script.append("            current_page += 1")
-    script.append("            if current_page == 1:")
-    script.append(f"                _write_report_title(pdf, {json.dumps(settings.get('title') or 'Relatório Analítico')}, '{font_family}')")
-    script.append("                pdf.ln(3)")
+    if include_title:
+        script.append("            if current_page == 1:")
+        script.append(f"                _write_report_title(pdf, {json.dumps(settings.get('title') or 'Relatório Analítico')}, '{font_family}')")
+        script.append("                pdf.ln(3)")
+    else:
+        script.append("            pass")
     script.append("    ensure_page(1)")
     for item in template:
         page = item.get("page", 1)
