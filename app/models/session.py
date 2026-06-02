@@ -94,6 +94,7 @@ class ReportSession(BaseModel):
     current_goal: str = ""
     is_exploratory: bool = False
     refinement_history: list[str] = Field(default_factory=list)
+    refinement_messages: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     artifact_validation: list[dict[str, Any]] = Field(default_factory=list)
     template: list[dict[str, Any]] = Field(default_factory=list)
@@ -147,6 +148,12 @@ class ReportSession(BaseModel):
         self.schema_version = CURRENT_SESSION_SCHEMA_VERSION
         if not self.current_goal:
             self.current_goal = self.initial_prompt
+        if not self.refinement_messages and self.refinement_history:
+            self.refinement_messages = [
+                {"role": "user", "content": item, "kind": "legacy"}
+                for item in self.refinement_history
+                if str(item).strip()
+            ]
         if not self.provider:
             self.provider = "deepseek"
         if not self.model_name:

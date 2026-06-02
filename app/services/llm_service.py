@@ -420,6 +420,18 @@ def generate_component_code(all_metadata: str, artifact: dict, provider: str = D
     slot_guidance = visual_slot_guidance(layout_slot)
     if slot_guidance:
         context.append(f"Layout Slot Constraints:\n{json.dumps(slot_guidance, indent=2, ensure_ascii=False)}")
+
+    if artifact.get("type") in VISUAL_COMPONENT_TYPES and settings:
+        visual_instructions = settings.get("visual_instructions")
+        chart_palette = settings.get("chart_palette")
+        if visual_instructions:
+            context.append(f"Visual Style Instructions:\n{visual_instructions}")
+        if chart_palette:
+            context.append(
+                "Preferred Chart Palette:\n"
+                f"{json.dumps(chart_palette, indent=2, ensure_ascii=False)}\n"
+                "Use these colors for chart marks instead of default blue palettes."
+            )
         
     user_prompt = "\n\n".join(context)
 
@@ -610,6 +622,9 @@ def assemble_script(
     # fpdf2 uses standard names like 'helvetica', 'times', 'courier'
     font_family = settings.get('font', 'Arial').lower()
     if font_family == 'arial': font_family = 'helvetica'
+    chart_palette = settings.get('chart_palette') or []
+    if not isinstance(chart_palette, list):
+        chart_palette = []
     
     script = [
         "import os", "os.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')",
@@ -623,7 +638,11 @@ def assemble_script(
         "CHART_TICK_FONTSIZE = 6",
         "CHART_LEGEND_FONTSIZE = 6",
         "CHART_TABLE_FONTSIZE = 6",
+        f"CHART_PALETTE = {json.dumps(chart_palette)}",
         "sns.set_theme(style='whitegrid')",
+        "if CHART_PALETTE:",
+        "    sns.set_palette(CHART_PALETTE)",
+        "    mpl.rcParams['axes.prop_cycle'] = plt.cycler(color=CHART_PALETTE)",
         "mpl.rcParams.update({",
         "    'axes.titlesize': CHART_TITLE_FONTSIZE,",
         "    'axes.titleweight': CHART_TITLE_FONTWEIGHT,",

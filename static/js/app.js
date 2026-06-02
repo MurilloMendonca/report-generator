@@ -78,6 +78,18 @@ const App = {
         return match ? decodeURIComponent(match[1]) : null;
     },
 
+    isTerminalSession(session) {
+        const status = String(session && session.status ? session.status : '');
+        const normalizedStatus = status.toLowerCase();
+        return (
+            (session && session.current_step === 'completed') ||
+            (session && session.current_step === 'failed') ||
+            normalizedStatus.includes("concluído") ||
+            normalizedStatus.includes("falha") ||
+            status === "Concluído"
+        );
+    },
+
     async loadSessionFromUrl() {
         const jobId = this.getSessionIdFromUrl();
         if (!jobId) return;
@@ -89,7 +101,7 @@ const App = {
             this.lastPdfVersion = 0;
             this.updateUI(session);
 
-            if (session.status && !session.status.includes("concluído") && !session.status.includes("Falha") && session.status !== "Concluído") {
+            if (!this.isTerminalSession(session)) {
                 this.startPolling();
             }
         } catch (error) {
@@ -220,7 +232,7 @@ const App = {
             this.currentSession = session;
             this.updateUI(session);
             
-            if (session.status.includes("concluído") || session.status.includes("Falha") || session.status === "Concluído") {
+            if (this.isTerminalSession(session)) {
                 clearInterval(this.pollInterval);
                 this.pollInterval = null;
             }
@@ -230,6 +242,7 @@ const App = {
     updateUI(session) {
         UI.updateStatus(session.status, Number.isFinite(session.progress) ? session.progress : (session.status === "Concluído" ? 100 : 60));
         UI.renderLogs(session.logs);
+        UI.renderRefinementChat(session);
         UI.renderFiles(session.files);
         UI.renderArtifacts(session.artifacts);
         UI.renderLayoutCanvas(session);
@@ -271,16 +284,36 @@ const App = {
     async handleChat(e) {
         e.preventDefault();
         const input = document.getElementById('chat-input');
-        const q = input.value;
+        const q = input.value.trim();
         if (!q) return;
+        if (!this.currentSession || !this.currentSession.job_id) return;
 
-        document.getElementById('chat-history').innerHTML += `
-            <div class="message user"><b>Você:</b> ${UI.escapeHtml(q)}</div>
-        `;
-        input.value = '';
-        
-        await API.sendChat(this.currentSession.job_id, q);
-        this.startPolling();
+        const submitButton = e.target.querySelector('button[type="submit"]');
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.textContent = 'Enviando...';
+        }
+
+        try {
+            input.value = '';
+            await API.sendChat(this.currentSession.job_id, q);
+            const session = await API.getSession(this.currentSession.job_id);
+            this.currentSession = session;
+            this.updateUI(session);
+            this.startPolling();
+        } catch (error) {
+            input.value = q;
+            const chat = document.getElementById('chat-history');
+            chat.innerHTML += `
+                <div class="message ai error"><b>Studio:</b> ${UI.escapeHtml(error.message || 'Não foi possível enviar o feedback.')}</div>
+            `;
+            chat.scrollTop = chat.scrollHeight;
+        } finally {
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Enviar Feedback';
+            }
+        }
     },
 
     async handleExplore(e) {

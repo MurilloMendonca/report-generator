@@ -8,6 +8,7 @@ import uuid
 import hmac
 import mimetypes
 import ast
+import traceback
 from datetime import datetime, timezone
 
 # Permite rodar o script diretamente da raiz do projeto
@@ -42,11 +43,12 @@ from app.services.pipeline_service import (
     clear_data_filter_state,
     has_data_filter_decision,
     metadata_json,
+    normalize_filter_prompt,
     run_pipeline,
     run_script_generation,
     should_consider_data_filter,
 )
-from app.services.session_manager import create_session, get_session, update_session, add_log, list_recent_sessions
+from app.services.session_manager import create_session, get_session, update_session, add_log, list_recent_sessions, set_session_stage
 
 app = FastAPI(title="Report Generator v0.3.6")
 
@@ -124,6 +126,202 @@ def require_session(job_id: str) -> dict:
     if not session:
         raise HTTPException(status_code=404)
     return session
+
+
+def refinement_message(role: str, content: str, kind: str = "message") -> dict:
+    return {
+        "role": role,
+        "content": str(content or "").strip(),
+        "kind": kind,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def existing_refinement_messages(session: dict) -> list:
+    messages = [
+        item for item in session.get("refinement_messages", [])
+        if isinstance(item, dict) and str(item.get("content", "")).strip()
+    ]
+    if messages:
+        return messages
+
+    return [
+        {"role": "user", "content": str(item).strip(), "kind": "legacy"}
+        for item in session.get("refinement_history", [])
+        if str(item).strip()
+    ]
+
+
+def append_refinement_message(job_id: str, role: str, content: str, kind: str = "message"):
+    session = get_session(job_id)
+    if not session:
+        return
+    messages = existing_refinement_messages(session)
+    messages.append(refinement_message(role, content, kind))
+    update_session(job_id, {"refinement_messages": messages})
+
+
+def base_goal_for_refinement(session: dict) -> str:
+    if session.get("is_exploratory"):
+        return DEFAULT_EXPLORATORY_PROMPT
+    return session.get("initial_prompt") or session.get("current_goal") or DEFAULT_EXPLORATORY_PROMPT
+
+
+def build_refinement_goal(session: dict, history: list[str]) -> str:
+    base_goal = base_goal_for_refinement(session)
+    clean_history = [str(item).strip() for item in history if str(item).strip()]
+    if not clean_history:
+        return base_goal
+    return f"{base_goal}\nRefinement History:\n- " + "\n- ".join(clean_history)
+
+
+def is_global_visual_refinement(prompt: str) -> bool:
+    normalized = normalize_filter_prompt(prompt)
+    style_terms = [
+        "cor", "cores", "color", "colors", "paleta", "palette", "scheme",
+        "tema", "theme", "visual", "estilo", "style", "tons", "tom",
+        "vermelho", "vermelha", "red", "azul", "blue", "verde", "green",
+    ]
+    global_visual_terms = [
+        "graficos", "charts", "todos os graficos", "todos graficos",
+        "dos graficos", "as visualizacoes", "visualizacoes",
+        "componentes graficos", "todos os charts", "all charts",
+    ]
+    return (
+        any(term in normalized for term in style_terms)
+        and any(term in normalized for term in global_visual_terms)
+    )
+
+
+def chart_palette_from_prompt(prompt: str) -> list[str] | None:
+    normalized = normalize_filter_prompt(prompt)
+    if "vermelh" in normalized or "red" in normalized:
+        return ["#991b1b", "#b91c1c", "#dc2626", "#ef4444", "#f87171", "#fca5a5"]
+    if "azul" in normalized or "blue" in normalized:
+        return ["#1e3a8a", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd"]
+    if "verde" in normalized or "green" in normalized:
+        return ["#14532d", "#166534", "#16a34a", "#22c55e", "#86efac", "#bbf7d0"]
+    return None
+
+
+def apply_global_visual_refinement(job_id: str, session: dict, prompt: str):
+    settings = dict(session.get("settings") or DEFAULT_SETTINGS.copy())
+    existing_instructions = settings.get("visual_instructions", "")
+    instruction_lines = [
+        line for line in str(existing_instructions).splitlines()
+        if line.strip()
+    ]
+    new_instruction = f"- {prompt.strip()}"
+    if new_instruction not in instruction_lines:
+        instruction_lines.append(new_instruction)
+    settings["visual_instructions"] = "\n".join(instruction_lines)
+
+    palette = chart_palette_from_prompt(prompt)
+    if palette:
+        settings["chart_palette"] = palette
+
+    visual_ids = {
+        artifact.get("id")
+        for artifact in session.get("artifacts", [])
+        if artifact.get("type") in VISUAL_TYPES and artifact.get("id")
+    }
+    components = dict(session.get("components") or {})
+    if visual_ids:
+        components = {
+            component_id: code
+            for component_id, code in components.items()
+            if component_id not in visual_ids
+        }
+
+    update_session(job_id, {
+        "settings": settings,
+        "components": components,
+        "current_step": "refinement_visual",
+        "progress": 20,
+        "error": {},
+    })
+    add_log(job_id, f"Refinamento visual global detectado. Regenerando {len(visual_ids)} gráfico(s)...")
+    append_refinement_message(job_id, "assistant", "Ajuste visual aplicado às instruções dos gráficos. Regenerando os componentes afetados.", "status")
+    run_pipeline(job_id)
+
+
+def append_refinement_result(job_id: str, success_message: str):
+    session = get_session(job_id) or {}
+    if session.get("current_step") == "failed":
+        append_refinement_message(job_id, "assistant", "O refinamento foi processado, mas a renderização terminou com falha. Veja os logs para o erro exato.", "error")
+        return
+    append_refinement_message(job_id, "assistant", success_message, "status")
+
+
+def process_chat_refinement(job_id: str, prompt: str):
+    try:
+        session = get_session(job_id)
+        if not session:
+            return
+
+        set_session_stage(job_id, "refinement", 15, error={})
+
+        if should_consider_data_filter(prompt):
+            add_log(job_id, f"Pré-processamento de dados solicitado: {prompt}")
+            files = clear_data_filter_state(session.get("files", []))
+            update_session(job_id, {
+                "files": files,
+                "data_filter": {},
+                "data_preprocessing": {},
+                "artifacts": [],
+                "template": [],
+                "components": {},
+                "calculated_metrics": {},
+                "current_step": "refinement_preprocessing",
+                "progress": 20,
+            })
+            append_refinement_message(job_id, "assistant", "Pedido entendido como ajuste de dados. Vou reavaliar o pré-processamento e regenerar o relatório.", "status")
+            run_pipeline(job_id)
+            append_refinement_result(job_id, "Refinamento concluído com pré-processamento atualizado.")
+            return
+
+        if is_global_visual_refinement(prompt):
+            apply_global_visual_refinement(job_id, session, prompt)
+            append_refinement_result(job_id, "Refinamento visual concluído.")
+            return
+
+        add_log(job_id, f"Processando refinamento modular: {prompt}")
+        new_session_state = refine_session_modular(session, prompt)
+
+        if new_session_state.get("needs_full_regeneration"):
+            add_log(job_id, "Pedido global detectado. Reiniciando pipeline com novos requisitos...")
+            update_session(job_id, {
+                "artifacts": [],
+                "template": [],
+                "components": {},
+                "calculated_metrics": {},
+                "current_step": "refinement_full",
+                "progress": 20,
+            })
+            append_refinement_message(job_id, "assistant", "Pedido entendido como alteração global. Vou regenerar o relatório com o novo objetivo.", "status")
+            run_pipeline(job_id)
+            append_refinement_result(job_id, "Refinamento global concluído.")
+            return
+
+        update_session(job_id, new_session_state)
+        if new_session_state.get("needs_script_update"):
+            append_refinement_message(job_id, "assistant", "Ajuste modular aplicado. Renderizando uma nova versão do PDF.", "status")
+            run_script_generation(job_id)
+            append_refinement_result(job_id, "Refinamento modular concluído.")
+        else:
+            add_log(job_id, "Refinamento analisado, mas nenhuma alteração aplicável foi detectada.")
+            append_refinement_message(job_id, "assistant", "Analisei o pedido, mas não identifiquei uma alteração aplicável no relatório atual.", "status")
+
+    except Exception as exc:
+        traceback.print_exc()
+        set_session_stage(job_id, "failed", 100, {
+            "code": "refinement_error",
+            "message": f"Falha no refinamento: {str(exc)}",
+            "stage": "refinement",
+            "retryable": True,
+        })
+        add_log(job_id, f"Falha no refinamento: {str(exc)}")
+        append_refinement_message(job_id, "assistant", f"Não consegui aplicar o refinamento: {str(exc)}", "error")
 
 
 def validate_upload(file: UploadFile) -> str:
@@ -357,6 +555,7 @@ async def start_session(
         "current_goal": effective_prompt,
         "is_exploratory": not bool(user_prompt),
         "refinement_history": [],
+        "refinement_messages": [],
         "artifacts": [],
         "template": [],
         "components": {},
@@ -450,48 +649,28 @@ async def get_session_status(job_id: str):
 @app.post("/api/sessions/{job_id}/chat")
 async def chat_refinement(job_id: str, background_tasks: BackgroundTasks, prompt: str = Form(...)):
     session = require_session(job_id)
-    
-    history = session.get('refinement_history', [])
-    history.append(prompt)
-    full_current_goal = session['initial_prompt'] + "\nRefinement History:\n- " + "\n- ".join(history)
+    clean_prompt = (prompt or "").strip()
+    if not clean_prompt:
+        raise HTTPException(status_code=400, detail="Feedback cannot be empty")
 
-    if should_consider_data_filter(prompt):
-        add_log(job_id, f"Pré-processamento de dados solicitado: {prompt}")
-        files = clear_data_filter_state(session.get("files", []))
-        update_session(job_id, {
-            "files": files,
-            "data_filter": {},
-            "data_preprocessing": {},
-            "artifacts": [],
-            "template": [],
-            "components": {},
-            "calculated_metrics": {},
-            "refinement_history": history,
-            "current_goal": full_current_goal,
-        })
-        background_tasks.add_task(run_pipeline, job_id)
-        return {"status": "OK"}
-    
-    add_log(job_id, f"Processando refinamento modular: {prompt}")
-    new_session_state = refine_session_modular(session, prompt)
-    new_session_state.update({
+    history = [str(item).strip() for item in session.get("refinement_history", []) if str(item).strip()]
+    history.append(clean_prompt)
+    messages = existing_refinement_messages(session)
+    messages.append(refinement_message("user", clean_prompt))
+    messages.append(refinement_message("assistant", "Feedback recebido. Iniciando o refinamento.", "status"))
+    full_current_goal = build_refinement_goal(session, history)
+
+    update_session(job_id, {
         "refinement_history": history,
-        "current_goal": full_current_goal
+        "refinement_messages": messages,
+        "current_goal": full_current_goal,
+        "current_step": "refinement_queued",
+        "progress": 5,
+        "error": {},
     })
-    
-    if new_session_state.get('needs_full_regeneration'):
-        add_log(job_id, "Pedido global detectado. Reiniciando pipeline com novos requisitos...")
-        update_session(job_id, {
-            "artifacts": [], "template": [], "components": {}, "calculated_metrics": {},
-            "refinement_history": history, "current_goal": full_current_goal
-        })
-        background_tasks.add_task(run_pipeline, job_id)
-    else:
-        update_session(job_id, new_session_state)
-        if new_session_state.get('needs_script_update'):
-            background_tasks.add_task(run_script_generation, job_id)
-    
-    return {"status": "OK"}
+    add_log(job_id, f"Feedback recebido para refinamento: {clean_prompt}")
+    background_tasks.add_task(process_chat_refinement, job_id, clean_prompt)
+    return {"status": "queued"}
 
 @app.put("/api/sessions/{job_id}/artifacts")
 async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTasks, payload: dict = Body(...)):
@@ -553,14 +732,17 @@ async def update_template_manually(job_id: str, background_tasks: BackgroundTask
 @app.put("/api/sessions/{job_id}/settings")
 async def update_settings(job_id: str, background_tasks: BackgroundTasks, settings: dict = Body(...)):
     session = require_session(job_id)
-    provider = settings.pop("provider", None)
-    model_name = settings.pop("model_name", None)
+    submitted_settings = dict(settings or {})
+    provider = submitted_settings.pop("provider", None)
+    model_name = submitted_settings.pop("model_name", None)
     
-    old_lang = session.get('settings', {}).get('language')
-    new_lang = settings.get('language')
-    old_template_id = session.get('settings', {}).get('selected_template_id')
-    new_template_id = settings.get('selected_template_id')
-    session_updates = {"settings": settings}
+    current_settings = dict(session.get('settings') or DEFAULT_SETTINGS.copy())
+    merged_settings = {**current_settings, **submitted_settings}
+    old_lang = current_settings.get('language')
+    new_lang = merged_settings.get('language')
+    old_template_id = current_settings.get('selected_template_id')
+    new_template_id = merged_settings.get('selected_template_id')
+    session_updates = {"settings": merged_settings}
     if provider:
         session_updates["provider"] = provider
     if model_name:
@@ -569,6 +751,7 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
     if old_lang and new_lang and old_lang != new_lang:
         add_log(job_id, f"Mudança de idioma detectada: {old_lang} -> {new_lang}. Traduzindo workspace...")
         translation_session = session.copy()
+        translation_session["settings"] = merged_settings
         if provider:
             translation_session["provider"] = provider
         if model_name:
@@ -586,7 +769,7 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
     if new_template_id and old_template_id != new_template_id:
         add_log(job_id, "Template de layout alterado. Regenerando relatório para ajustar componentes...")
         template_updates = {
-            "settings": settings,
+            "settings": merged_settings,
             "artifacts": [],
             "template": [],
             "components": {},
@@ -608,11 +791,12 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
 async def regenerate_session(job_id: str, background_tasks: BackgroundTasks, payload: dict = Body(...)):
     session = require_session(job_id)
     scope = payload.get("scope")
-    submitted_settings = payload.get("settings") or {}
+    submitted_settings = dict(payload.get("settings") or {})
     if submitted_settings:
         provider = submitted_settings.pop("provider", None)
         model_name = submitted_settings.pop("model_name", None)
-        settings_updates = {"settings": submitted_settings}
+        current_settings = dict(session.get("settings") or DEFAULT_SETTINGS.copy())
+        settings_updates = {"settings": {**current_settings, **submitted_settings}}
         if provider:
             settings_updates["provider"] = provider
         if model_name:

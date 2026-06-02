@@ -41,6 +41,62 @@ const UI = {
         document.getElementById('log-container').innerHTML = (logs || []).slice(-5).map(l => `<div>${l}</div>`).join('');
     },
 
+    renderMessageText(value) {
+        return UI.escapeHtml(value).replace(/\n/g, '<br>');
+    },
+
+    renderRefinementChat(session) {
+        const el = document.getElementById('chat-history');
+        if (!el || !session) return;
+
+        let messages = (session.refinement_messages || [])
+            .filter(item => item && item.content)
+            .map(item => ({
+                role: item.role || 'assistant',
+                content: item.content,
+                kind: item.kind || 'message'
+            }));
+
+        if (!messages.length && session.refinement_history && session.refinement_history.length) {
+            messages = session.refinement_history
+                .filter(content => String(content || '').trim())
+                .map(content => ({ role: 'user', content, kind: 'legacy' }));
+        }
+
+        const initialPrompt = session.initial_prompt || 'Relatório exploratório dos dados';
+        const signature = JSON.stringify({
+            initialPrompt,
+            messages
+        });
+        if (el.dataset.signature === signature) return;
+
+        const shouldStickToBottom = !el.dataset.signature || (el.scrollTop + el.clientHeight >= el.scrollHeight - 16);
+        const parts = [
+            `<div class="message ai initial"><b>Objetivo inicial:</b><br>${UI.renderMessageText(initialPrompt)}</div>`
+        ];
+
+        if (!messages.length) {
+            parts.push('<div class="message ai status"><b>Studio:</b> Peça uma mudança global ou ajuste fino para melhorar o relatório.</div>');
+        } else {
+            messages.forEach(message => {
+                const isUser = message.role === 'user';
+                const roleClass = isUser ? 'user' : 'ai';
+                const allowedKinds = ['status', 'initial', 'error', 'legacy'];
+                const kindClass = allowedKinds.includes(message.kind) ? message.kind : 'message';
+                const label = isUser ? 'Você' : 'Studio';
+                parts.push(`
+                    <div class="message ${roleClass} ${kindClass}">
+                        <b>${label}:</b> ${UI.renderMessageText(message.content)}
+                    </div>
+                `);
+            });
+        }
+
+        el.innerHTML = parts.join('');
+        el.dataset.signature = signature;
+        if (shouldStickToBottom) el.scrollTop = el.scrollHeight;
+    },
+
     fileKind(filename) {
         const ext = String(filename || '').split('.').pop().toLowerCase();
         if (['csv', 'xls', 'xlsx', 'ods'].includes(ext)) return 'data';

@@ -87,7 +87,7 @@ const API = {
     async sendChat(jobId, prompt) {
         const res = await fetch(`/api/sessions/${jobId}/chat`, { 
             method: 'POST', 
-            headers: this.authHeaders(),
+            headers: this.authHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
             body: new URLSearchParams({ prompt }) 
         });
         return await this.parseResponse(res, 'Could not send feedback');
