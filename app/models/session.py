@@ -52,6 +52,10 @@ class ReportSettings(BaseModel):
     line_height: int = 5
     language: str = "Portuguese"
     selected_template_id: str | None = None
+    visual_theme_id: str | None = "executive_clean"
+    chart_style_id: str | None = "modern"
+    chart_palette: list[str] = Field(default_factory=list)
+    visual_instructions: str = ""
 
     @model_validator(mode="after")
     def normalize_alignment(self):

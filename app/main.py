@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.utils.layout import normalize_template
+from app.utils.component_library import component_library_payload
 from app.utils.template_library import (
     delete_layout_template,
     load_layout_templates,
@@ -101,6 +102,11 @@ async def check_login():
 @app.get("/api/models")
 async def available_models():
     return model_catalog()
+
+
+@app.get("/api/component-library")
+async def visual_component_library():
+    return component_library_payload()
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -693,6 +699,10 @@ async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTas
         if old_art:
             changed = (
                 old_art.get('type') != new_art.get('type') or 
+                old_art.get('sub_type') != new_art.get('sub_type') or
+                old_art.get('component_preset_id') != new_art.get('component_preset_id') or
+                old_art.get('chart_style_id') != new_art.get('chart_style_id') or
+                old_art.get('visual_options') != new_art.get('visual_options') or
                 old_art.get('columns') != new_art.get('columns') or
                 old_art.get('indicator') != new_art.get('indicator') or
                 old_art.get('reason') != new_art.get('reason')
@@ -742,6 +752,10 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
     new_lang = merged_settings.get('language')
     old_template_id = current_settings.get('selected_template_id')
     new_template_id = merged_settings.get('selected_template_id')
+    old_chart_style_id = current_settings.get('chart_style_id')
+    new_chart_style_id = merged_settings.get('chart_style_id')
+    old_visual_instructions = current_settings.get('visual_instructions', '')
+    new_visual_instructions = merged_settings.get('visual_instructions', '')
     session_updates = {"settings": merged_settings}
     if provider:
         session_updates["provider"] = provider
@@ -780,6 +794,20 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
         if model_name:
             template_updates["model_name"] = model_name
         update_session(job_id, template_updates)
+        background_tasks.add_task(run_pipeline, job_id)
+    elif old_chart_style_id != new_chart_style_id or old_visual_instructions != new_visual_instructions:
+        add_log(job_id, "Estilo visual alterado. Regenerando componentes gráficos...")
+        visual_ids = {
+            artifact.get("id")
+            for artifact in session.get("artifacts", [])
+            if artifact.get("type") in VISUAL_TYPES and artifact.get("id")
+        }
+        components = {
+            component_id: code
+            for component_id, code in session.get("components", {}).items()
+            if component_id not in visual_ids
+        }
+        update_session(job_id, {"settings": merged_settings, "components": components})
         background_tasks.add_task(run_pipeline, job_id)
     else:
         add_log(job_id, "Configurações do relatório atualizadas. Re-renderizando...")

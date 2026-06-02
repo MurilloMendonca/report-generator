@@ -10,6 +10,13 @@ const App = {
     filePreviewIndex: null,
     filePreviewVariant: 'original',
     layoutTemplates: [],
+    componentLibrary: {
+        presets: [],
+        themes: [],
+        chart_styles: [],
+        default_theme_id: 'executive_clean',
+        default_chart_style_id: 'modern'
+    },
     models: {
         gemini: [
             { id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash Lite Preview" },
@@ -43,6 +50,7 @@ const App = {
         if (!isAuthenticated) return;
         await this.loadModels();
         this.updateModels();
+        await this.loadComponentLibrary();
         await this.loadLayoutTemplates();
         await this.loadRecentSessions();
         await this.loadSessionFromUrl();
@@ -55,6 +63,12 @@ const App = {
             const provider = document.getElementById('provider');
             if (provider && catalog.default_provider) provider.value = catalog.default_provider;
         }
+    },
+
+    async loadComponentLibrary() {
+        this.componentLibrary = await API.getComponentLibrary();
+        UI.renderVisualThemeOptions(this.componentLibrary);
+        UI.renderComponentLibraryOptions(this.componentLibrary);
     },
 
     async ensureAuthenticated() {
@@ -151,6 +165,8 @@ const App = {
         document.getElementById('modal-form').onsubmit = (e) => this.handleSaveIndicator(e);
         document.getElementById('settings-form').onsubmit = (e) => this.handleSaveSettings(e);
         document.getElementById('s-provider').onchange = () => this.updateSettingsModels();
+        document.getElementById('m-type').onchange = () => this.updateModalPresetOptions();
+        document.getElementById('m-preset').onchange = () => this.populateVisualOptionsFromPreset();
         this.setupFileDropzone();
         document.getElementById('file-preview-modal').addEventListener('close', () => {
             if (this.filePreviewUrl) {
@@ -199,6 +215,7 @@ const App = {
             await this.ensureAuthenticated();
             await this.loadModels();
             this.updateModels();
+            await this.loadComponentLibrary();
             await this.loadLayoutTemplates();
             await this.loadRecentSessions();
             await this.loadSessionFromUrl();
@@ -249,6 +266,8 @@ const App = {
         UI.renderDataArtifacts(session);
         UI.renderFullScript(session.script);
         UI.renderTemplateOptions(this.layoutTemplates);
+        UI.renderVisualThemeOptions(this.componentLibrary);
+        UI.renderComponentLibraryOptions(this.componentLibrary);
         const settingsProvider = document.getElementById('s-provider');
         if (settingsProvider) settingsProvider.value = session.provider || 'deepseek';
         this.updateSettingsModels(session.model_name);
@@ -484,6 +503,12 @@ const App = {
         document.getElementById('edit-index').value = index;
         document.getElementById('m-name').value = art.indicator;
         document.getElementById('m-type').value = art.type;
+        document.getElementById('m-subtype').value = art.sub_type || "";
+        document.getElementById('m-preset').value = art.component_preset_id || "";
+        document.getElementById('m-visual-theme').value = art.visual_theme_id || "";
+        document.getElementById('m-chart-style').value = art.chart_style_id || "";
+        document.getElementById('m-visual-options').value = JSON.stringify(art.visual_options || {}, null, 2);
+        this.updateModalPresetOptions(art);
         document.getElementById('m-cols').value = (art.columns || []).join(', ');
         document.getElementById('m-reason').value = art.reason || "";
         document.getElementById('m-code').value = index === -1 
@@ -501,15 +526,53 @@ const App = {
     currentIndicatorPayload() {
         const idx = parseInt(document.getElementById('edit-index').value);
         const id = idx === -1 ? `kpi_${Date.now()}` : this.currentSession.artifacts[idx].id;
+        let visualOptions = {};
+        const rawOptions = document.getElementById('m-visual-options').value.trim();
+        if (rawOptions) {
+            try {
+                visualOptions = JSON.parse(rawOptions);
+            } catch (error) {
+                throw new Error('Opções visuais precisam ser um JSON válido.');
+            }
+        }
         
         const newArt = {
             id,
             indicator: document.getElementById('m-name').value,
             type: document.getElementById('m-type').value,
+            sub_type: document.getElementById('m-subtype').value || undefined,
+            component_preset_id: document.getElementById('m-preset').value || undefined,
+            visual_theme_id: document.getElementById('m-visual-theme').value || undefined,
+            chart_style_id: document.getElementById('m-chart-style').value || undefined,
+            visual_options: visualOptions,
             columns: document.getElementById('m-cols').value.split(',').map(s => s.trim()),
             reason: document.getElementById('m-reason').value
         };
         return { idx, id, newArt };
+    },
+
+    updateModalPresetOptions(art = null) {
+        const type = document.getElementById('m-type').value || (art && art.type) || 'graphic';
+        const select = document.getElementById('m-preset');
+        if (!select) return;
+        const presets = (this.componentLibrary.presets || []).filter(p => (p.allowed_types || []).includes(type) || type === 'graphic');
+        const currentValue = art ? (art.component_preset_id || "") : (select.value || "");
+        select.innerHTML = '<option value="">Automático</option>' + presets.map(p => `
+            <option value="${p.id}">${p.name}</option>
+        `).join('');
+        if (currentValue && Array.from(select.options).some(option => option.value === currentValue)) {
+            select.value = currentValue;
+        }
+    },
+
+    populateVisualOptionsFromPreset() {
+        const presetId = document.getElementById('m-preset').value;
+        const options = document.getElementById('m-visual-options');
+        if (!presetId || !options || options.value.trim()) return;
+        const preset = (this.componentLibrary.presets || []).find(item => item.id === presetId);
+        if (preset && preset.default_options) {
+            options.value = JSON.stringify(preset.default_options, null, 2);
+        }
     },
 
     async saveCurrentIndicator(options = {}) {
@@ -665,6 +728,9 @@ const App = {
             line_height: parseInt(document.getElementById('s-line-height').value),
             language: document.getElementById('s-language').value,
             selected_template_id: document.getElementById('s-layout-template').value,
+            visual_theme_id: document.getElementById('s-visual-theme').value,
+            chart_style_id: document.getElementById('s-chart-style').value,
+            visual_instructions: document.getElementById('s-visual-instructions').value,
             provider: document.getElementById('s-provider').value,
             model_name: document.getElementById('s-model-name').value
         };

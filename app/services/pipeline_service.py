@@ -38,14 +38,18 @@ from app.utils.template_library import (
 FILTERED_DIR = "workspace/filtered"
 SCRIPT_DIR = "workspace/scripts"
 REPORT_DIR = "workspace/reports"
-VISUAL_TYPES = {'graphic', 'bar', 'line', 'pie', 'scatter', 'table', 'chart'}
+VISUAL_TYPES = {'graphic', 'bar', 'line', 'pie', 'scatter', 'table', 'chart', 'radial', 'donut', 'gauge'}
 DEFAULT_SETTINGS = {
     "title": "",
     "font": "Arial",
     "font_size": 10,
     "alignment": "J",
     "line_height": 5,
-    "language": "Portuguese"
+    "language": "Portuguese",
+    "visual_theme_id": "executive_clean",
+    "chart_style_id": "modern",
+    "chart_palette": [],
+    "visual_instructions": ""
 }
 DEFAULT_EXPLORATORY_PROMPT = (
     "Crie um relatório exploratório dos dados enviados. Identifique padrões relevantes, "

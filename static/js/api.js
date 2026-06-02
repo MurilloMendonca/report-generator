@@ -55,6 +55,11 @@ const API = {
         return await this.parseResponse(res, 'Could not load models');
     },
 
+    async getComponentLibrary() {
+        const res = await fetch('/api/component-library', { headers: this.authHeaders() });
+        return await this.parseResponse(res, 'Could not load component library');
+    },
+
     async getSession(jobId) {
         const res = await fetch(`/api/sessions/${jobId}`, { headers: this.authHeaders() });
         if (!res.ok) throw new Error(`Session ${jobId} not found`);

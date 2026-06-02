@@ -39,7 +39,38 @@ class ArtifactValidationTests(unittest.TestCase):
 
         self.assertEqual(artifacts[0]["type"], "bar")
         self.assertEqual(artifacts[0]["sub_type"], "bar")
+        self.assertEqual(artifacts[0]["component_preset_id"], "bar_ranked")
         self.assertIn("pie_high_cardinality", {issue["code"] for issue in issues})
+
+    def test_infers_component_preset_and_visual_options(self):
+        artifacts, issues = validate_report_plan([
+            {
+                "id": "g_table",
+                "indicator": "Top regions",
+                "type": "table",
+                "columns": ["sales.csv:region", "sales.csv:revenue"],
+                "visual_options": {"top_n": 5},
+            }
+        ], self.metadata())
+
+        self.assertEqual(artifacts[0]["component_preset_id"], "table_summary")
+        self.assertEqual(artifacts[0]["visual_options"]["top_n"], 5)
+        self.assertTrue(artifacts[0]["visual_options"]["striped_rows"])
+        self.assertNotIn("invalid_component_preset", {issue["code"] for issue in issues})
+
+    def test_reports_invalid_component_preset(self):
+        artifacts, issues = validate_report_plan([
+            {
+                "id": "g_bad",
+                "indicator": "Bad",
+                "type": "scatter",
+                "component_preset_id": "missing",
+                "columns": ["sales.csv:revenue", "sales.csv:region"],
+            }
+        ], self.metadata())
+
+        self.assertEqual(artifacts[0]["component_preset_id"], "scatter_relationship")
+        self.assertIn("invalid_component_preset", {issue["code"] for issue in issues})
 
     def test_reports_template_pressure(self):
         _, issues = validate_report_plan([

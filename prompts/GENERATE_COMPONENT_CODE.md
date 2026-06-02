@@ -25,6 +25,9 @@ def render_{id}(pdf, dataframes, x, y, w, h):
 ### Visualizations (type: 'graphic', 'bar', 'line', 'pie', 'scatter', 'table')
 - **Everything is an Image**: To ensure robustness and perfect scaling, ALL visual components (including tables) must be rendered using `matplotlib` and inserted into the PDF as an image.
 - **Spatial Constraints**: Use the provided `w` (width) and `h` (height) in mm to set the figure size. Matplotlib uses inches, so use `plt.figure(figsize=(w/25.4, h/25.4))`. This ensures the aspect ratio is always correct even if the block is resized.
+- **Preset Compliance**: When a Component Preset Contract is provided, follow it as the primary visual structure. Do not switch chart families unless the contract is impossible with the provided data; if so, render the closest safe fallback inside the same component.
+- **Theme Compliance**: When a Resolved Visual Theme, Resolved Chart Style, or Resolved Visual Options are provided, use them. Do not hardcode unrelated color palettes. Prefer `CHART_PALETTE`, `_chart_colors(...)`, `_apply_chart_theme(...)`, and `_save_chart_to_pdf(...)` when available.
+- **Shared Helpers**: The renderer may provide `_top_n_with_others(...)`, `_render_table_image(...)`, `_format_compact_number(...)`, and `_save_chart_to_pdf(...)`. Use these helpers when they match the task instead of reimplementing them.
 - **Standard Chart Typography**: All visual components must use the shared chart typography constants already available in the renderer:
   - `CHART_TITLE_FONTSIZE = 9`, `CHART_TITLE_FONTWEIGHT = 'bold'`, `CHART_TITLE_PAD = 6`
   - `CHART_LABEL_FONTSIZE = 7`
@@ -34,7 +37,8 @@ def render_{id}(pdf, dataframes, x, y, w, h):
   - Do not invent different title sizes or mix bold/non-bold titles between charts. Use `ax.set_title(..., fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)`.
   - Use `ax.set_xlabel(..., fontsize=CHART_LABEL_FONTSIZE)` and `ax.set_ylabel(..., fontsize=CHART_LABEL_FONTSIZE)` when axis labels are needed.
   - Use `ax.tick_params(..., labelsize=CHART_TICK_FONTSIZE)` and `ax.legend(..., fontsize=CHART_LEGEND_FONTSIZE)` when ticks or legends are used.
-- **Table Rendering**: For `type: table`, use `ax.axis('off')` and `ax.table(cellText=..., colLabels=..., loc='center')`. Adjust font sizes dynamically if `h` is small.
+- **Table Rendering**: For `type: table` or presets `table_summary`/`table_detail`, prefer `_render_table_image(pdf, dataframe, x, y, w, h, title=...)` when available. Otherwise use `ax.axis('off')` and `ax.table(cellText=..., colLabels=..., loc='center')`. Adjust font sizes dynamically if `h` is small.
+- **Radial Rendering**: For radial/donut/gauge presets, keep the visualization simple, with a readable center value or compact legend. Do not use radial charts for many categories; aggregate small categories into Others.
 - **Quality**: Always save with high DPI for professional results: `plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)`.
 - **Readability Optimization**: If a categorical column has many unique values (e.g., > 10 for pie charts or > 15 for bar charts), AGGREGATE the less significant values into an 'Others' (or equivalent in the Target Language) category.
 - **Chart Layout Safety**:
@@ -65,6 +69,7 @@ def render_{id}(pdf, dataframes, x, y, w, h):
 3. **Internal Title**: Render a small bold title at the top of the chart/table using the shared chart typography constants. Prefer `ax.set_title(...)` to keep it inside the image box.
 4. **Coordinate Discipline**: Never draw outside the provided `(x, y, w, h)` box.
 5. **Custom Instructions**: Priority goes to the `reason` field in the Component JSON.
+6. **Preset Identity**: Preserve the target component ID and return a function named exactly `render_{id}` even when applying a preset fallback.
 
 ## Input Context (to be provided in the user message)
 - Target Language (e.g., Portuguese, English).

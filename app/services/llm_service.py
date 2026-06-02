@@ -7,6 +7,12 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from app.utils.layout import normalize_template
 from app.utils.template_library import build_layout_from_template
+from app.utils.component_library import (
+    get_chart_style,
+    get_theme,
+    presets_prompt_summary,
+    resolved_visual_context,
+)
 
 load_dotenv()
 
@@ -196,7 +202,14 @@ def generate_artifacts(all_metadata: str, prompt: str, provider: str = DEFAULT_P
             "Hard constraint: generate visible text and graphic artifacts that fit this exact template. "
             "Metric artifacts can exceed the visual slot counts because they are not directly rendered.\n\n"
         )
-    user_prompt = f"Target Language: {lang}\n{layout_constraints}Data Artifacts:\n{all_metadata}\n\nUser's Initial Prompt: {prompt}"
+    visual_catalog = json.dumps(presets_prompt_summary(), indent=2, ensure_ascii=False)
+    user_prompt = (
+        f"Target Language: {lang}\n"
+        f"{layout_constraints}"
+        f"Available Visual Component Presets:\n{visual_catalog}\n\n"
+        f"Data Artifacts:\n{all_metadata}\n\n"
+        f"User's Initial Prompt: {prompt}"
+    )
     
     for attempt in range(3):
         text = call_llm(provider, model_name, system_instruction, user_prompt)
@@ -318,7 +331,7 @@ def calculate_metric_value(all_metadata: str, artifact: dict, files_map: dict, p
         
     return "N/A"
 
-VISUAL_COMPONENT_TYPES = {'graphic', 'bar', 'line', 'pie', 'scatter', 'table', 'chart'}
+VISUAL_COMPONENT_TYPES = {'graphic', 'bar', 'line', 'pie', 'scatter', 'table', 'chart', 'radial', 'donut', 'gauge'}
 
 
 def chart_code_has_layout_risk(code: str) -> bool:
@@ -420,6 +433,25 @@ def generate_component_code(all_metadata: str, artifact: dict, provider: str = D
     slot_guidance = visual_slot_guidance(layout_slot)
     if slot_guidance:
         context.append(f"Layout Slot Constraints:\n{json.dumps(slot_guidance, indent=2, ensure_ascii=False)}")
+
+    if artifact.get("type") in VISUAL_COMPONENT_TYPES:
+        visual_context = resolved_visual_context(artifact, settings or {})
+        context.append(
+            "Component Preset Contract:\n"
+            f"{json.dumps(visual_context['preset'], indent=2, ensure_ascii=False)}"
+        )
+        context.append(
+            "Resolved Visual Theme:\n"
+            f"{json.dumps(visual_context['theme'], indent=2, ensure_ascii=False)}"
+        )
+        context.append(
+            "Resolved Chart Style:\n"
+            f"{json.dumps(visual_context['style'], indent=2, ensure_ascii=False)}"
+        )
+        context.append(
+            "Resolved Visual Options:\n"
+            f"{json.dumps(visual_context['options'], indent=2, ensure_ascii=False)}"
+        )
 
     if artifact.get("type") in VISUAL_COMPONENT_TYPES and settings:
         visual_instructions = settings.get("visual_instructions")
@@ -622,7 +654,9 @@ def assemble_script(
     # fpdf2 uses standard names like 'helvetica', 'times', 'courier'
     font_family = settings.get('font', 'Arial').lower()
     if font_family == 'arial': font_family = 'helvetica'
-    chart_palette = settings.get('chart_palette') or []
+    chart_theme = get_theme(settings.get("visual_theme_id"))
+    chart_style = get_chart_style(settings.get("chart_style_id"))
+    chart_palette = settings.get('chart_palette') or chart_theme.get("palette") or []
     if not isinstance(chart_palette, list):
         chart_palette = []
     
@@ -639,7 +673,9 @@ def assemble_script(
         "CHART_LEGEND_FONTSIZE = 6",
         "CHART_TABLE_FONTSIZE = 6",
         f"CHART_PALETTE = {json.dumps(chart_palette)}",
-        "sns.set_theme(style='whitegrid')",
+        f"CHART_THEME = {json.dumps(chart_theme, ensure_ascii=False)}",
+        f"CHART_STYLE = {json.dumps(chart_style, ensure_ascii=False)}",
+        "sns.set_theme(style=CHART_THEME.get('seaborn_style', 'whitegrid'))",
         "if CHART_PALETTE:",
         "    sns.set_palette(CHART_PALETTE)",
         "    mpl.rcParams['axes.prop_cycle'] = plt.cycler(color=CHART_PALETTE)",
@@ -650,7 +686,112 @@ def assemble_script(
         "    'xtick.labelsize': CHART_TICK_FONTSIZE,",
         "    'ytick.labelsize': CHART_TICK_FONTSIZE,",
         "    'legend.fontsize': CHART_LEGEND_FONTSIZE,",
+        "    'figure.facecolor': CHART_THEME.get('figure_facecolor', '#ffffff'),",
+        "    'axes.facecolor': CHART_THEME.get('axes_facecolor', '#ffffff'),",
+        "    'axes.edgecolor': CHART_THEME.get('grid_color', '#e5e7eb'),",
+        "    'axes.labelcolor': CHART_THEME.get('text_color', '#111827'),",
+        "    'xtick.color': CHART_THEME.get('muted_text_color', '#6b7280'),",
+        "    'ytick.color': CHART_THEME.get('muted_text_color', '#6b7280'),",
+        "    'grid.color': CHART_THEME.get('grid_color', '#e5e7eb'),",
+        "    'text.color': CHART_THEME.get('text_color', '#111827'),",
         "})",
+        "",
+        "def _resolved_chart_theme():",
+        "    return dict(CHART_THEME or {})",
+        "",
+        "def _chart_colors(n):",
+        "    palette = CHART_PALETTE or CHART_THEME.get('palette') or ['#2563eb', '#16a34a', '#f59e0b', '#dc2626']",
+        "    if n <= len(palette):",
+        "        return palette[:n]",
+        "    return [palette[i % len(palette)] for i in range(n)]",
+        "",
+        "def _apply_chart_theme(fig, ax=None, theme=None):",
+        "    theme = theme or CHART_THEME",
+        "    fig.patch.set_facecolor(theme.get('figure_facecolor', '#ffffff'))",
+        "    axes = fig.axes if ax is None else [ax]",
+        "    for axis in axes:",
+        "        axis.set_facecolor(theme.get('axes_facecolor', '#ffffff'))",
+        "        axis.tick_params(colors=theme.get('muted_text_color', '#6b7280'))",
+        "        axis.xaxis.label.set_color(theme.get('text_color', '#111827'))",
+        "        axis.yaxis.label.set_color(theme.get('text_color', '#111827'))",
+        "        axis.title.set_color(theme.get('text_color', '#111827'))",
+        "        axis.grid(color=theme.get('grid_color', '#e5e7eb'), alpha=0.7)",
+        "        for spine in axis.spines.values():",
+        "            spine.set_color(theme.get('grid_color', '#e5e7eb'))",
+        "    return fig",
+        "",
+        "def _format_compact_number(value):",
+        "    try:",
+        "        value = float(value)",
+        "    except Exception:",
+        "        return str(value)",
+        "    abs_value = abs(value)",
+        "    if abs_value >= 1_000_000_000:",
+        "        return f'{value / 1_000_000_000:.1f}B'",
+        "    if abs_value >= 1_000_000:",
+        "        return f'{value / 1_000_000:.1f}M'",
+        "    if abs_value >= 1_000:",
+        "        return f'{value / 1_000:.1f}K'",
+        "    if value.is_integer():",
+        "        return f'{value:.0f}'",
+        "    return f'{value:.1f}'",
+        "",
+        "def _top_n_with_others(df, category_col, value_col, top_n=10, others_label='Others'):",
+        "    if df is None or df.empty or category_col not in df.columns or value_col not in df.columns:",
+        "        return pd.DataFrame(columns=[category_col, value_col])",
+        "    grouped = df.groupby(category_col, dropna=False)[value_col].sum().reset_index()",
+        "    grouped = grouped.sort_values(value_col, ascending=False)",
+        "    top_n = int(top_n or 10)",
+        "    if len(grouped) <= top_n:",
+        "        return grouped",
+        "    top = grouped.head(top_n).copy()",
+        "    other_value = grouped.iloc[top_n:][value_col].sum()",
+        "    other = pd.DataFrame([{category_col: others_label, value_col: other_value}])",
+        "    return pd.concat([top, other], ignore_index=True)",
+        "",
+        "def _save_chart_to_pdf(fig, pdf, x, y, w, h):",
+        "    _apply_chart_theme(fig)",
+        "    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:",
+        "        fig.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)",
+        "        plt.close(fig)",
+        "        pdf.image(tmp.name, x=x, y=y, w=w, h=h)",
+        "        os.unlink(tmp.name)",
+        "",
+        "def _render_table_image(pdf, dataframe, x, y, w, h, title=None, theme=None):",
+        "    theme = theme or CHART_THEME",
+        "    table_theme = theme.get('table', {})",
+        "    df = dataframe.copy() if dataframe is not None else pd.DataFrame()",
+        "    max_rows = 5 if h < 60 else 8 if h < 95 else 12",
+        "    max_cols = 4 if w < 100 else 6 if w < 150 else 8",
+        "    df = df.iloc[:max_rows, :max_cols]",
+        "    df = df.fillna('')",
+        "    for column in df.columns:",
+        "        df[column] = df[column].map(lambda value: _format_compact_number(value) if isinstance(value, (int, float, np.integer, np.floating)) else str(value)[:42])",
+        "    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))",
+        "    ax.axis('off')",
+        "    if title:",
+        "        ax.set_title(str(title), fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)",
+        "    if df.empty:",
+        "        ax.text(0.5, 0.5, 'Dados indisponíveis', ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE)",
+        "        _save_chart_to_pdf(fig, pdf, x, y, w, h)",
+        "        return",
+        "    table = ax.table(cellText=df.values, colLabels=[str(c)[:28] for c in df.columns], cellLoc='center', loc='center')",
+        "    table.auto_set_font_size(False)",
+        "    font_size = max(4, CHART_TABLE_FONTSIZE - (1 if h < 65 else 0) - (1 if len(df.columns) > 5 else 0))",
+        "    table.set_fontsize(font_size)",
+        "    table.scale(1, 1.15 if h < 75 else 1.3)",
+        "    for (row, col), cell in table.get_celld().items():",
+        "        cell.set_edgecolor(table_theme.get('border', '#d1d5db'))",
+        "        cell.set_linewidth(0.4)",
+        "        if row == 0:",
+        "            cell.set_facecolor(table_theme.get('header_bg', '#111827'))",
+        "            cell.get_text().set_color(table_theme.get('header_text', '#ffffff'))",
+        "            cell.get_text().set_fontweight('bold')",
+        "        else:",
+        "            cell.set_facecolor(table_theme.get('alt_row_bg', '#f9fafb') if row % 2 == 0 else table_theme.get('row_bg', '#ffffff'))",
+        "            cell.get_text().set_color(theme.get('text_color', '#111827'))",
+        "    fig.subplots_adjust(left=0.02, right=0.98, top=0.86 if title else 0.98, bottom=0.02)",
+        "    _save_chart_to_pdf(fig, pdf, x, y, w, h)",
         "",
         "def _install_standard_chart_style():",
         "    from matplotlib.axes import Axes",

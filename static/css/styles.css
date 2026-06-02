@@ -317,13 +317,37 @@ label {
     color: var(--md-sys-color-on-surface-variant);
 }
 
-select, input[type="file"], input[type="text"] {
+select, input[type="file"], input[type="text"], textarea {
     width: 100%;
     padding: 0.6rem;
     border: 1px solid var(--md-sys-color-outline);
     border-radius: 8px;
     box-sizing: border-box;
     background: white;
+}
+
+textarea {
+    resize: vertical;
+    font-family: inherit;
+}
+
+.settings-visual-instructions {
+    min-height: 70px;
+}
+
+.palette-preview {
+    display: flex;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+    min-height: 18px;
+}
+
+.palette-swatch {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 4px;
 }
 
 input[type="password"] {
@@ -596,6 +620,21 @@ input[type="password"] {
 
 .artifact-card:hover {
     box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.artifact-visual-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.45rem;
+}
+
+.artifact-visual-meta span {
+    font-size: 0.68rem;
+    color: var(--md-sys-color-on-surface-variant);
+    background: var(--md-sys-color-surface-variant);
+    border-radius: 6px;
+    padding: 0.18rem 0.4rem;
 }
 
 .artifact-header {
@@ -876,6 +915,12 @@ dialog::backdrop {
 
 .indicator-reason {
     height: 70px;
+}
+
+.indicator-visual-options {
+    height: 84px;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 0.78rem;
 }
 
 .indicator-code {

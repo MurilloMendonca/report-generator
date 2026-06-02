@@ -204,6 +204,13 @@ const UI = {
                     </div>
                 </div>
                 <div style="font-size: 0.75rem; color: var(--md-sys-color-outline);">ID: ${art.id}</div>
+                ${art.component_preset_id || art.visual_theme_id || art.chart_style_id ? `
+                    <div class="artifact-visual-meta">
+                        ${art.component_preset_id ? `<span>${UI.escapeHtml(art.component_preset_id)}</span>` : ''}
+                        ${art.visual_theme_id ? `<span>Tema: ${UI.escapeHtml(art.visual_theme_id)}</span>` : ''}
+                        ${art.chart_style_id ? `<span>Estilo: ${UI.escapeHtml(art.chart_style_id)}</span>` : ''}
+                    </div>
+                ` : ''}
                 <div style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-top: 0.5rem;">${art.reason || ""}</div>
             </div>
             `;
@@ -305,7 +312,65 @@ const UI = {
         document.getElementById('s-line-height').value = settings.line_height || 5;
         document.getElementById('s-language').value = settings.language || "Portuguese";
         document.getElementById('s-layout-template').value = settings.selected_template_id || "";
+        const themeEl = document.getElementById('s-visual-theme');
+        const styleEl = document.getElementById('s-chart-style');
+        const visualInstructionsEl = document.getElementById('s-visual-instructions');
+        if (themeEl) {
+            themeEl.value = settings.visual_theme_id || "executive_clean";
+            themeEl.dispatchEvent(new Event('change'));
+        }
+        if (styleEl) styleEl.value = settings.chart_style_id || "modern";
+        if (visualInstructionsEl && document.activeElement !== visualInstructionsEl) {
+            visualInstructionsEl.value = settings.visual_instructions || "";
+        }
         UI.updateSelectedTemplatePreview(settings.selected_template_id || "");
+    },
+
+    renderVisualThemeOptions(library) {
+        const themeSelect = document.getElementById('s-visual-theme');
+        const styleSelect = document.getElementById('s-chart-style');
+        const themePreview = document.getElementById('visual-theme-preview');
+        if (!themeSelect || !styleSelect) return;
+
+        const currentTheme = themeSelect.value;
+        const currentStyle = styleSelect.value;
+        const themes = library.themes || [];
+        const styles = library.chart_styles || [];
+        themeSelect.innerHTML = themes.map(theme => `
+            <option value="${theme.id}">${UI.escapeHtml(theme.name)}</option>
+        `).join('');
+        styleSelect.innerHTML = styles.map(style => `
+            <option value="${style.id}">${UI.escapeHtml(style.name)}</option>
+        `).join('');
+        themeSelect.value = currentTheme || library.default_theme_id || "executive_clean";
+        styleSelect.value = currentStyle || library.default_chart_style_id || "modern";
+        const renderPreview = () => {
+            if (!themePreview) return;
+            const theme = themes.find(item => item.id === themeSelect.value);
+            const palette = theme && theme.palette ? theme.palette : [];
+            themePreview.innerHTML = palette.map(color => `
+                <span class="palette-swatch" style="background:${UI.escapeHtml(color)}" title="${UI.escapeHtml(color)}"></span>
+            `).join('');
+        };
+        themeSelect.onchange = renderPreview;
+        renderPreview();
+    },
+
+    renderComponentLibraryOptions(library) {
+        const themeSelect = document.getElementById('m-visual-theme');
+        const styleSelect = document.getElementById('m-chart-style');
+        if (!themeSelect || !styleSelect) return;
+
+        const currentTheme = themeSelect.value;
+        const currentStyle = styleSelect.value;
+        themeSelect.innerHTML = '<option value="">Usar tema global</option>' + (library.themes || []).map(theme => `
+            <option value="${theme.id}">${UI.escapeHtml(theme.name)}</option>
+        `).join('');
+        styleSelect.innerHTML = '<option value="">Usar estilo global</option>' + (library.chart_styles || []).map(style => `
+            <option value="${style.id}">${UI.escapeHtml(style.name)}</option>
+        `).join('');
+        if (currentTheme) themeSelect.value = currentTheme;
+        if (currentStyle) styleSelect.value = currentStyle;
     },
 
     renderTemplateOptions(templates) {

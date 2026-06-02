@@ -49,6 +49,8 @@ class SessionSchemaTests(unittest.TestCase):
         self.assertEqual(session["model_name"], "deepseek-v4-flash")
         self.assertEqual(session["settings"]["alignment"], "J")
         self.assertEqual(session["settings"]["font"], "Arial")
+        self.assertEqual(session["settings"]["visual_theme_id"], "executive_clean")
+        self.assertEqual(session["settings"]["chart_style_id"], "modern")
         self.assertEqual(session["data_filter"]["needs_filter"], False)
         self.assertEqual(session["data_preprocessing"]["needs_preprocessing"], False)
         self.assertEqual(session["files"][0]["raw_artifact"], {"shape": {"rows": 10}})

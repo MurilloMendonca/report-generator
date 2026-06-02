@@ -206,6 +206,21 @@
                             <option value="French">Français</option>
                         </select>
                     </div>
+                    <div style="display: flex; gap: 1rem;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>Tema visual:</label>
+                            <select id="s-visual-theme" name="visual_theme_id"></select>
+                            <div id="visual-theme-preview" class="palette-preview" aria-label="Prévia da paleta"></div>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>Estilo dos gráficos:</label>
+                            <select id="s-chart-style" name="chart_style_id"></select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Instruções visuais globais:</label>
+                        <textarea id="s-visual-instructions" name="visual_instructions" class="settings-visual-instructions" placeholder="Ex: usar menos rótulos e priorizar gráficos horizontais"></textarea>
+                    </div>
                     <div class="form-group">
                         <label>Template de Layout:</label>
                         <select id="s-layout-template" name="selected_template_id"></select>
@@ -253,9 +268,14 @@
                         <div class="form-group">
                             <label>Tipo:</label>
                             <select id="m-type">
+                                <option value="graphic">Gráfico Genérico</option>
                                 <option value="bar">Gráfico de Barras</option>
                                 <option value="line">Gráfico de Linha</option>
+                                <option value="scatter">Dispersão</option>
                                 <option value="pie">Gráfico de Pizza</option>
+                                <option value="radial">Radial / Donut</option>
+                                <option value="gauge">Gauge</option>
+                                <option value="table">Tabela</option>
                                 <option value="metric">Métrica (KPI)</option>
                                 <option value="text">Narrativa de Texto</option>
                             </select>
@@ -264,6 +284,30 @@
                             <label>Colunas Alvo:</label>
                             <input type="text" id="m-cols" placeholder="col1, col2...">
                         </div>
+                    </div>
+                    <div class="indicator-field-row">
+                        <div class="form-group">
+                            <label>Subtipo:</label>
+                            <input type="text" id="m-subtype" placeholder="bar, line, table...">
+                        </div>
+                        <div class="form-group">
+                            <label>Preset visual:</label>
+                            <select id="m-preset"></select>
+                        </div>
+                    </div>
+                    <div class="indicator-field-row">
+                        <div class="form-group">
+                            <label>Tema:</label>
+                            <select id="m-visual-theme"></select>
+                        </div>
+                        <div class="form-group">
+                            <label>Estilo:</label>
+                            <select id="m-chart-style"></select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Opções visuais (JSON):</label>
+                        <textarea id="m-visual-options" class="indicator-visual-options" placeholder='{"top_n": 8, "show_values": true}'></textarea>
                     </div>
                     <div class="form-group">
                         <label>Objetivo / Lógica:</label>
