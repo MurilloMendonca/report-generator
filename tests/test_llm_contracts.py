@@ -8,7 +8,11 @@ from app.services.llm_service import (
     generate_component_code,
     model_catalog,
     normalize_gemini_model_name,
+    parse_llm_artifacts,
+    parse_llm_preprocessing_plan,
+    parse_llm_text_map,
     prompt_fingerprint,
+    resolve_llm_config,
 )
 
 
@@ -37,6 +41,16 @@ class LlmContractTests(unittest.TestCase):
             for model in catalog["providers"]["gemini"]
         ))
 
+    def test_resolve_llm_config_rejects_unknown_provider_or_model(self):
+        with self.assertRaises(ValueError):
+            resolve_llm_config("missing", None)
+        with self.assertRaises(ValueError):
+            resolve_llm_config("deepseek", "missing-model")
+        self.assertEqual(
+            resolve_llm_config("gemini", "models/gemini-2.5-flash"),
+            ("gemini", "gemini-2.5-flash"),
+        )
+
     def test_generate_component_code_includes_visual_context(self):
         captured = {}
 
@@ -63,6 +77,19 @@ class LlmContractTests(unittest.TestCase):
         self.assertIn("Resolved Visual Theme", captured["user_prompt"])
         self.assertIn("minimal_mono", captured["user_prompt"])
         self.assertIn("Resolved Visual Options", captured["user_prompt"])
+
+    def test_llm_schema_parsers_validate_core_payloads(self):
+        artifacts = parse_llm_artifacts('[{"id": "g1", "indicator": "Chart", "type": "graphic", "columns": "a, b"}]')
+        self.assertEqual(artifacts[0]["columns"], ["a", "b"])
+
+        plan = parse_llm_preprocessing_plan('{"needs_filter": true, "description": "Filtro", "code": "def preprocess_dataframes(dataframes):\\n    return dataframes"}')
+        self.assertTrue(plan["needs_preprocessing"])
+
+        texts = parse_llm_text_map('{"t1": "Resumo", "empty": ""}')
+        self.assertEqual(texts, {"t1": "Resumo"})
+
+        with self.assertRaises(ValueError):
+            parse_llm_artifacts('{"id": "not-a-list"}')
 
     def test_assemble_script_injects_chart_theme_helpers(self):
         script = assemble_script(

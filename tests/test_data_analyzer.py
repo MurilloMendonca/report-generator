@@ -65,6 +65,23 @@ class DataAnalyzerTests(unittest.TestCase):
         self.assertEqual(bool_column["role"], "boolean")
         self.assertNotIn("stats", bool_column)
 
+    def test_redacts_sensitive_sample_values(self):
+        path = self.temp_path(".csv")
+        pd.DataFrame({
+            "customer_email": ["ana@example.com", "bob@example.com"],
+            "api_token": ["secret-1", "secret-2"],
+            "region": ["Sul", "Norte"],
+        }).to_csv(path, index=False)
+
+        metadata = extract_metadata(path, "customers.csv")
+
+        self.assertEqual(metadata["sample"][0]["customer_email"], "[REDACTED]")
+        self.assertEqual(metadata["sample"][0]["api_token"], "[REDACTED]")
+        self.assertEqual(metadata["sample"][0]["region"], "Sul")
+        email_column = next(column for column in metadata["columns"] if column["name"] == "customer_email")
+        self.assertTrue(email_column["sensitive"])
+        self.assertEqual(email_column["top_values"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

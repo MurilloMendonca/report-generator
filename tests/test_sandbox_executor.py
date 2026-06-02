@@ -124,6 +124,24 @@ class SandboxExecutorTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("Sandbox denied network access", result["stderr"])
 
+    def test_denies_subprocess_execution(self):
+        result = execute_script(
+            "import subprocess\nsubprocess.run(['cat', '.env'], check=False)",
+            self.script_path(),
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("Sandbox denied process execution", result["stderr"])
+
+    def test_denies_os_system_execution(self):
+        result = execute_script(
+            "import os\nos.system('cat .env')",
+            self.script_path(),
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("Sandbox denied process execution", result["stderr"])
+
     def test_times_out_infinite_loops(self):
         result = execute_script("while True:\n    pass", self.script_path(), timeout=1)
 

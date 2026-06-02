@@ -4,6 +4,8 @@ venv
 GEMINI.md
 AGENTS.md
 workspace/
+tests/canonical/generated_pdfs/*.pdf
+tests/canonical/results/
 
 # Python cache
 __pycache__/

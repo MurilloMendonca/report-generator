@@ -26,6 +26,7 @@ import io
 import os
 import pathlib
 import socket
+import subprocess
 
 
 def _split_paths(value):
@@ -92,6 +93,19 @@ def _guarded_os_open(path, flags, mode=0o777, *args, **kwargs):
 
 
 os.open = _guarded_os_open
+
+
+def _deny_process(*args, **kwargs):
+    raise PermissionError("Sandbox denied process execution")
+
+
+os.system = _deny_process
+os.popen = _deny_process
+subprocess.Popen = _deny_process
+subprocess.run = _deny_process
+subprocess.call = _deny_process
+subprocess.check_call = _deny_process
+subprocess.check_output = _deny_process
 
 
 def _deny_network(*args, **kwargs):

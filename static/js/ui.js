@@ -38,7 +38,9 @@ const UI = {
     },
 
     renderLogs(logs) {
-        document.getElementById('log-container').innerHTML = (logs || []).slice(-5).map(l => `<div>${l}</div>`).join('');
+        document.getElementById('log-container').innerHTML = (logs || []).slice(-5)
+            .map(l => `<div>${UI.escapeHtml(l)}</div>`)
+            .join('');
     },
 
     renderMessageText(value) {
@@ -196,14 +198,14 @@ const UI = {
             return `
             <div class="artifact-card" style="border-left: 6px solid ${color}">
                 <div class="artifact-header">
-                    <b style="color: var(--md-sys-color-on-surface)">${art.indicator}</b>
+                    <b style="color: var(--md-sys-color-on-surface)">${UI.escapeHtml(art.indicator)}</b>
                     <div class="artifact-actions">
                         <span style="font-size: 0.65rem; background: ${color}; color: white; padding: 2px 8px; border-radius: 10px; margin-right: 8px; font-weight: bold;">${type.toUpperCase()}</span>
                         <button class="btn btn-outline" style="padding: 4px 8px;" onclick="App.handleEditIndicator(${i})">✏️</button>
                         <button class="btn btn-danger" style="padding: 4px 8px;" onclick="App.handleDeleteIndicator(${i})">🗑️</button>
                     </div>
                 </div>
-                <div style="font-size: 0.75rem; color: var(--md-sys-color-outline);">ID: ${art.id}</div>
+                <div style="font-size: 0.75rem; color: var(--md-sys-color-outline);">ID: ${UI.escapeHtml(art.id)}</div>
                 ${art.component_preset_id || art.visual_theme_id || art.chart_style_id ? `
                     <div class="artifact-visual-meta">
                         ${art.component_preset_id ? `<span>${UI.escapeHtml(art.component_preset_id)}</span>` : ''}
@@ -211,7 +213,7 @@ const UI = {
                         ${art.chart_style_id ? `<span>Estilo: ${UI.escapeHtml(art.chart_style_id)}</span>` : ''}
                     </div>
                 ` : ''}
-                <div style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-top: 0.5rem;">${art.reason || ""}</div>
+                <div style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-top: 0.5rem;">${UI.escapeHtml(art.reason || "")}</div>
             </div>
             `;
         }).join('');
@@ -249,7 +251,7 @@ const UI = {
             block.style.width = (item.w * MM_TO_PX) + 'px';
             block.style.height = (item.h * MM_TO_PX) + 'px';
             block.innerHTML = `
-                <span>${art.indicator}</span>
+                <span>${UI.escapeHtml(art.indicator)}</span>
                 <button class="del-btn" onclick="App.handleDeleteIndicatorById('${item.id}', event)">✕</button>
                 <div class="resizer"></div>
             `;
@@ -270,14 +272,14 @@ const UI = {
         let html = `
             <div style="margin-bottom: 2rem; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); padding: 1.5rem; border-radius: 16px;">
                 <h4 style="margin-top:0">📊 Métricas Calculadas</h4>
-                <pre style="font-family: 'Roboto Mono', monospace; font-size: 0.85rem;">${Utils.formatJson(session.calculated_metrics || {})}</pre>
+                <pre style="font-family: 'Roboto Mono', monospace; font-size: 0.85rem;">${UI.escapeHtml(Utils.formatJson(session.calculated_metrics || {}))}</pre>
             </div>
         `;
         html += (session.files || []).map(f => `
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid var(--md-sys-color-outline); padding-bottom: 1rem;">
-                <h4 style="color: var(--md-sys-color-primary)">📄 ${f.original_filename}</h4>
+                <h4 style="color: var(--md-sys-color-primary)">📄 ${UI.escapeHtml(f.original_filename)}</h4>
                 ${f.preprocessing_description || f.filter_description ? `<div style="font-size: 0.78rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 0.5rem;">Pré-processamento: ${UI.escapeHtml(f.preprocessing_description || f.filter_description)}</div>` : ''}
-                <pre style="font-size: 0.75rem; background: #f5f5f5; padding: 1rem; border-radius: 8px; overflow-x: auto;">${Utils.formatJson(f.artifact)}</pre>
+                <pre style="font-size: 0.75rem; background: #f5f5f5; padding: 1rem; border-radius: 8px; overflow-x: auto;">${UI.escapeHtml(Utils.formatJson(f.artifact))}</pre>
             </div>
         `).join('');
         document.getElementById('data-artifacts-container').innerHTML = html;
@@ -377,7 +379,7 @@ const UI = {
         const select = document.getElementById('s-layout-template');
         const currentValue = select.value;
         select.innerHTML = (templates || []).map(template => `
-            <option value="${template.id}">${template.name}</option>
+            <option value="${UI.escapeHtml(template.id)}">${UI.escapeHtml(template.name)}</option>
         `).join('');
         if (currentValue) select.value = currentValue;
         UI.renderTemplatePreviews(templates, select.value);

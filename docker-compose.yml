@@ -6,7 +6,7 @@ services:
     env_file:
       - .env
     environment:
-      APP_ACCESS_SECRET: ${APP_ACCESS_SECRET:-change-me}
+      APP_ACCESS_SECRET: ${APP_ACCESS_SECRET:?APP_ACCESS_SECRET must be configured}
       PORT: 8000
       MPLCONFIGDIR: /tmp/matplotlib
     ports:

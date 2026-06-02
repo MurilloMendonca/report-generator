@@ -77,7 +77,7 @@ const TemplateEditor = {
 
     renderTemplateSelect() {
         document.getElementById('template-select').innerHTML = this.templates.map(template => (
-            `<option value="${template.id}">${template.name}</option>`
+            `<option value="${this.escapeHtml(template.id)}">${this.escapeHtml(template.name)}</option>`
         )).join('');
     },
 
@@ -178,8 +178,8 @@ const TemplateEditor = {
             block.style.height = `${slot.h * MM_TO_PX}px`;
             const label = slot.name || slot.type;
             block.innerHTML = `
-                <span>${label}</span>
-                <small>${slot.type}</small>
+                <span>${this.escapeHtml(label)}</span>
+                <small>${this.escapeHtml(slot.type)}</small>
                 <div class="resizer"></div>
             `;
             block.onclick = (event) => {
@@ -348,6 +348,15 @@ const TemplateEditor = {
 
     setStatus(message) {
         document.getElementById('save-status').textContent = message;
+    },
+
+    escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 };
 

@@ -85,7 +85,7 @@ DEEPSEEK_API_KEY=your_deepseek_key
 APP_ACCESS_SECRET=your_long_random_login_secret
 ```
 
-The default provider is `deepseek`, so `DEEPSEEK_API_KEY` is required for the default path. `GEMINI_API_KEY` is required when selecting Gemini. `APP_ACCESS_SECRET` is the simple login secret used by the browser UI and API guard.
+The default provider is `deepseek`, so `DEEPSEEK_API_KEY` is required for the default path. `GEMINI_API_KEY` is required when selecting Gemini. `APP_ACCESS_SECRET` is the login secret used by the browser UI. After login, the app issues a signed HttpOnly session cookie; the browser does not store the raw secret.
 
 ## Run
 
@@ -171,6 +171,7 @@ Preprocessed files are treated as the analytical input for all metrics and compo
   - `model_name`: provider model name.
 - `GET /api/sessions`: returns recent sessions.
 - `GET /api/sessions/{job_id}`: returns the full session state.
+- `DELETE /api/sessions/{job_id}`: deletes the session record and associated runtime files.
 - `POST /api/sessions/{job_id}/files`: adds more files and reruns the pipeline.
 - `GET /api/sessions/{job_id}/files/{file_index}/preview`: previews an uploaded file. Use `?variant=preprocessed` when available.
 - `GET /api/sessions/{job_id}/files/{file_index}/download`: downloads an uploaded file. Use `?variant=preprocessed` when available.
@@ -187,7 +188,7 @@ Preprocessed files are treated as the analytical input for all metrics and compo
 - `PUT /api/layout-templates/{template_id}`: updates a layout template.
 - `DELETE /api/layout-templates/{template_id}`: deletes a layout template.
 
-All `/api/*` endpoints except `/api/auth/login` require `X-Access-Token` with the configured `APP_ACCESS_SECRET`.
+All `/api/*` endpoints except `/api/auth/login` require a valid signed session cookie. `X-Access-Token` is still accepted for non-browser clients, but it must contain a signed session token returned by the app, not the raw access secret.
 
 ## Session Shape
 
@@ -225,7 +226,7 @@ The LLM behavior is controlled by Markdown prompt files in `prompts/`:
 
 - `GENERATE_ARTIFACTS.md`: returns JSON list of metric, visual, and text artifact definitions.
 - `GENERATE_METRIC_VALUE.md`: returns Python code that prints `{"value": ...}`.
-- `GENERATE_TEMPLATE.md`: returns JSON list of A4 layout coordinates.
+- `GENERATE_TEMPLATE.md`: legacy layout prompt kept for reference. The current pipeline builds layout coordinates from the local template library in `app/utils/template_library.py`.
 - `GENERATE_COMPONENT_CODE.md`: returns one Python render function for a visual component.
 - `GENERATE_ALL_TEXTS.md`: returns JSON object mapping text artifact IDs to text content.
 - `GENERATE_DATA_FILTER.md`: returns optional `preprocess_dataframes(dataframes)` code for data preprocessing. The filename is legacy; the current contract supports filtering, calculated columns, aggregation, normalization, and related preparation.
@@ -269,13 +270,14 @@ Visual components are expected to render themselves as temporary matplotlib imag
 ## Security Notes
 
 - The app executes LLM-generated Python for preprocessing, metrics, exploration, and PDF rendering.
-- Generated scripts run through a local sandbox that restricts environment variables, filesystem access, network connections, temporary directories, and execution time.
+- Generated scripts run through a local sandbox that restricts environment variables, filesystem access, network connections, temporary directories, process spawning, and execution time.
 - The local sandbox reduces risk for controlled development and internal use, but production multi-user deployments should still prefer stronger isolation such as containers/seccomp and per-job credentials.
+- Data metadata samples redact values from columns with sensitive names such as email, token, password, document, phone, and address before prompt context is sent to an LLM provider.
 - Do not commit provider keys or access secrets. Use `.env`.
 
 ## Important Maintenance Notes
 
-- Session persistence is file-based and has no locking. Concurrent writes to the same session can race.
+- Session persistence is file-based with per-session file locking and atomic writes. Pipeline execution is serialized per session inside a single app process; multi-process deployments should use an external queue or distributed lock.
 - `execute_script` has a 30-second default timeout.
 - `run_execution` retries failed report scripts up to five total attempts.
 - `calculate_metric_value` retries each metric up to three times and returns `"N/A"` if no valid value is produced.

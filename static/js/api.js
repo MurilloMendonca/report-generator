@@ -13,13 +13,8 @@ const API = {
         return await res.json();
     },
 
-    accessToken() {
-        return localStorage.getItem('pdf_report_access_secret') || '';
-    },
-
     authHeaders(extra = {}) {
-        const token = this.accessToken();
-        return token ? { ...extra, 'X-Access-Token': token } : extra;
+        return extra;
     },
 
     async login(secret) {
@@ -29,8 +24,15 @@ const API = {
             body: JSON.stringify({ secret })
         });
         if (!res.ok) throw new Error('Invalid access secret');
-        localStorage.setItem('pdf_report_access_secret', secret);
         return await res.json();
+    },
+
+    async logout() {
+        const res = await fetch('/api/auth/logout', {
+            method: 'POST',
+            headers: this.authHeaders()
+        });
+        return await this.parseResponse(res, 'Could not log out');
     },
 
     async checkLogin() {
@@ -64,6 +66,14 @@ const API = {
         const res = await fetch(`/api/sessions/${jobId}`, { headers: this.authHeaders() });
         if (!res.ok) throw new Error(`Session ${jobId} not found`);
         return await res.json();
+    },
+
+    async deleteSession(jobId) {
+        const res = await fetch(`/api/sessions/${jobId}`, {
+            method: 'DELETE',
+            headers: this.authHeaders()
+        });
+        return await this.parseResponse(res, 'Could not delete session');
     },
 
     async addFiles(jobId, formData) {

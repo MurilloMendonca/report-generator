@@ -5,6 +5,7 @@ import re
 import time
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from app.utils.layout import normalize_template
 from app.utils.template_library import build_layout_from_template
 from app.utils.component_library import (
@@ -51,6 +52,77 @@ MODEL_CATALOG = {
         {"id": "deepseek-v4-pro", "label": "DeepSeek V4 Pro"},
     ],
 }
+
+
+class LlmArtifact(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str = ""
+    indicator: str = ""
+    type: str = "graphic"
+    reason: str = ""
+    columns: list[str] = Field(default_factory=list)
+
+    @field_validator("columns", mode="before")
+    @classmethod
+    def normalize_columns(cls, value):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+
+class LlmPreprocessingPlan(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    needs_preprocessing: bool = False
+    needs_filter: bool = False
+    description: str = ""
+    code: str = ""
+
+    @model_validator(mode="after")
+    def normalize_flags(self):
+        if self.needs_filter:
+            self.needs_preprocessing = True
+        if self.needs_preprocessing:
+            self.needs_filter = True
+        return self
+
+
+class LlmTranslationPayload(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    artifacts: list[dict] = Field(default_factory=list)
+    components: dict[str, str] = Field(default_factory=dict)
+
+
+def parse_llm_artifacts(text: str) -> list[dict]:
+    payload = json.loads(extract_json_payload(text, "[", "]"))
+    if not isinstance(payload, list):
+        raise ValueError("artifact response must be a list")
+    return [LlmArtifact.model_validate(item).model_dump(exclude_none=True) for item in payload]
+
+
+def parse_llm_preprocessing_plan(text: str) -> dict:
+    payload = json.loads(extract_json_payload(text, "{", "}"))
+    return LlmPreprocessingPlan.model_validate(payload).model_dump()
+
+
+def parse_llm_text_map(text: str) -> dict[str, str]:
+    payload = json.loads(extract_json_payload(text, "{", "}"))
+    if not isinstance(payload, dict):
+        raise ValueError("text response must be an object")
+    return {
+        str(key): str(value).strip()
+        for key, value in payload.items()
+        if isinstance(value, (str, int, float)) and str(value).strip()
+    }
+
+
+def parse_llm_translation_payload(text: str) -> dict:
+    payload = json.loads(extract_json_payload(text, "{", "}"))
+    return LlmTranslationPayload.model_validate(payload).model_dump()
 
 
 def model_catalog() -> dict:
@@ -155,9 +227,16 @@ def get_deepseek_client():
 
 def resolve_llm_config(provider: str = None, model_name: str = None) -> tuple[str, str]:
     provider = provider or DEFAULT_PROVIDER
+    if provider not in DEFAULT_MODEL_BY_PROVIDER:
+        raise ValueError(f"Unknown LLM provider '{provider}'.")
     model_name = model_name or DEFAULT_MODEL_BY_PROVIDER.get(provider)
     if not model_name:
         raise ValueError(f"No default model configured for provider '{provider}'.")
+    normalized_model = normalize_gemini_model_name(model_name) if provider == "gemini" else str(model_name)
+    allowed_models = {model["id"] for model in MODEL_CATALOG.get(provider, [])}
+    if allowed_models and normalized_model not in allowed_models:
+        raise ValueError(f"Unknown model '{model_name}' for provider '{provider}'.")
+    model_name = normalized_model
     return provider, model_name
 
 
@@ -212,14 +291,11 @@ def generate_artifacts(all_metadata: str, prompt: str, provider: str = DEFAULT_P
     )
     
     for attempt in range(3):
-        text = call_llm(provider, model_name, system_instruction, user_prompt)
-        text = extract_json_payload(text, "[", "]")
-            
         try:
-            artifacts = json.loads(text)
+            artifacts = parse_llm_artifacts(call_llm(provider, model_name, system_instruction, user_prompt))
             if isinstance(artifacts, list) and len(artifacts) > 0:
                 return artifacts
-        except:
+        except (ValueError, json.JSONDecodeError, ValidationError):
             time.sleep(2)
             
     return []
@@ -265,12 +341,9 @@ def generate_data_filter(all_metadata: str, prompt: str, provider: str = DEFAULT
     )
 
     for attempt in range(3):
-        text = call_llm(provider, model_name, system_instruction, user_prompt)
-        text = extract_json_payload(text, "{", "}")
         try:
-            payload = json.loads(text)
-            if isinstance(payload, dict):
-                return normalize_preprocessing_payload(payload)
+            payload = parse_llm_preprocessing_plan(call_llm(provider, model_name, system_instruction, user_prompt))
+            return normalize_preprocessing_payload(payload)
         except Exception as e:
             print(f"DEBUG: data preprocessing generation attempt {attempt + 1} failed: {str(e)}")
             time.sleep(2)
@@ -502,12 +575,9 @@ def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metri
     user_prompt = "\n\n".join(context)
     
     for attempt in range(3):
-        text = call_llm(provider, model_name, system_instruction, user_prompt)
-        text = extract_json_payload(text, "{", "}")
-
         try:
-            return json.loads(text)
-        except:
+            return parse_llm_text_map(call_llm(provider, model_name, system_instruction, user_prompt))
+        except (ValueError, json.JSONDecodeError, ValidationError):
             time.sleep(2)
     return {}
 
@@ -587,7 +657,7 @@ def condense_texts_to_fit(texts_map: dict, text_artifacts: list, template: list,
     for attempt in range(3):
         try:
             response = call_llm(provider, model_name, system_instruction, user_prompt)
-            payload = json.loads(extract_json_payload(response, "{", "}"))
+            payload = parse_llm_text_map(response)
             for key, value in payload.items():
                 if key in texts_map and isinstance(value, str) and value.strip():
                     texts_map[key] = value.strip()
@@ -1029,14 +1099,9 @@ def translate_workspace(session: dict, target_lang: str) -> dict:
     user_prompt = f"Workspace to Translate:\n{json.dumps(workspace_data, indent=2)}"
     
     for attempt in range(3):
-        text = call_llm(provider, model_name, system_instruction, user_prompt)
-        text = extract_json_payload(text, "{", "}")
-        
         try:
-            res = json.loads(text)
-            if "artifacts" in res and "components" in res:
-                return res
-        except:
+            return parse_llm_translation_payload(call_llm(provider, model_name, system_instruction, user_prompt))
+        except (ValueError, json.JSONDecodeError, ValidationError):
             time.sleep(2)
     return None
 

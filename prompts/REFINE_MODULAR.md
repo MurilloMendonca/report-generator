@@ -12,4 +12,4 @@ You are an Intelligent Router for a report generation system. Your job is to dec
 - Current List of Indicators (ID and Name).
 
 ## Output Format
-Return ONLY the target keyword (ID, LAYOUT, or ALL). No explanations.
+Return ONLY the target keyword (ID, LAYOUT, SETTINGS, or ALL). No explanations.

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Body, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Body, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from typing import List
@@ -6,10 +6,14 @@ import os
 import sys
 import uuid
 import hmac
+import base64
+import hashlib
 import mimetypes
 import ast
 import traceback
+import zipfile
 from datetime import datetime, timezone
+import time
 
 # Permite rodar o script diretamente da raiz do projeto
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,6 +31,7 @@ from app.services.llm_service import (
     assemble_script,
     dataframe_load_line,
     model_catalog,
+    resolve_llm_config,
     refine_session_modular, 
     generate_exploration_script,
     translate_workspace
@@ -49,7 +54,16 @@ from app.services.pipeline_service import (
     run_script_generation,
     should_consider_data_filter,
 )
-from app.services.session_manager import create_session, get_session, update_session, add_log, list_recent_sessions, set_session_stage
+from app.services.session_manager import (
+    create_session,
+    get_session,
+    get_session_lock_path,
+    get_session_path,
+    update_session,
+    add_log,
+    list_recent_sessions,
+    set_session_stage,
+)
 
 app = FastAPI(title="Report Generator v0.3.6")
 
@@ -57,6 +71,9 @@ APP_ACCESS_SECRET = os.getenv("APP_ACCESS_SECRET") or os.getenv("PDF_REPORT_ACCE
 APP_ENV = os.getenv("APP_ENV", "development").lower()
 ALLOW_DEFAULT_SECRET = APP_ENV in {"development", "dev", "local", "test"} or os.getenv("PDF_REPORT_ALLOW_DEFAULT_SECRET") == "1"
 MAX_UPLOAD_BYTES = int(os.getenv("PDF_REPORT_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+AUTH_COOKIE_NAME = "pdf_report_session"
+AUTH_SESSION_TTL_SECONDS = int(os.getenv("PDF_REPORT_SESSION_TTL_SECONDS", str(8 * 60 * 60)))
+AUTH_COOKIE_SECURE = os.getenv("PDF_REPORT_COOKIE_SECURE", "1" if APP_ENV not in {"development", "dev", "local", "test"} else "0") == "1"
 ALLOWED_UPLOAD_EXTENSIONS = {
     ".csv",
     ".xls",
@@ -78,19 +95,88 @@ def is_valid_access_token(token: str) -> bool:
     return bool(token) and hmac.compare_digest(token, APP_ACCESS_SECRET)
 
 
+def _sign_session_payload(payload: str) -> str:
+    return hmac.new(APP_ACCESS_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def create_session_token() -> str:
+    issued_at = str(int(time.time()))
+    nonce = uuid.uuid4().hex
+    payload = f"{issued_at}.{nonce}"
+    signature = _sign_session_payload(payload)
+    raw_token = f"{payload}.{signature}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw_token).decode("ascii")
+
+
+def is_valid_session_token(token: str) -> bool:
+    if not token:
+        return False
+    try:
+        decoded = base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8")
+        issued_at, nonce, signature = decoded.split(".", 2)
+        if not issued_at.isdigit() or not nonce:
+            return False
+        if int(time.time()) - int(issued_at) > AUTH_SESSION_TTL_SECONDS:
+            return False
+        expected = _sign_session_payload(f"{issued_at}.{nonce}")
+        return hmac.compare_digest(signature, expected)
+    except Exception:
+        return False
+
+
+def request_has_valid_auth(request: Request) -> bool:
+    cookie_token = request.cookies.get(AUTH_COOKIE_NAME, "")
+    header_token = request.headers.get("x-access-token", "")
+    return is_valid_session_token(cookie_token) or is_valid_session_token(header_token)
+
+
 @app.middleware("http")
 async def require_api_access(request: Request, call_next):
     if request.url.path.startswith("/api/") and request.url.path != "/api/auth/login":
-        token = request.headers.get("x-access-token", "")
-        if not is_valid_access_token(token):
-            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
-    return await call_next(request)
+        if not request_has_valid_auth(request):
+            response = JSONResponse({"detail": "Unauthorized"}, status_code=401)
+            add_security_headers(response)
+            return response
+    response = await call_next(request)
+    add_security_headers(response)
+    return response
+
+
+def add_security_headers(response: Response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' blob: data:; "
+        "frame-src 'self' blob:; "
+        "connect-src 'self'",
+    )
 
 
 @app.post("/api/auth/login")
-async def login(payload: dict = Body(...)):
+async def login(response: Response, payload: dict = Body(...)):
     if not is_valid_access_token(payload.get("secret", "")):
         raise HTTPException(status_code=401, detail="Invalid access secret")
+    token = create_session_token()
+    response.set_cookie(
+        AUTH_COOKIE_NAME,
+        token,
+        max_age=AUTH_SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=AUTH_COOKIE_SECURE,
+        samesite="lax",
+    )
+    return {"status": "OK", "expires_in": AUTH_SESSION_TTL_SECONDS}
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie(AUTH_COOKIE_NAME, httponly=True, secure=AUTH_COOKIE_SECURE, samesite="lax")
     return {"status": "OK"}
 
 
@@ -132,6 +218,14 @@ def require_session(job_id: str) -> dict:
     if not session:
         raise HTTPException(status_code=404)
     return session
+
+
+def validate_provider_model(provider: str | None, model_name: str | None) -> tuple[str, str]:
+    try:
+        resolved_provider, resolved_model = resolve_llm_config(provider, model_name)
+        return resolved_provider, model_name or resolved_model
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def refinement_message(role: str, content: str, kind: str = "message") -> dict:
@@ -338,6 +432,37 @@ def validate_upload(file: UploadFile) -> str:
     return file_ext
 
 
+def validate_saved_upload(path: str, file_ext: str):
+    try:
+        if file_ext == ".pdf":
+            with open(path, "rb") as f:
+                if f.read(5) != b"%PDF-":
+                    raise HTTPException(status_code=400, detail="Invalid PDF file content")
+        elif file_ext in {".xls", ".xlsx"}:
+            if not zipfile.is_zipfile(path) and file_ext == ".xlsx":
+                raise HTTPException(status_code=400, detail="Invalid Excel file content")
+            if os.path.getsize(path) == 0:
+                raise HTTPException(status_code=400, detail="Uploaded file is empty")
+        elif file_ext == ".csv":
+            with open(path, "rb") as f:
+                sample = f.read(4096)
+            if not sample:
+                raise HTTPException(status_code=400, detail="Uploaded file is empty")
+            if b"\x00" in sample:
+                raise HTTPException(status_code=400, detail="Invalid CSV file content")
+            try:
+                sample.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    sample.decode("latin-1")
+                except UnicodeDecodeError as exc:
+                    raise HTTPException(status_code=400, detail="CSV file encoding is not supported") from exc
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Could not validate uploaded file: {exc}") from exc
+
+
 def copy_upload_with_limit(file: UploadFile, destination: str) -> int:
     total = 0
     with open(destination, "wb") as buffer:
@@ -362,7 +487,15 @@ def save_uploaded_files(files: List[UploadFile]) -> list:
     for file in files:
         file_ext = validate_upload(file)
         data_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}{file_ext}")
-        size_bytes = copy_upload_with_limit(file, data_path)
+        try:
+            size_bytes = copy_upload_with_limit(file, data_path)
+            validate_saved_upload(data_path, file_ext)
+        except HTTPException:
+            try:
+                os.remove(data_path)
+            except FileNotFoundError:
+                pass
+            raise
         saved_files.append({
             "original_filename": file.filename,
             "path": data_path,
@@ -416,6 +549,57 @@ def file_response(file_info: dict, inline: bool = False, variant: str = "origina
         filename=filename,
         content_disposition_type="inline" if inline else "attachment"
     )
+
+
+def safe_remove_workspace_path(path: str | None):
+    if not path:
+        return
+    workspace_root = os.path.abspath("workspace")
+    target = os.path.abspath(path)
+    try:
+        if os.path.commonpath([workspace_root, target]) != workspace_root:
+            return
+    except ValueError:
+        return
+    try:
+        os.remove(target)
+    except FileNotFoundError:
+        pass
+
+
+def session_generated_paths(job_id: str, session: dict) -> set[str]:
+    paths = {
+        session.get("script_path"),
+        session.get("pdf_path"),
+        f"{session.get('pdf_path')}.manifest.json" if session.get("pdf_path") else None,
+        get_session_path(job_id),
+        get_session_lock_path(job_id),
+    }
+    for file_info in session.get("files", []):
+        paths.update({
+            file_info.get("path"),
+            file_info.get("preprocessed_path"),
+            file_info.get("filtered_path"),
+        })
+
+    for directory in [SCRIPT_DIR, REPORT_DIR, FILTERED_DIR]:
+        if os.path.isdir(directory):
+            for filename in os.listdir(directory):
+                if filename.startswith(job_id) or filename.startswith(f"preprocess_{job_id}") or filename.startswith(f"explore_{job_id}"):
+                    paths.add(os.path.join(directory, filename))
+                if filename.startswith(f"{job_id}_") or filename.startswith(f"{job_id}-"):
+                    paths.add(os.path.join(directory, filename))
+    return {path for path in paths if path}
+
+
+def delete_session_artifacts(job_id: str, session: dict) -> int:
+    removed = 0
+    for path in sorted(session_generated_paths(job_id, session)):
+        exists_before = os.path.exists(path)
+        safe_remove_workspace_path(path)
+        if exists_before and not os.path.exists(path):
+            removed += 1
+    return removed
 
 
 def validate_component_code(component_id: str, code: str):
@@ -544,6 +728,7 @@ async def start_session(
     provider: str = Form(DEFAULT_PROVIDER),
     model_name: str = Form(DEFAULT_MODEL_NAME)
 ):
+    provider, model_name = validate_provider_model(provider, model_name)
     job_id = str(uuid.uuid4())
     session_files = save_uploaded_files(files)
     now = datetime.now(timezone.utc).isoformat()
@@ -652,6 +837,14 @@ async def delete_session_file(job_id: str, file_index: int, background_tasks: Ba
 async def get_session_status(job_id: str):
     return require_session(job_id)
 
+
+@app.delete("/api/sessions/{job_id}")
+async def delete_session(job_id: str):
+    session = require_session(job_id)
+    removed_count = delete_session_artifacts(job_id, session)
+    return {"status": "OK", "removed_files": removed_count}
+
+
 @app.post("/api/sessions/{job_id}/chat")
 async def chat_refinement(job_id: str, background_tasks: BackgroundTasks, prompt: str = Form(...)):
     session = require_session(job_id)
@@ -745,6 +938,8 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
     submitted_settings = dict(settings or {})
     provider = submitted_settings.pop("provider", None)
     model_name = submitted_settings.pop("model_name", None)
+    if provider or model_name:
+        provider, model_name = validate_provider_model(provider or session.get("provider"), model_name)
     
     current_settings = dict(session.get('settings') or DEFAULT_SETTINGS.copy())
     merged_settings = {**current_settings, **submitted_settings}
@@ -823,6 +1018,8 @@ async def regenerate_session(job_id: str, background_tasks: BackgroundTasks, pay
     if submitted_settings:
         provider = submitted_settings.pop("provider", None)
         model_name = submitted_settings.pop("model_name", None)
+        if provider or model_name:
+            provider, model_name = validate_provider_model(provider or session.get("provider"), model_name)
         current_settings = dict(session.get("settings") or DEFAULT_SETTINGS.copy())
         settings_updates = {"settings": {**current_settings, **submitted_settings}}
         if provider:

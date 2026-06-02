@@ -4,6 +4,8 @@ import time
 import traceback
 import unicodedata
 import uuid
+import threading
+from contextlib import contextmanager
 
 import pandas as pd
 
@@ -61,6 +63,36 @@ DEFAULT_EXPLORATORY_PROMPT = (
 
 for directory in [FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
     os.makedirs(directory, exist_ok=True)
+
+
+_PIPELINE_LOCKS: dict[str, threading.RLock] = {}
+_PIPELINE_LOCKS_GUARD = threading.Lock()
+
+
+def _pipeline_lock(job_id: str) -> threading.RLock:
+    with _PIPELINE_LOCKS_GUARD:
+        lock = _PIPELINE_LOCKS.get(job_id)
+        if lock is None:
+            lock = threading.RLock()
+            _PIPELINE_LOCKS[job_id] = lock
+        return lock
+
+
+@contextmanager
+def serialized_pipeline(job_id: str, stage_name: str):
+    lock = _pipeline_lock(job_id)
+    if lock.acquire(blocking=False):
+        acquired_immediately = True
+    else:
+        acquired_immediately = False
+        add_log(job_id, f"Aguardando pipeline ativa antes de iniciar {stage_name}...")
+        lock.acquire()
+    try:
+        if not acquired_immediately:
+            add_log(job_id, f"Pipeline anterior finalizada. Iniciando {stage_name}...")
+        yield
+    finally:
+        lock.release()
 
 
 def processed_path(file_info: dict) -> str | None:
@@ -253,6 +285,11 @@ def text_component_code(artifact: dict, text_content: str) -> str:
 
 
 def run_pipeline(job_id: str):
+    with serialized_pipeline(job_id, "pipeline"):
+        _run_pipeline(job_id)
+
+
+def _run_pipeline(job_id: str):
     session = get_session(job_id)
     provider = session.get('provider', DEFAULT_PROVIDER)
     model_name = session.get('model_name', DEFAULT_MODEL_NAME)
@@ -436,6 +473,11 @@ def run_pipeline(job_id: str):
 
 
 def run_script_generation(job_id: str):
+    with serialized_pipeline(job_id, "renderizacao"):
+        _run_script_generation(job_id)
+
+
+def _run_script_generation(job_id: str):
     session = get_session(job_id)
     set_session_stage(job_id, "script", 90)
     add_log(job_id, "Montando script final modular...")

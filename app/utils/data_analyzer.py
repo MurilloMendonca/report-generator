@@ -9,6 +9,12 @@ import pandas as pd
 CSV_ENCODINGS = ["utf-8", "utf-8-sig", "latin-1"]
 CSV_SEPARATORS = [",", ";", "\t", "|"]
 MAX_PROFILE_ROWS = 10000
+SENSITIVE_COLUMN_TOKENS = {
+    "email", "e-mail", "mail", "telefone", "phone", "mobile", "celular",
+    "cpf", "cnpj", "ssn", "document", "documento", "passport", "rg",
+    "token", "secret", "senha", "password", "api_key", "apikey", "key",
+    "address", "endereco", "endereço", "street", "rua",
+}
 
 def sanitize_data(obj):
     """
@@ -74,6 +80,19 @@ def top_values(series: pd.Series, limit: int = 5) -> list:
     return values
 
 
+def is_sensitive_column_name(name: str) -> bool:
+    normalized = str(name or "").strip().lower().replace(" ", "_").replace("-", "_")
+    return any(token in normalized for token in SENSITIVE_COLUMN_TOKENS)
+
+
+def redacted_sample(df: pd.DataFrame, limit: int = 8) -> list:
+    sample = df.head(limit).copy()
+    for column in sample.columns:
+        if is_sensitive_column_name(column):
+            sample[column] = sample[column].map(lambda value: None if pd.isna(value) else "[REDACTED]")
+    return sample.to_dict(orient="records")
+
+
 def dataframe_metadata(df: pd.DataFrame, display_name: str, sheet_name: str = None, parser: dict = None) -> dict:
     rows, cols = df.shape
     columns_info = []
@@ -83,6 +102,7 @@ def dataframe_metadata(df: pd.DataFrame, display_name: str, sheet_name: str = No
         null_count = int(series.isnull().sum())
         unique_count = int(series.nunique(dropna=True))
 
+        sensitive = is_sensitive_column_name(col)
         col_info = {
             "name": str(col),
             "type": dtype,
@@ -91,8 +111,10 @@ def dataframe_metadata(df: pd.DataFrame, display_name: str, sheet_name: str = No
             "null_ratio": round(null_count / rows, 4) if rows else 0,
             "unique_values": unique_count,
             "unique_ratio": round(unique_count / rows, 4) if rows else 0,
-            "top_values": top_values(series),
+            "top_values": [] if sensitive else top_values(series),
         }
+        if sensitive:
+            col_info["sensitive"] = True
 
         if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
             numeric = pd.to_numeric(series, errors="coerce").dropna()
@@ -120,7 +142,7 @@ def dataframe_metadata(df: pd.DataFrame, display_name: str, sheet_name: str = No
         "filename": display_name,
         "shape": {"rows": int(rows), "columns": int(cols)},
         "columns": columns_info,
-        "sample": df.head(8).to_dict(orient="records"),
+        "sample": redacted_sample(df),
         "profile": {
             "sampled_rows": min(int(rows), MAX_PROFILE_ROWS),
             "column_roles": {
