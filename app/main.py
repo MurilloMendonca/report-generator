@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from typing import List
 import os
+import logging
 import sys
 import uuid
 import hmac
@@ -10,7 +11,6 @@ import base64
 import hashlib
 import mimetypes
 import ast
-import traceback
 import zipfile
 from datetime import datetime, timezone
 import time
@@ -19,7 +19,12 @@ import time
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.utils.layout import normalize_template
-from app.utils.component_library import component_library_payload
+from app.utils.artifact_validation import validate_report_plan
+from app.utils.component_library import (
+    component_library_payload,
+    component_preview_image_path,
+    component_preview_matrix,
+)
 from app.utils.template_library import (
     delete_layout_template,
     load_layout_templates,
@@ -30,6 +35,9 @@ from app.services.llm_service import (
     DEFAULT_PROVIDER,
     assemble_script,
     dataframe_load_line,
+    LLMBudgetError,
+    LLMContractError,
+    LLMTimeoutError,
     model_catalog,
     resolve_llm_config,
     refine_session_modular, 
@@ -64,6 +72,44 @@ from app.services.session_manager import (
     list_recent_sessions,
     set_session_stage,
 )
+from app.services.cleanup_service import (
+    delete_entire_session,
+    cleanup_expired_artifacts,
+    get_workspace_usage,
+    safe_remove_path
+)
+from app.services.web_helpers import (
+    ALLOWED_UPLOAD_EXTENSIONS,
+    MAX_EXCEL_SHEETS,
+    MAX_UPLOAD_BYTES,
+    UPLOAD_DIR,
+    append_refinement_message,
+    append_refinement_result,
+    apply_global_visual_refinement,
+    base_goal_for_refinement,
+    build_refinement_goal,
+    chart_palette_from_prompt,
+    component_preview_filename,
+    component_preview_script_from_session_script,
+    component_preview_slot,
+    copy_upload_with_limit,
+    create_session,
+    existing_refinement_messages,
+    file_response,
+    get_session_file,
+    is_global_visual_refinement,
+    process_chat_refinement,
+    refinement_message,
+    require_session,
+    save_uploaded_files,
+    session_file_variant,
+    validate_component_code,
+    validate_provider_model,
+    validate_saved_upload,
+    validate_upload,
+)
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Report Generator v0.3.6")
 
@@ -71,6 +117,7 @@ APP_ACCESS_SECRET = os.getenv("APP_ACCESS_SECRET") or os.getenv("PDF_REPORT_ACCE
 APP_ENV = os.getenv("APP_ENV", "development").lower()
 ALLOW_DEFAULT_SECRET = APP_ENV in {"development", "dev", "local", "test"} or os.getenv("PDF_REPORT_ALLOW_DEFAULT_SECRET") == "1"
 MAX_UPLOAD_BYTES = int(os.getenv("PDF_REPORT_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+MAX_EXCEL_SHEETS = int(os.getenv("PDF_REPORT_MAX_EXCEL_SHEETS", "20"))
 AUTH_COOKIE_NAME = "pdf_report_session"
 AUTH_SESSION_TTL_SECONDS = int(os.getenv("PDF_REPORT_SESSION_TTL_SECONDS", str(8 * 60 * 60)))
 AUTH_COOKIE_SECURE = os.getenv("PDF_REPORT_COOKIE_SECURE", "1" if APP_ENV not in {"development", "dev", "local", "test"} else "0") == "1"
@@ -89,6 +136,16 @@ for d in [UPLOAD_DIR, FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
     os.makedirs(d, exist_ok=True)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+def _preserve_builtin_routes(routes):
+    keep_paths = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
+    preserved = []
+    for route in routes:
+        path = getattr(route, "path", "")
+        if path in keep_paths or path.startswith("/static"):
+            preserved.append(route)
+    return preserved
 
 
 def is_valid_access_token(token: str) -> bool:
@@ -149,9 +206,13 @@ def add_security_headers(response: Response):
     response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
-        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com; "
+        "base-uri 'self'; "
+        "object-src 'none'; "
+        "frame-ancestors 'self'; "
+        "form-action 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self' data:; "
         "img-src 'self' blob: data:; "
         "frame-src 'self' blob:; "
         "connect-src 'self'",
@@ -193,6 +254,20 @@ async def available_models():
 @app.get("/api/component-library")
 async def visual_component_library():
     return component_library_payload()
+
+
+@app.get("/api/component-library/previews")
+async def visual_component_library_previews(theme: str | None = None, style: str | None = None):
+    return {"previews": component_preview_matrix(theme or "executive_clean", style or "modern")}
+
+
+@app.get("/api/component-library/presets/{preset_id}/preview")
+async def visual_component_preset_preview(preset_id: str, theme: str | None = None, style: str | None = None):
+    try:
+        path = component_preview_image_path(preset_id, theme, style)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 @app.get("/", response_class=HTMLResponse)
 async def read_index():
@@ -386,7 +461,7 @@ def process_chat_refinement(job_id: str, prompt: str):
             return
 
         add_log(job_id, f"Processando refinamento modular: {prompt}")
-        new_session_state = refine_session_modular(session, prompt)
+        new_session_state = refine_session_modular(session, prompt, job_id=job_id)
 
         if new_session_state.get("needs_full_regeneration"):
             add_log(job_id, "Pedido global detectado. Reiniciando pipeline com novos requisitos...")
@@ -412,8 +487,22 @@ def process_chat_refinement(job_id: str, prompt: str):
             add_log(job_id, "Refinamento analisado, mas nenhuma alteração aplicável foi detectada.")
             append_refinement_message(job_id, "assistant", "Analisei o pedido, mas não identifiquei uma alteração aplicável no relatório atual.", "status")
 
+    except (LLMBudgetError, LLMTimeoutError) as exc:
+        logger.exception("LLM limit error during refinement job_id=%s", job_id)
+        error = exc.as_error_dict()
+        error["stage"] = error.get("stage") or "refinement"
+        set_session_stage(job_id, "failed", 100, error)
+        add_log(job_id, f"Falha de limite LLM no refinamento: {str(exc)}")
+        append_refinement_message(job_id, "assistant", f"Não consegui aplicar o refinamento: {str(exc)}", "error")
+    except LLMContractError as exc:
+        logger.exception("LLM contract error during refinement job_id=%s", job_id)
+        error = exc.as_error_dict()
+        error["stage"] = error.get("stage") or "refinement"
+        set_session_stage(job_id, "failed", 100, error)
+        add_log(job_id, f"Falha de contrato LLM no refinamento: {str(exc)}")
+        append_refinement_message(job_id, "assistant", f"Não consegui aplicar o refinamento: {str(exc)}", "error")
     except Exception as exc:
-        traceback.print_exc()
+        logger.exception("Refinement error job_id=%s", job_id)
         set_session_stage(job_id, "failed", 100, {
             "code": "refinement_error",
             "message": f"Falha no refinamento: {str(exc)}",
@@ -432,17 +521,37 @@ def validate_upload(file: UploadFile) -> str:
     return file_ext
 
 
-def validate_saved_upload(path: str, file_ext: str):
+def validate_saved_upload(path: str, file_ext: str, file_name: str | None = None, content_type: str | None = None) -> dict:
+    diagnostics = {
+        "status": "ok",
+        "file_ext": file_ext,
+        "file_name": file_name or os.path.basename(path),
+        "content_type": content_type or mimetypes.guess_type(file_name or path)[0],
+    }
     try:
         if file_ext == ".pdf":
             with open(path, "rb") as f:
                 if f.read(5) != b"%PDF-":
                     raise HTTPException(status_code=400, detail="Invalid PDF file content")
+            diagnostics["format"] = "pdf"
         elif file_ext in {".xls", ".xlsx"}:
-            if not zipfile.is_zipfile(path) and file_ext == ".xlsx":
+            import pandas as pd
+
+            if file_ext == ".xlsx" and not zipfile.is_zipfile(path):
                 raise HTTPException(status_code=400, detail="Invalid Excel file content")
             if os.path.getsize(path) == 0:
                 raise HTTPException(status_code=400, detail="Uploaded file is empty")
+            workbook = pd.ExcelFile(path)
+            sheet_names = list(workbook.sheet_names or [])
+            if not sheet_names:
+                raise HTTPException(status_code=400, detail="Excel workbook does not contain any readable sheets")
+            if len(sheet_names) > MAX_EXCEL_SHEETS:
+                raise HTTPException(status_code=400, detail=f"Excel workbook has too many sheets ({len(sheet_names)} > {MAX_EXCEL_SHEETS})")
+            diagnostics.update({
+                "format": "excel",
+                "sheet_count": len(sheet_names),
+                "sheet_names": sheet_names[:MAX_EXCEL_SHEETS],
+            })
         elif file_ext == ".csv":
             with open(path, "rb") as f:
                 sample = f.read(4096)
@@ -457,10 +566,12 @@ def validate_saved_upload(path: str, file_ext: str):
                     sample.decode("latin-1")
                 except UnicodeDecodeError as exc:
                     raise HTTPException(status_code=400, detail="CSV file encoding is not supported") from exc
+            diagnostics["format"] = "csv"
     except HTTPException:
         raise
     except OSError as exc:
         raise HTTPException(status_code=400, detail=f"Could not validate uploaded file: {exc}") from exc
+    return diagnostics
 
 
 def copy_upload_with_limit(file: UploadFile, destination: str) -> int:
@@ -489,7 +600,7 @@ def save_uploaded_files(files: List[UploadFile]) -> list:
         data_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}{file_ext}")
         try:
             size_bytes = copy_upload_with_limit(file, data_path)
-            validate_saved_upload(data_path, file_ext)
+            validation = validate_saved_upload(data_path, file_ext, file.filename, file.content_type)
         except HTTPException:
             try:
                 os.remove(data_path)
@@ -501,6 +612,7 @@ def save_uploaded_files(files: List[UploadFile]) -> list:
             "path": data_path,
             "size_bytes": size_bytes,
             "mime_type": file.content_type or mimetypes.guess_type(file.filename)[0],
+            "validation": validation,
             "artifact": None
         })
     return saved_files
@@ -549,57 +661,6 @@ def file_response(file_info: dict, inline: bool = False, variant: str = "origina
         filename=filename,
         content_disposition_type="inline" if inline else "attachment"
     )
-
-
-def safe_remove_workspace_path(path: str | None):
-    if not path:
-        return
-    workspace_root = os.path.abspath("workspace")
-    target = os.path.abspath(path)
-    try:
-        if os.path.commonpath([workspace_root, target]) != workspace_root:
-            return
-    except ValueError:
-        return
-    try:
-        os.remove(target)
-    except FileNotFoundError:
-        pass
-
-
-def session_generated_paths(job_id: str, session: dict) -> set[str]:
-    paths = {
-        session.get("script_path"),
-        session.get("pdf_path"),
-        f"{session.get('pdf_path')}.manifest.json" if session.get("pdf_path") else None,
-        get_session_path(job_id),
-        get_session_lock_path(job_id),
-    }
-    for file_info in session.get("files", []):
-        paths.update({
-            file_info.get("path"),
-            file_info.get("preprocessed_path"),
-            file_info.get("filtered_path"),
-        })
-
-    for directory in [SCRIPT_DIR, REPORT_DIR, FILTERED_DIR]:
-        if os.path.isdir(directory):
-            for filename in os.listdir(directory):
-                if filename.startswith(job_id) or filename.startswith(f"preprocess_{job_id}") or filename.startswith(f"explore_{job_id}"):
-                    paths.add(os.path.join(directory, filename))
-                if filename.startswith(f"{job_id}_") or filename.startswith(f"{job_id}-"):
-                    paths.add(os.path.join(directory, filename))
-    return {path for path in paths if path}
-
-
-def delete_session_artifacts(job_id: str, session: dict) -> int:
-    removed = 0
-    for path in sorted(session_generated_paths(job_id, session)):
-        exists_before = os.path.exists(path)
-        safe_remove_workspace_path(path)
-        if exists_before and not os.path.exists(path):
-            removed += 1
-    return removed
 
 
 def validate_component_code(component_id: str, code: str):
@@ -704,8 +765,8 @@ def component_preview_script_from_session_script(
         f"        component_manifest.append({{'id': {component_id!r}, 'status': 'rendered'}})",
         "    except Exception as e:",
         f"        component_manifest.append({{'id': {component_id!r}, 'status': 'failed', 'error': str(e)}})",
-        f"        print(f'Erro no componente {component_id}: {{e}}')",
-        "        import traceback; traceback.print_exc()",
+        "        import logging",
+        f"        logging.getLogger(__name__).exception('Erro no componente {component_id}')",
         f"    manifest_path = r'{output_pdf_path}.manifest.json'",
         "    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:",
         "        json.dump({'components': component_manifest}, manifest_file, indent=2, ensure_ascii=False)",
@@ -803,19 +864,13 @@ async def delete_session_file(job_id: str, file_index: int, background_tasks: Ba
     files = session.get("files", [])
     removed = files.pop(file_index)
 
-    try:
-        os.remove(file_info["path"])
-    except FileNotFoundError:
-        pass
+    safe_remove_path(file_info["path"])
     for generated_path in [
         file_info.get("preprocessed_path"),
         file_info.get("filtered_path"),
     ]:
         if generated_path and generated_path != file_info.get("path"):
-            try:
-                os.remove(generated_path)
-            except FileNotFoundError:
-                pass
+            safe_remove_path(generated_path)
 
     update_payload = {
         "files": files,
@@ -840,9 +895,20 @@ async def get_session_status(job_id: str):
 
 @app.delete("/api/sessions/{job_id}")
 async def delete_session(job_id: str):
-    session = require_session(job_id)
-    removed_count = delete_session_artifacts(job_id, session)
+    # delete_entire_session handles get_session internally and removes everything
+    removed_count = delete_entire_session(job_id)
     return {"status": "OK", "removed_files": removed_count}
+
+
+@app.get("/api/admin/workspace-usage")
+async def workspace_usage():
+    return get_workspace_usage()
+
+
+@app.post("/api/admin/cleanup")
+async def admin_cleanup(background_tasks: BackgroundTasks, policy: dict = Body(None)):
+    background_tasks.add_task(cleanup_expired_artifacts, policy)
+    return {"status": "Cleaning started in background"}
 
 
 @app.post("/api/sessions/{job_id}/chat")
@@ -880,6 +946,8 @@ async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTas
     defer_pipeline = bool(payload.get("defer_pipeline"))
     old_artifacts = session.get('artifacts', [])
     current_components = session.get('components', {})
+    metadata_items = [file_info.get("artifact") for file_info in session.get("files", []) if file_info.get("artifact")]
+    new_artifacts, validation_issues = validate_report_plan(new_artifacts, metadata_items)
     # Detecção de mudanças para invalidar cache de código
     manual_override_ids = list(new_components.keys())
 
@@ -888,14 +956,16 @@ async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTas
         if not new_art.get('type'):
             new_art['type'] = 'graphic' # Fallback seguro
 
-        old_art = next((a for a in old_artifacts if a['id'] == new_art['id']), None)
+        old_art = next((a for a in old_artifacts if a.get('id') == new_art.get('id')), None)
         if old_art:
             changed = (
-                old_art.get('type') != new_art.get('type') or 
+                old_art.get('type') != new_art.get('type') or
                 old_art.get('sub_type') != new_art.get('sub_type') or
                 old_art.get('component_preset_id') != new_art.get('component_preset_id') or
                 old_art.get('chart_style_id') != new_art.get('chart_style_id') or
                 old_art.get('visual_options') != new_art.get('visual_options') or
+                old_art.get('data_binding') != new_art.get('data_binding') or
+                old_art.get('render_mode') != new_art.get('render_mode') or
                 old_art.get('columns') != new_art.get('columns') or
                 old_art.get('indicator') != new_art.get('indicator') or
                 old_art.get('reason') != new_art.get('reason')
@@ -916,7 +986,7 @@ async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTas
     current_components = {id: code for id, code in current_components.items() if id in active_ids}
     
     update_session(job_id, {
-        "artifacts": new_artifacts, "components": current_components, "template": []
+        "artifacts": new_artifacts, "components": current_components, "template": [], "artifact_validation": validation_issues
     })
     
     if not defer_pipeline:
@@ -956,7 +1026,7 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
         session_updates["provider"] = provider
     if model_name:
         session_updates["model_name"] = model_name
-    
+
     if old_lang and new_lang and old_lang != new_lang:
         add_log(job_id, f"Mudança de idioma detectada: {old_lang} -> {new_lang}. Traduzindo workspace...")
         translation_session = session.copy()
@@ -965,12 +1035,33 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
             translation_session["provider"] = provider
         if model_name:
             translation_session["model_name"] = model_name
-        translated = translate_workspace(translation_session, new_lang)
-        if translated:
-            session_updates.update({
-                "artifacts": translated['artifacts'],
-                "components": translated['components'],
+        try:
+            translated = translate_workspace(translation_session, new_lang, job_id=job_id)
+            if translated:
+                session_updates.update({
+                    "artifacts": translated['artifacts'],
+                    "components": translated['components'],
+                })
+        except (LLMBudgetError, LLMTimeoutError) as exc:
+            update_session(job_id, {
+                **session_updates,
+                "error": exc.as_error_dict(),
+                "status": "Falha na tradução do workspace",
+                "current_step": "translation_failed",
+                "progress": 100,
             })
+            add_log(job_id, f"Falha de limite LLM na tradução do workspace: {str(exc)}")
+            raise HTTPException(status_code=429 if isinstance(exc, LLMBudgetError) else 504, detail=str(exc)) from exc
+        except LLMContractError as exc:
+            update_session(job_id, {
+                **session_updates,
+                "error": exc.as_error_dict(),
+                "status": "Falha na tradução do workspace",
+                "current_step": "translation_failed",
+                "progress": 100,
+            })
+            add_log(job_id, f"Falha de contrato LLM na tradução do workspace: {str(exc)}")
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         update_session(job_id, session_updates)
     else:
         update_session(job_id, session_updates)
@@ -1104,7 +1195,13 @@ async def get_pdf(job_id: str):
 async def preview_component(job_id: str, component_id: str):
     session = require_session(job_id)
     component_code = session.get("components", {}).get(component_id)
-    if not component_code:
+    artifact = next((item for item in session.get("artifacts", []) if item.get("id") == component_id), None)
+    if artifact:
+        metadata_items = [file_info.get("artifact") for file_info in session.get("files", []) if file_info.get("artifact")]
+        normalized_artifacts, _validation_issues = validate_report_plan([artifact], metadata_items)
+        artifact = normalized_artifacts[0] if normalized_artifacts else artifact
+    render_mode = str((artifact or {}).get("render_mode") or "generated_code")
+    if not component_code and render_mode not in {"library", "hybrid"}:
         raise HTTPException(status_code=404, detail="Component code not found")
 
     slot = component_preview_slot(session, component_id)
@@ -1112,10 +1209,10 @@ async def preview_component(job_id: str, component_id: str):
     page_height = slot["h"] + 20
     output_pdf_path = os.path.abspath(os.path.join(REPORT_DIR, component_preview_filename(job_id, component_id, "pdf")))
     script_path = os.path.join("/tmp", component_preview_filename(job_id, component_id, "py"))
-    script_content = component_preview_script_from_session_script(session, component_id, slot, output_pdf_path)
+    script_content = component_preview_script_from_session_script(session, component_id, slot, output_pdf_path) if component_code else None
     if not script_content:
         script_content = assemble_script(
-            {component_id: component_code},
+            {component_id: component_code} if component_code else {},
             [slot],
             build_files_map(session),
             output_pdf_path,
@@ -1123,6 +1220,7 @@ async def preview_component(job_id: str, component_id: str):
             page_format=(page_width, page_height),
             include_title=False,
             normalize_layout=False,
+            artifacts=[artifact] if artifact else None,
         )
     result = execute_script(script_content, script_path, timeout=30)
     if not result.get("success"):
@@ -1139,18 +1237,30 @@ async def explore_data(job_id: str, prompt: str = Form(...)):
     history = session.get('explore_history', [])
     all_metadata = metadata_json(session)
     files_map = build_files_map(session)
-    
-    script_content = generate_exploration_script(
-        all_metadata, prompt, files_map, session.get('provider'), session.get('model_name'), history=history
-    )
-    script_path = os.path.join(SCRIPT_DIR, f"explore_{job_id}.py")
-    result = execute_script(script_content, script_path)
-    
-    answer = result["stdout"] if result["success"] else f"Erro: {result['stderr']}"
+    try:
+        script_content = generate_exploration_script(
+            all_metadata, prompt, files_map, session.get('provider'), session.get('model_name'), history=history, job_id=job_id
+        )
+        script_path = os.path.join(SCRIPT_DIR, f"explore_{job_id}.py")
+        result = execute_script(script_content, script_path)
+        answer = result["stdout"] if result["success"] else f"Erro: {result['stderr']}"
+    except (LLMBudgetError, LLMTimeoutError) as exc:
+        answer = f"Erro: {str(exc)}"
+        history.append({"role": "user", "content": prompt})
+        history.append({"role": "assistant", "content": answer})
+        update_session(job_id, {"explore_history": history, "error": exc.as_error_dict(), "status": "Falha na exploração", "current_step": "exploration_failed", "progress": 100})
+        raise HTTPException(status_code=429 if isinstance(exc, LLMBudgetError) else 504, detail=str(exc)) from exc
+
     history.append({"role": "user", "content": prompt})
     history.append({"role": "assistant", "content": answer})
     update_session(job_id, {"explore_history": history})
     return {"answer": answer}
+
+if __name__ == "app.main":
+    from app.routers.api import router as api_router
+
+    app.router.routes = _preserve_builtin_routes(app.router.routes)
+    app.include_router(api_router)
 
 if __name__ == "__main__":
     import uvicorn

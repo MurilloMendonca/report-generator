@@ -1,14 +1,0 @@
-Análise Logística: Custo, Atraso, Danos e Incidentes por
-CD e Transportadora
-Resumo de Desempenho Logístico
-O período analisado registrou 2.605 remessas, com custo total de R$ 179.300. A taxa média de atraso foi de 4,8% e a
-taxa de avarias, de 0,95%, totalizando 65 incidentes. Os gráficos a seguir detalham o desempenho por transportadora e
-armazém, permitindo comparações diretas de eficiência operacional.
-
-Conclusão do Painel Logístico
-A transportadora FastShip, alocada no armazém A, apresentou os melhores indicadores de pontualidade e qualidade.
-Em contraste, a RoadMax, no armazém B, registrou as maiores taxas de atraso e avarias, além de concentrar 45 dos
-65 incidentes totais. A AirSwift, no armazém C, manteve baixos índices de problemas, porém com custo mais elevado.
-Recomenda-se priorizar ações corretivas no armazém B e avaliar a relação custo-benefício da AirSwift.
-
-

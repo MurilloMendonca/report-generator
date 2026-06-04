@@ -1,5 +1,6 @@
 import json
 import os
+import logging
 import tempfile
 from datetime import datetime, timezone
 from contextlib import contextmanager
@@ -9,6 +10,7 @@ from pydantic import ValidationError
 from app.models.session import normalize_session
 
 SESSION_DIR = "workspace/sessions"
+logger = logging.getLogger(__name__)
 
 try:
     import fcntl
@@ -61,8 +63,12 @@ def get_session(job_id: str) -> dict:
     path = get_session_path(job_id)
     if not os.path.exists(path):
         return None
-    with open(path, 'r', encoding='utf-8') as f:
-        return normalize_session(json.load(f), job_id)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return normalize_session(data, job_id)
+    except (json.JSONDecodeError, ValidationError, OSError):
+        return None
 
 def update_session(job_id: str, updates: dict):
     with session_lock(job_id):
@@ -125,6 +131,172 @@ def add_log(job_id: str, message: str):
             session["status"] = message
             session["updated_at"] = datetime.now(timezone.utc).isoformat()
             write_session_file(job_id, normalize_session(session, job_id))
+
+
+def append_stage_event(
+    job_id: str,
+    stage: str,
+    event: str,
+    *,
+    status: str | None = None,
+    duration_ms: float | None = None,
+    provider: str | None = None,
+    model_name: str | None = None,
+    details: dict | None = None,
+):
+    with session_lock(job_id):
+        path = get_session_path(job_id)
+        if not os.path.exists(path):
+            return
+        with open(path, 'r', encoding='utf-8') as f:
+            session = normalize_session(json.load(f), job_id)
+        if not session:
+            return
+
+        history = session.get("stage_history", [])
+        history.append({
+            "stage": stage,
+            "event": event,
+            "status": status or session.get("status", ""),
+            "duration_ms": round(duration_ms, 1) if duration_ms is not None else None,
+            "provider": provider,
+            "model_name": model_name,
+            "details": details or {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        session["stage_history"] = history
+        session["updated_at"] = datetime.now(timezone.utc).isoformat()
+        write_session_file(job_id, normalize_session(session, job_id))
+        logger.info(
+            "stage_event job_id=%s stage=%s event=%s status=%s duration_ms=%s provider=%s model=%s",
+            job_id,
+            stage,
+            event,
+            status or session.get("status", ""),
+            round(duration_ms, 1) if duration_ms is not None else "",
+            provider or "",
+            model_name or "",
+        )
+
+
+def record_llm_usage(
+    job_id: str,
+    operation: str,
+    provider: str,
+    model_name: str,
+    *,
+    attempt: int,
+    duration_ms: float,
+    status: str,
+    prompt_chars: int = 0,
+    response_chars: int = 0,
+    error: str | None = None,
+    cache_hit: bool = False,
+):
+    with session_lock(job_id):
+        path = get_session_path(job_id)
+        if not os.path.exists(path):
+            return
+        with open(path, 'r', encoding='utf-8') as f:
+            session = normalize_session(json.load(f), job_id)
+        if not session:
+            return
+
+        usage = session.get("llm_usage", {})
+        usage.setdefault("calls", 0)
+        usage.setdefault("attempts", 0)
+        usage.setdefault("duration_ms", 0.0)
+        usage.setdefault("by_provider", {})
+        usage.setdefault("by_operation", {})
+        usage.setdefault("history", [])
+        usage.setdefault("cache_hits", 0)
+        usage["calls"] += 1
+        usage["attempts"] += int(attempt)
+        usage["duration_ms"] = round(float(usage["duration_ms"]) + float(duration_ms), 1)
+        usage["by_provider"][provider] = usage["by_provider"].get(provider, 0) + 1
+        usage["by_operation"][operation] = usage["by_operation"].get(operation, 0) + 1
+        if cache_hit:
+            usage["cache_hits"] += 1
+        usage["last_provider"] = provider
+        usage["last_model_name"] = model_name
+        usage["last_operation"] = operation
+        usage["last_status"] = status
+        usage["last_duration_ms"] = round(duration_ms, 1)
+        usage["last_error"] = error or ""
+        history = usage["history"]
+        history.append({
+            "operation": operation,
+            "provider": provider,
+            "model_name": model_name,
+            "attempt": attempt,
+            "duration_ms": round(duration_ms, 1),
+            "status": status,
+            "prompt_chars": int(prompt_chars),
+            "response_chars": int(response_chars),
+            "cache_hit": bool(cache_hit),
+            "error": error or "",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        usage["history"] = history[-50:]
+        session["llm_usage"] = usage
+        session["updated_at"] = datetime.now(timezone.utc).isoformat()
+        write_session_file(job_id, normalize_session(session, job_id))
+        logger.info(
+            "llm_usage job_id=%s operation=%s provider=%s model=%s attempt=%s duration_ms=%s status=%s cache_hit=%s",
+            job_id,
+            operation,
+            provider,
+            model_name,
+            attempt,
+            round(duration_ms, 1),
+            status,
+            cache_hit,
+        )
+
+
+def reserve_session_run(job_id: str, source: str = "pipeline") -> dict:
+    with session_lock(job_id):
+        path = get_session_path(job_id)
+        if not os.path.exists(path):
+            return {"run_id": 0, "previous_run_id": 0}
+        with open(path, 'r', encoding='utf-8') as f:
+            session = normalize_session(json.load(f), job_id)
+        if not session:
+            return {"run_id": 0, "previous_run_id": 0}
+
+        previous_run_id = int(session.get("active_run_id", 0) or 0)
+        next_run_id = int(session.get("run_sequence", 0) or 0) + 1
+        history = session.get("run_history", [])
+        history.append({
+            "run_id": next_run_id,
+            "source": source,
+            "previous_run_id": previous_run_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "active",
+        })
+        session["run_sequence"] = next_run_id
+        session["active_run_id"] = next_run_id
+        session["active_run_source"] = source
+        session["run_history"] = history[-50:]
+        session["updated_at"] = datetime.now(timezone.utc).isoformat()
+        write_session_file(job_id, normalize_session(session, job_id))
+        logger.info(
+            "run_reserved job_id=%s run_id=%s previous_run_id=%s source=%s",
+            job_id,
+            next_run_id,
+            previous_run_id,
+            source,
+        )
+        return {"run_id": next_run_id, "previous_run_id": previous_run_id}
+
+
+def is_current_session_run(job_id: str, run_id: int | None) -> bool:
+    if not run_id:
+        return False
+    session = get_session(job_id)
+    if not session:
+        return False
+    return int(session.get("active_run_id", 0) or 0) == int(run_id)
 
 
 def set_session_stage(job_id: str, step: str, progress: int = None, error: dict = None):

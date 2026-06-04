@@ -1,15 +1,0 @@
-Relatório Executivo de Vendas: Receita por Região, Mix de
-Produtos e Metas
-Resumo Executivo
-A receita total do período atingiu R$ 520.000,00, com desconto médio de 9,6%. O atingimento de metas variou entre as
-regiões: a região Norte superou a meta em 104,55%, enquanto a região Oeste ficou abaixo, com 83,33% de
-cumprimento. Esses resultados indicam um desempenho regional desigual que merece análise aprofundada.
-
-Conclusão e Recomendações
-O mix de produtos mostra a liderança do produto Alpha, responsável por 50,4% da receita total, seguido por Gamma e
-Beta. A tendência mensal revela concentração de vendas nos dois primeiros meses, com queda a partir de março,
-possivelmente relacionada ao aumento de descontos. Para melhorar o desempenho, recomenda-se fortalecer as
-estratégias comerciais na região Oeste, revisar a política de descontos e explorar ações para sustentar o ritmo de
-vendas ao longo de todo o trimestre.
-
-

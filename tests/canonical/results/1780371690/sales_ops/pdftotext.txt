@@ -1,16 +1,0 @@
-Relatório Executivo de Vendas - Receita, Metas e
-Disciplina de Descontos
-Introdução Executiva
-O relatório apresenta o desempenho comercial do primeiro quadrimestre de 2026, com receita total de R$ 870.500,
-superando a meta agregada de R$ 850.000 em 2,4%. Os resultados refletem a contribuição das regiões Norte, Sul e
-Oeste, com destaque para o produto Alpha como principal gerador de receita. O desconto médio praticado foi de 9,5%,
-indicando a necessidade de monitoramento para preservar a margem.
-
-Conclusão e Recomendações
-A região Sul liderou o faturamento no período, com R$ 350.500, seguida pelo Norte (R$ 345.000) e Oeste (R$
-175.000). O mix de produtos evidencia a força do Alpha, responsável por quase metade da receita total. No entanto, a
-aplicação de descontos elevados, como 13% na região Oeste, pode comprometer a rentabilidade. Recomenda-se
-revisar a política de descontos para alinhar incentivos ao volume sem sacrificar a margem, especialmente nos canais
-Online e Direct.
-
-

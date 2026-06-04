@@ -56,6 +56,10 @@ def infer_column_role(series: pd.Series) -> str:
         return "empty"
     if "date" in name or "data" in name or pd.api.types.is_datetime64_any_dtype(series):
         return "date"
+    if name in {"year", "ano", "año"} and pd.api.types.is_numeric_dtype(series):
+        numeric = pd.to_numeric(non_null, errors="coerce").dropna()
+        if not numeric.empty and numeric.between(1000, 3000).all():
+            return "date"
     if any(token in name for token in ["id", "uuid", "key", "codigo", "code"]):
         return "identifier"
     if pd.api.types.is_bool_dtype(series):

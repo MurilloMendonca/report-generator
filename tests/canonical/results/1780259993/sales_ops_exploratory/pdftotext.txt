@@ -1,14 +1,0 @@
-Relatório Exploratório do Pipeline de Vendas: Receita,
-Descontos e Metas
-Resumo Executivo
-A receita total do trimestre foi de R$ 870.500, representando uma queda de 9,3% em relação ao período anterior. O
-produto Alpha liderou as vendas, e a média de desconto aplicada foi de 9,5%. Apesar da retração, a meta trimestral foi
-superada em 2,4%, indicando eficiência no atingimento dos objetivos regionais.
-
-Conclusão e Recomendações
-Os resultados mostram que a receita, embora abaixo do período anterior, superou a meta agregada graças ao
-desempenho do produto Alpha e à gestão de descontos. Recomenda-se revisar a estratégia de descontos por canal e
-região, especialmente nos segmentos com maior margem de melhoria, como o Oeste, e intensificar a presença do
-produto Alpha nos canais Direto e Parceiro, que apresentaram maior contribuição.
-
-

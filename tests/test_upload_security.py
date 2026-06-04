@@ -3,6 +3,7 @@ import os
 import uuid
 import unittest
 
+import pandas as pd
 from fastapi import HTTPException, Response, UploadFile
 
 import app.main as main
@@ -42,6 +43,33 @@ class UploadSecurityTests(unittest.TestCase):
 
         self.assertEqual(error.exception.status_code, 400)
         self.assertIn("Invalid CSV", error.exception.detail)
+
+    def test_rejects_excel_workbooks_with_too_many_sheets(self):
+        path = os.path.join(main.UPLOAD_DIR, f"test_upload_security_many_sheets_{uuid.uuid4().hex}.xlsx")
+        with pd.ExcelWriter(path) as writer:
+            for index in range(main.MAX_EXCEL_SHEETS + 1):
+                pd.DataFrame({"value": [index]}).to_excel(writer, sheet_name=f"sheet_{index}", index=False)
+
+        try:
+            with self.assertRaises(HTTPException) as error:
+                main.validate_saved_upload(
+                    path,
+                    ".xlsx",
+                    "many_sheets.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+
+            self.assertEqual(error.exception.status_code, 400)
+            self.assertIn("too many sheets", error.exception.detail)
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+
+    def test_saved_uploads_include_validation_diagnostics(self):
+        saved = main.save_uploaded_files([self.upload("data.csv", b"a,b\n1,2\n")])
+
+        self.assertEqual(saved[0]["validation"]["status"], "ok")
+        self.assertEqual(saved[0]["validation"]["format"], "csv")
 
     def test_copy_upload_enforces_size_limit_and_removes_partial_file(self):
         old_limit = main.MAX_UPLOAD_BYTES

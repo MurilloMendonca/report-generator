@@ -28,23 +28,37 @@ const TemplateEditor = {
 
     bindEvents() {
         document.getElementById('login-form').onsubmit = (event) => this.handleLogin(event);
-        document.getElementById('template-select').onchange = (event) => {
+        document.getElementById('template-select').addEventListener('change', (event) => {
             this.selectTemplate(event.target.value);
-        };
-        document.getElementById('new-template-btn').onclick = () => this.newTemplate();
-        document.getElementById('duplicate-template-btn').onclick = () => this.duplicateTemplate();
-        document.getElementById('delete-template-btn').onclick = () => this.deleteTemplate();
-        document.getElementById('add-text-btn').onclick = () => this.addSlot('text');
-        document.getElementById('add-graphic-btn').onclick = () => this.addSlot('graphic');
-        document.getElementById('add-page-btn').onclick = () => this.addPage();
-        document.getElementById('template-form').onsubmit = (event) => this.saveTemplate(event);
-        document.getElementById('slot-type').onchange = (event) => this.updateSelectedSlotType(event.target.value);
-        document.getElementById('slot-name').oninput = (event) => this.updateSelectedSlotField('name', event.target.value);
-        document.getElementById('slot-description').oninput = (event) => this.updateSelectedSlotField('description', event.target.value);
-        ['page', 'x', 'y', 'w', 'h'].forEach(field => {
-            document.getElementById(`slot-${field}`).oninput = (event) => this.updateSelectedSlotNumber(field, event.target.value);
         });
-        document.getElementById('remove-slot-btn').onclick = () => this.removeSelectedSlot();
+        document.getElementById('new-template-btn').addEventListener('click', () => this.newTemplate());
+        document.getElementById('duplicate-template-btn').addEventListener('click', () => this.duplicateTemplate());
+        document.getElementById('delete-template-btn').addEventListener('click', () => this.deleteTemplate());
+        document.getElementById('add-text-btn').addEventListener('click', () => this.addSlot('text'));
+        document.getElementById('add-graphic-btn').addEventListener('click', () => this.addSlot('graphic'));
+        document.getElementById('add-page-btn').addEventListener('click', () => this.addPage());
+        document.getElementById('template-form').onsubmit = (event) => this.saveTemplate(event);
+        document.getElementById('slot-type').addEventListener('change', (event) => this.updateSelectedSlotType(event.target.value));
+        document.getElementById('slot-name').addEventListener('input', (event) => this.updateSelectedSlotField('name', event.target.value));
+        document.getElementById('slot-description').addEventListener('input', (event) => this.updateSelectedSlotField('description', event.target.value));
+        ['page', 'x', 'y', 'w', 'h'].forEach(field => {
+            document.getElementById(`slot-${field}`).addEventListener('input', (event) => this.updateSelectedSlotNumber(field, event.target.value));
+        });
+        document.getElementById('remove-slot-btn').addEventListener('click', () => this.removeSelectedSlot());
+        document.addEventListener('click', (event) => this.handleDocumentClick(event));
+    },
+
+    handleDocumentClick(event) {
+        const target = event.target.closest('[data-action]');
+        if (!target) return;
+
+        switch (target.dataset.action) {
+            case 'template-preview-select':
+                this.selectTemplate(target.dataset.templateId);
+                break;
+            default:
+                break;
+        }
     },
 
     async handleLogin(event) {
@@ -76,9 +90,14 @@ const TemplateEditor = {
     },
 
     renderTemplateSelect() {
-        document.getElementById('template-select').innerHTML = this.templates.map(template => (
-            `<option value="${this.escapeHtml(template.id)}">${this.escapeHtml(template.name)}</option>`
-        )).join('');
+        const select = document.getElementById('template-select');
+        select.textContent = '';
+        this.templates.forEach(template => {
+            const option = document.createElement('option');
+            option.value = template.id;
+            option.textContent = template.name;
+            select.appendChild(option);
+        });
     },
 
     selectTemplate(templateId) {
@@ -96,7 +115,7 @@ const TemplateEditor = {
     newTemplate() {
         this.currentTemplate = {
             id: '',
-            name: 'New template',
+            name: 'Novo template',
             description: '',
             slots: []
         };
@@ -112,19 +131,19 @@ const TemplateEditor = {
         if (!this.currentTemplate) return;
         this.currentTemplate = structuredClone(this.currentTemplate);
         this.currentTemplate.id = '';
-        this.currentTemplate.name = `${this.currentTemplate.name} Copy`;
+        this.currentTemplate.name = `${this.currentTemplate.name} - cópia`;
         document.getElementById('template-name').value = this.currentTemplate.name;
-        this.setStatus('Duplicated locally. Save to add it to the library.');
+        this.setStatus('Duplicado localmente. Salve para adicioná-lo à biblioteca.');
     },
 
     async deleteTemplate() {
         if (!this.currentTemplate || !this.currentTemplate.id) return;
-        if (!confirm('Delete this template from the library?')) return;
+        if (!confirm('Excluir este template da biblioteca?')) return;
         await fetch(`/api/layout-templates/${this.currentTemplate.id}`, {
             method: 'DELETE',
             headers: API.authHeaders()
         });
-        this.setStatus('Template deleted.');
+        this.setStatus('Template excluído.');
         await this.loadTemplates();
     },
 
@@ -134,7 +153,7 @@ const TemplateEditor = {
         const pageCount = Math.max(1, ...this.currentTemplate.slots.map(slot => slot.page || 1));
         const slot = {
             slot_id: `slot_${Date.now()}`,
-            name: type === 'text' ? 'Text block' : 'Graphic block',
+            name: type === 'text' ? 'Bloco de texto' : 'Bloco gráfico',
             description: '',
             type,
             page: pageCount,
@@ -157,7 +176,7 @@ const TemplateEditor = {
 
     renderCanvas() {
         const canvas = document.getElementById('template-canvas');
-        canvas.innerHTML = '';
+        UI.clearElement(canvas);
         const slots = this.currentTemplate?.slots || [];
         const pageCount = Math.max(1, ...slots.map(slot => slot.page || 1));
         for (let page = 1; page <= pageCount; page++) {
@@ -177,15 +196,37 @@ const TemplateEditor = {
             block.style.width = `${slot.w * MM_TO_PX}px`;
             block.style.height = `${slot.h * MM_TO_PX}px`;
             const label = slot.name || slot.type;
-            block.innerHTML = `
-                <span>${this.escapeHtml(label)}</span>
-                <small>${this.escapeHtml(slot.type)}</small>
-                <div class="resizer"></div>
-            `;
-            block.onclick = (event) => {
+            block.tabIndex = 0;
+            block.setAttribute('role', 'button');
+            block.setAttribute('aria-label', `Bloco ${label}, página ${slot.page || 1}. Use as setas para mover.`);
+            const labelEl = document.createElement('span');
+            labelEl.textContent = label;
+            const typeEl = document.createElement('small');
+            typeEl.textContent = slot.type;
+            const resizer = document.createElement('div');
+            resizer.className = 'resizer';
+            block.appendChild(labelEl);
+            block.appendChild(typeEl);
+            block.appendChild(resizer);
+            block.addEventListener('click', (event) => {
                 event.stopPropagation();
                 this.selectSlot(slot.slot_id);
-            };
+            });
+            block.addEventListener('focus', () => this.selectSlot(slot.slot_id));
+            block.addEventListener('keydown', (event) => {
+                const key = event.key;
+                if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Delete', 'Backspace'].includes(key)) return;
+                event.preventDefault();
+                this.selectSlot(slot.slot_id);
+                if (key === 'Delete' || key === 'Backspace') {
+                    this.removeSelectedSlot();
+                    return;
+                }
+                const step = event.shiftKey ? 5 : 1;
+                const deltaX = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
+                const deltaY = key === 'ArrowUp' ? -step : key === 'ArrowDown' ? step : 0;
+                this.moveSelectedSlot(deltaX, deltaY);
+            });
             Utils.makeDraggable(block);
             pageEl.appendChild(block);
         });
@@ -195,8 +236,8 @@ const TemplateEditor = {
         const pageEl = document.createElement('div');
         pageEl.className = 'a4-page';
         pageEl.dataset.page = page;
-        pageEl.style.setProperty('--page-label', `"Template Page ${page}"`);
-        pageEl.onclick = () => this.selectSlot(null);
+        pageEl.style.setProperty('--page-label', `"Página do template ${page}"`);
+        pageEl.addEventListener('click', () => this.selectSlot(null));
         return pageEl;
     },
 
@@ -263,6 +304,15 @@ const TemplateEditor = {
         }
 
         this.applySlotGeometry(slot);
+    },
+
+    moveSelectedSlot(deltaX, deltaY) {
+        const slot = this.getSelectedSlot();
+        if (!slot) return;
+        slot.x = Math.max(0, slot.x + deltaX);
+        slot.y = Math.max(0, slot.y + deltaY);
+        this.applySlotGeometry(slot);
+        this.renderInspector();
     },
 
     applySlotGeometry(slot) {
@@ -341,7 +391,7 @@ const TemplateEditor = {
             body: JSON.stringify(payload)
         });
         const saved = await response.json();
-        this.setStatus(`Saved "${saved.name}".`);
+        this.setStatus(`Salvo "${saved.name}".`);
         await this.loadTemplates();
         this.selectTemplate(saved.id);
     },

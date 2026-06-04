@@ -5,6 +5,7 @@ import uuid
 import pandas as pd
 
 from app.utils.data_analyzer import extract_metadata
+from app.services.pipeline_service import metadata_json, raw_metadata_json
 
 
 class DataAnalyzerTests(unittest.TestCase):
@@ -65,6 +66,19 @@ class DataAnalyzerTests(unittest.TestCase):
         self.assertEqual(bool_column["role"], "boolean")
         self.assertNotIn("stats", bool_column)
 
+    def test_numeric_year_column_is_treated_as_date_role(self):
+        path = self.temp_path(".xlsx")
+        pd.DataFrame({
+            "Year": [2020, 2021, 2022],
+            "value": [10, 20, 30],
+        }).to_excel(path, index=False)
+
+        metadata = extract_metadata(path, "yearly.xlsx")
+
+        year_column = next(column for column in metadata["columns"] if column["name"] == "Year")
+        self.assertEqual(year_column["role"], "date")
+        self.assertIn("Year", metadata["profile"]["column_roles"]["dates"])
+
     def test_redacts_sensitive_sample_values(self):
         path = self.temp_path(".csv")
         pd.DataFrame({
@@ -81,6 +95,24 @@ class DataAnalyzerTests(unittest.TestCase):
         email_column = next(column for column in metadata["columns"] if column["name"] == "customer_email")
         self.assertTrue(email_column["sensitive"])
         self.assertEqual(email_column["top_values"], [])
+
+    def test_prompt_metadata_omits_samples_by_default(self):
+        path = self.temp_path(".csv")
+        pd.DataFrame({
+            "customer_email": ["ana@example.com", "bob@example.com"],
+            "region": ["Sul", "Norte"],
+        }).to_csv(path, index=False)
+
+        artifact = extract_metadata(path, "customers.csv")
+        session = {"files": [{"artifact": artifact, "raw_artifact": artifact}]}
+
+        prompt_payload = metadata_json(session)
+        raw_prompt_payload = raw_metadata_json(session)
+
+        self.assertNotIn('"sample"', prompt_payload)
+        self.assertNotIn('"sample"', raw_prompt_payload)
+        self.assertIn('"sample_policy"', prompt_payload)
+        self.assertIn('"included": false', prompt_payload)
 
 
 if __name__ == "__main__":

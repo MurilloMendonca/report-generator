@@ -56,6 +56,12 @@ class ReportSettings(BaseModel):
     chart_style_id: str | None = "modern"
     chart_palette: list[str] = Field(default_factory=list)
     visual_instructions: str = ""
+    include_data_samples: bool = False
+    llm_call_budget: int = 0
+    llm_timeout_seconds: int = 45
+    llm_fallback_provider: str = ""
+    llm_fallback_model_name: str = ""
+    llm_cache_enabled: bool = True
 
     @model_validator(mode="after")
     def normalize_alignment(self):
@@ -92,6 +98,11 @@ class ReportSession(BaseModel):
     current_step: str = ""
     progress: int = 0
     error: dict[str, Any] | None = None
+    stage_history: list[dict[str, Any]] = Field(default_factory=list)
+    run_sequence: int = 0
+    active_run_id: int = 0
+    active_run_source: str = ""
+    run_history: list[dict[str, Any]] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
     files: list[SessionFile] = Field(default_factory=list)
     initial_prompt: str = ""
@@ -106,6 +117,7 @@ class ReportSession(BaseModel):
     calculated_metrics: dict[str, Any] = Field(default_factory=dict)
     semantic_model: dict[str, Any] = Field(default_factory=dict)
     settings: ReportSettings = Field(default_factory=ReportSettings)
+    llm_usage: dict[str, Any] = Field(default_factory=dict)
     script: str = ""
     script_path: str | None = None
     pdf_path: str | None = None
@@ -162,6 +174,10 @@ class ReportSession(BaseModel):
             self.provider = "deepseek"
         if not self.model_name:
             self.model_name = "deepseek-v4-flash"
+        self.run_sequence = int(self.run_sequence or 0)
+        self.active_run_id = int(self.active_run_id or 0)
+        if not self.active_run_source and self.active_run_id:
+            self.active_run_source = "pipeline"
         if self.data_preprocessing.needs_preprocessing or self.data_preprocessing.description or self.data_preprocessing.code:
             self.data_filter = self.data_preprocessing
         elif self.data_filter.needs_filter or self.data_filter.description or self.data_filter.code:

@@ -1,16 +1,0 @@
-Logística: Custo, Atraso, Avaria e Incidentes por Armazém
-e Transportadora
-Resumo executivo de logística
-O custo total de logística foi R$ 179.300,00, com atraso de 4,8% e avaria de 0,95%, e ocorreram 65 incidentes em três
-semanas, nos armazéns A, B, C e transportadoras FastShip, RoadMax e AirSwift.
-
-Conclusão dos quatro quadrantes
-A análise evidencia trade-offs claros entre custo e qualidade nas combinações armazém-transportadora. O armazém B,
-operando com a RoadMax, apresentou o menor custo médio por remessa (cerca de R$ 25.050), porém as maiores
-taxas de atraso (média de 8,2%) e avaria (1,6%), somando 45 incidentes. Em contraste, o armazém C com a AirSwift
-demonstrou excelente qualidade (2,1% de atraso e 0,5% de avaria), mas com custo elevado (R$ 35.100 por semana).
-O armazém A com a FastShip manteve um desempenho equilibrado, com métricas intermediárias (4,0% de atraso,
-0,75% de avaria) e custos moderados (média de R$ 28.800). Recomenda-se avaliar estrategicamente esses trade-offs
-para alinhar a logística aos objetivos de negócio.
-
-

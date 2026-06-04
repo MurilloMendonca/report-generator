@@ -17,7 +17,7 @@
 }
 
 body {
-    font-family: 'Roboto', sans-serif;
+    font-family: Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     margin: 0;
     height: 100vh;
     background: var(--md-sys-color-surface);
@@ -192,7 +192,7 @@ body {
 .log-container {
     background: #1a1c1e;
     color: #e2e2e6;
-    font-family: 'Roboto Mono', monospace;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     font-size: 0.75rem;
     padding: 0.75rem;
     border-radius: 8px;
@@ -278,6 +278,23 @@ textarea {
     transform: scale(0.98);
 }
 
+.btn:focus-visible,
+select:focus-visible,
+input[type="file"]:focus-visible,
+input[type="text"]:focus-visible,
+input[type="password"]:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--md-sys-color-primary) 65%, white);
+    outline-offset: 2px;
+}
+
+.template-slot:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--md-sys-color-primary) 65%, white);
+    outline-offset: 3px;
+}
+
 .btn-secondary {
     background: var(--md-sys-color-secondary);
     color: var(--md-sys-color-on-secondary);
@@ -348,6 +365,107 @@ textarea {
     height: 18px;
     border: 1px solid rgba(0,0,0,0.12);
     border-radius: 4px;
+}
+
+.visual-choice-inspector,
+.preset-inspector {
+    margin: 0.35rem 0 1rem;
+}
+
+.visual-preview-card {
+    display: grid;
+    grid-template-columns: 190px minmax(0, 1fr);
+    gap: 0.85rem;
+    align-items: stretch;
+    border: 1px solid var(--md-sys-color-surface-variant);
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 0.75rem;
+}
+
+.preset-preview-card {
+    grid-template-columns: 170px minmax(0, 1fr);
+}
+
+.visual-preview-media {
+    min-height: 108px;
+    border: 1px solid var(--md-sys-color-surface-variant);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+.visual-preview-media img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.visual-preview-body {
+    min-width: 0;
+}
+
+.visual-preview-heading {
+    font-weight: 700;
+    font-size: 0.86rem;
+    color: var(--md-sys-color-on-surface);
+}
+
+.visual-preview-body p {
+    margin: 0.35rem 0;
+    font-size: 0.76rem;
+    line-height: 1.35;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.visual-info-group {
+    margin-top: 0.45rem;
+}
+
+.visual-info-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--md-sys-color-on-surface-variant);
+    text-transform: uppercase;
+}
+
+.visual-info-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.28rem;
+}
+
+.visual-info-tag {
+    border: 1px solid var(--md-sys-color-surface-variant);
+    border-radius: 999px;
+    padding: 0.16rem 0.42rem;
+    background: #f8fafc;
+    color: var(--md-sys-color-on-surface);
+    font-size: 0.7rem;
+    line-height: 1.2;
+}
+
+.visual-accessibility-note,
+.visual-context-note {
+    border-left: 3px solid var(--md-sys-color-primary);
+    padding-left: 0.5rem;
+}
+
+.visual-binding-warning {
+    border-left: 3px solid var(--md-sys-color-error);
+    padding-left: 0.5rem;
+    color: var(--md-sys-color-error) !important;
+}
+
+.visual-inspector-empty {
+    border: 1px dashed var(--md-sys-color-outline);
+    border-radius: 8px;
+    padding: 0.75rem;
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: 0.8rem;
 }
 
 input[type="password"] {
@@ -637,6 +755,16 @@ input[type="password"] {
     padding: 0.18rem 0.4rem;
 }
 
+.artifact-visual-warnings {
+    margin-top: 0.45rem;
+    padding: 0.4rem 0.55rem;
+    border-left: 3px solid var(--md-sys-color-error);
+    background: #fff6f5;
+    color: #7f1d1d;
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
 .artifact-header {
     display: flex;
     justify-content: space-between;
@@ -919,13 +1047,19 @@ dialog::backdrop {
 
 .indicator-visual-options {
     height: 84px;
-    font-family: 'Roboto Mono', monospace;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.78rem;
+}
+
+.indicator-data-binding {
+    height: 84px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     font-size: 0.78rem;
 }
 
 .indicator-code {
     height: 210px;
-    font-family: 'Roboto Mono', monospace;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     background: #263238;
     color: #80cbfe;
 }
@@ -971,6 +1105,15 @@ dialog::backdrop {
     .indicator-modal-grid,
     .indicator-field-row {
         grid-template-columns: 1fr;
+    }
+
+    .visual-preview-card,
+    .preset-preview-card {
+        grid-template-columns: 1fr;
+    }
+
+    .visual-preview-media {
+        min-height: 150px;
     }
 }
 
@@ -1078,10 +1221,28 @@ dialog::backdrop {
     box-sizing: border-box;
     background: #111827;
     color: #e5e7eb;
-    font-family: 'Roboto Mono', monospace;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     font-size: 0.78rem;
     line-height: 1.5;
     white-space: pre-wrap;
+}
+
+pre {
+    margin: 0;
+}
+
+pre code,
+code.language-python {
+    display: block;
+    padding: 1rem;
+    box-sizing: border-box;
+    background: #111827;
+    color: #e5e7eb;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    overflow: auto;
+    white-space: pre;
 }
 
 .preview-loading,
@@ -1149,6 +1310,27 @@ iframe {
 
 .template-description {
     height: 70px;
+}
+
+.settings-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin: 0 0 1rem;
+    font-size: 0.92rem;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.settings-checkbox input {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+}
+
+.full-script-pre {
+    margin: 0;
+    border-radius: 12px;
+    overflow: hidden;
 }
 
 .template-workspace {

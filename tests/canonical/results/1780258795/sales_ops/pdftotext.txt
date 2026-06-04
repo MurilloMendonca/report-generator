@@ -1,14 +1,0 @@
-Desempenho de Vendas do Q1 2026: Receita, Metas e
-Disciplina de Descontos
-Introdução Executiva
-Este relatório apresenta a análise de desempenho de vendas do primeiro trimestre. A receita total atingiu R$ 870.500,
-superando ligeiramente a meta agregada de R$ 850.000, com um atingimento consolidado de 102,4%. O desconto
-médio praticado foi de 9,5%, indicando uma gestão moderada de concessões.
-
-Conclusão e Recomendações
-A região Sul destacou-se com o maior atingimento (113,1%), enquanto o Oeste ficou abaixo da meta (83,3%),
-representando a principal oportunidade de melhoria. O produto Alpha liderou a receita (R$ 409.500), e o Gamma
-apresentou o menor desempenho. Recomenda-se focar ações comerciais na região Oeste e revisar a estratégia de
-descontos para impulsionar o Gamma e elevar a performance geral.
-
-

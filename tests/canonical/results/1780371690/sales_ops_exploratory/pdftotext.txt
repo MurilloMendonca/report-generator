@@ -1,16 +1,0 @@
-Explorando o Pipeline de Vendas: Tendências, Metas e
-Canais
-Introdução Executiva
-Este relatório analisa o desempenho de vendas nos primeiros quatro meses de 2026, abrangendo receita total,
-descontos e metas regionais. A receita totalizou R$ 870.500, com desconto médio de 9,5%. As regiões Norte e Sul
-superaram suas metas trimestrais em 4,5% e 13,1%, respectivamente. Já a região Oeste registrou desempenho 16,7%
-abaixo da meta, destacando-se como ponto crítico para ações corretivas.
-
-Conclusão e Recomendações
-A região Oeste exige atenção imediata: com descontos médios de 11,5% e desempenho 16,7% abaixo da meta, é
-necessário revisar a estratégia de precificação e fortalecer os canais Online e Partner. As regiões Norte e Sul, que
-superaram as metas em 4,5% e 13,1%, respectivamente, servem como referência de boas práticas. Recomenda-se
-recalibrar a política de descontos na Oeste e replicar as estratégias de sucesso das demais regiões para equilibrar o
-resultado global.
-
-

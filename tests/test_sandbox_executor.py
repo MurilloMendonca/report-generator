@@ -1,4 +1,5 @@
 import os
+import shutil
 import unittest
 import uuid
 
@@ -29,8 +30,12 @@ class SandboxExecutorTests(unittest.TestCase):
         )
 
         self.assertTrue(result["success"], result["stderr"])
+        if shutil.which("bwrap") and result.get("sandbox_backend") == "bubblewrap":
+            self.assertEqual(result.get("sandbox_backend"), "bubblewrap")
         self.assertEqual(result["stdout"].strip(), "done")
         self.assertTrue(os.path.exists(output_path))
+        self.assertTrue(result["sandbox_access_manifest"])
+        self.assertTrue(any(entry.get("path") == os.path.abspath(output_path) for entry in result["sandbox_access_manifest"]))
 
     def test_allows_matplotlib_report_assets(self):
         output_path = f"workspace/reports/test_sandbox_{uuid.uuid4().hex}.png"
@@ -132,6 +137,7 @@ class SandboxExecutorTests(unittest.TestCase):
 
         self.assertFalse(result["success"])
         self.assertIn("Sandbox denied process execution", result["stderr"])
+        self.assertTrue(any(entry.get("event") == "subprocess.Popen" for entry in result["sandbox_access_manifest"]))
 
     def test_denies_os_system_execution(self):
         result = execute_script(
@@ -141,6 +147,17 @@ class SandboxExecutorTests(unittest.TestCase):
 
         self.assertFalse(result["success"])
         self.assertIn("Sandbox denied process execution", result["stderr"])
+        self.assertTrue(any(entry.get("event") == "os.system" for entry in result["sandbox_access_manifest"]))
+
+    def test_denies_ctypes_import(self):
+        result = execute_script(
+            "import ctypes\nctypes.CDLL(None)",
+            self.script_path(),
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("Sandbox denied ctypes access", result["stderr"])
+        self.assertTrue(any(entry.get("event") == "ctypes.dlopen" for entry in result["sandbox_access_manifest"]))
 
     def test_times_out_infinite_loops(self):
         result = execute_script("while True:\n    pass", self.script_path(), timeout=1)

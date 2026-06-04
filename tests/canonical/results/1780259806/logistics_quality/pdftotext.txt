@@ -1,14 +1,0 @@
-Desempenho Logístico: Custo, Atraso, Danos e Incidentes
-por Armazém e Transp.
-Resumo executivo - desempenho logístico
-O período analisado registrou um custo logístico total de R$ 179.300, taxa média de atraso de 4,8% e 65 incidentes
-operacionais. Esses números indicam a necessidade de aprimoramento nos processos de transporte e armazenagem,
-conforme detalhado neste relatório.
-
-Conclusão e recomendações
-Os dados apontam que a transportadora RoadMax, com atraso médio de 8,2%, e o armazém B, responsável por 69%
-dos incidentes (principalmente atrasos e avarias), são os principais pontos de melhoria. Recomenda-se renegociar
-contratos com a RoadMax e implementar auditorias no armazém B, visando reduzir o custo total e elevar a qualidade
-do serviço.
-
-

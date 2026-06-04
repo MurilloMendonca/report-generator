@@ -4,17 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Report Generator v0.3.6</title>
-    
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono&display=swap" rel="stylesheet">
-    
-    <!-- Highlight.js -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
-    
+
     <!-- Styles -->
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
@@ -45,9 +35,9 @@
             </div>
             <div class="file-dropzone" id="file-dropzone">
                 <div class="file-tray" id="file-tray"></div>
-                <button class="btn btn-outline add-file-btn" type="button" onclick="document.getElementById('add-file-input').click()">+ Adicionar Dados</button>
+                <button class="btn btn-outline add-file-btn" type="button" data-action="trigger-add-file">+ Adicionar Dados</button>
             </div>
-            <input type="file" id="add-file-input" style="display:none" multiple onchange="App.handleUploadMore(this)">
+            <input type="file" id="add-file-input" style="display:none" multiple>
         </div>
 
         <div class="chat-history" id="chat-history">
@@ -63,7 +53,7 @@
             <form id="upload-form">
                 <div class="form-group">
                     <label>Provedor:</label>
-                    <select id="provider" name="provider" onchange="App.updateModels()">
+                    <select id="provider" name="provider">
                         <option value="gemini">Google Gemini</option>
                         <option value="deepseek" selected>DeepSeek</option>
                     </select>
@@ -104,13 +94,13 @@
         </div>
 
         <div class="tabs">
-            <button class="tab active" onclick="Utils.openTab('tab-pdf', event)">Visualização</button>
-            <button class="tab" onclick="Utils.openTab('tab-design', event)">Editor de Layout 🎨</button>
-            <button class="tab" onclick="Utils.openTab('tab-artifacts', event)">Componentes</button>
-            <button class="tab" onclick="Utils.openTab('tab-script', event)">Script completo 🐍</button>
-            <button class="tab" onclick="Utils.openTab('tab-settings', event)">Configurações ⚙️</button>
-            <button class="tab" onclick="Utils.openTab('tab-explore', event)">Explorador 🔍</button>
-            <button class="tab" onclick="Utils.openTab('tab-data', event)">Métricas & Dados</button>
+            <button class="tab active" type="button" data-tab-target="tab-pdf">Visualização</button>
+            <button class="tab" type="button" data-tab-target="tab-design">Editor de Layout 🎨</button>
+            <button class="tab" type="button" data-tab-target="tab-artifacts">Componentes</button>
+            <button class="tab" type="button" data-tab-target="tab-script">Script completo 🐍</button>
+            <button class="tab" type="button" data-tab-target="tab-settings">Configurações ⚙️</button>
+            <button class="tab" type="button" data-tab-target="tab-explore">Explorador 🔍</button>
+            <button class="tab" type="button" data-tab-target="tab-data">Métricas & Dados</button>
         </div>
 
         <div id="tab-pdf" class="tab-content active">
@@ -121,8 +111,8 @@
             <div class="canvas-area">
                 <div style="margin-bottom: 1.5rem; color: white; display: flex; gap: 1.5rem; align-items: center;">
                     <span style="font-size: 1rem; opacity: 0.9;">📐 Organize os blocos na página A4 para o PDF final.</span>
-                    <button class="btn btn-secondary" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" onclick="App.addLayoutPage()">+ Página</button>
-                    <button class="btn btn-secondary" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" onclick="App.handleSaveVisualLayout()">💾 Aplicar Layout & Renderizar</button>
+                    <button class="btn btn-secondary" type="button" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" data-action="add-layout-page">+ Página</button>
+                    <button class="btn btn-secondary" type="button" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" data-action="save-visual-layout">💾 Aplicar Layout & Renderizar</button>
                 </div>
                 <div class="layout-canvas" id="layout-canvas"></div>
             </div>
@@ -131,7 +121,7 @@
         <div id="tab-artifacts" class="tab-content">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                 <h3 style="margin:0; color: var(--md-sys-color-primary)">Arquitetura do Relatório</h3>
-                <button class="btn btn-secondary" onclick="App.handleEditIndicator(-1)">➕ Novo Indicador</button>
+                <button class="btn btn-secondary" type="button" data-action="edit-indicator-new">➕ Novo Indicador</button>
             </div>
             <div id="artifacts-visual" class="artifact-list"></div>
         </div>
@@ -139,7 +129,7 @@
         <div id="tab-script" class="tab-content">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                 <h3 style="color: var(--md-sys-color-primary)">Script Python Completo</h3>
-                <button class="btn btn-outline" onclick="App.copyFullScript()">📋 Copiar Código</button>
+                <button class="btn btn-outline" type="button" data-action="copy-full-script">📋 Copiar Código</button>
             </div>
             <pre style="margin:0; border-radius: 12px; overflow: hidden;"><code class="language-python" id="full-script-content"># O script aparecerá aqui após a primeira geração...</code></pre>
         </div>
@@ -214,10 +204,15 @@
                             <select id="s-chart-style" name="chart_style_id"></select>
                         </div>
                     </div>
+                    <div id="visual-theme-inspector" class="visual-choice-inspector" aria-live="polite"></div>
                     <div class="form-group">
                         <label>Instruções visuais globais:</label>
                         <textarea id="s-visual-instructions" name="visual_instructions" class="settings-visual-instructions" placeholder="Ex: usar menos rótulos e priorizar gráficos horizontais"></textarea>
                     </div>
+                    <label class="settings-checkbox">
+                        <input type="checkbox" id="s-include-data-samples" name="include_data_samples">
+                        <span>Incluir amostras de dados nos prompts</span>
+                    </label>
                     <div class="form-group">
                         <label>Template de Layout:</label>
                         <select id="s-layout-template" name="selected_template_id"></select>
@@ -225,9 +220,9 @@
                     </div>
                     <div class="settings-actions">
                         <button type="submit" class="btn">Salvar e Aplicar</button>
-                        <button type="button" class="btn btn-outline" onclick="App.handleRegenerate('texts')">Atualizar textos</button>
-                        <button type="button" class="btn btn-outline" onclick="App.handleRegenerate('graphics')">Atualizar gráficos</button>
-                        <button type="button" class="btn btn-secondary" onclick="App.handleRegenerate('all')">Atualizar tudo</button>
+                        <button type="button" class="btn btn-outline" data-action="regenerate-texts">Atualizar textos</button>
+                        <button type="button" class="btn btn-outline" data-action="regenerate-graphics">Atualizar gráficos</button>
+                        <button type="button" class="btn btn-secondary" data-action="regenerate-all">Atualizar tudo</button>
                     </div>
                 </form>
             </div>
@@ -248,10 +243,10 @@
     </div>
 
     <!-- Modals -->
-    <dialog id="indicator-modal" class="indicator-modal">
+    <dialog id="indicator-modal" class="indicator-modal" aria-labelledby="modal-title">
         <div class="indicator-modal-header">
             <h3 id="modal-title">Editar Indicador</h3>
-            <button type="button" class="btn btn-outline" onclick="document.getElementById('indicator-modal').close()">Fechar</button>
+            <button type="button" class="btn btn-outline" data-action="close-indicator-modal">Fechar</button>
         </div>
         <form id="modal-form">
             <input type="hidden" id="edit-index" value="-1">
@@ -302,10 +297,25 @@
                             <select id="m-chart-style"></select>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label>Opções visuais (JSON):</label>
-                        <textarea id="m-visual-options" class="indicator-visual-options" placeholder='{"top_n": 8, "show_values": true}'></textarea>
-                    </div>
+	                    <div class="form-group">
+	                        <label>Opções visuais (JSON):</label>
+	                        <textarea id="m-visual-options" class="indicator-visual-options" placeholder='{"top_n": 8, "show_values": true}'></textarea>
+	                    </div>
+	                    <div class="indicator-field-row">
+	                        <div class="form-group">
+	                            <label>Modo de renderização:</label>
+	                            <select id="m-render-mode">
+	                                <option value="generated_code">Código gerado</option>
+	                                <option value="hybrid">Híbrido</option>
+	                                <option value="library">Biblioteca</option>
+	                            </select>
+	                        </div>
+	                        <div class="form-group">
+	                            <label>Data binding (JSON):</label>
+	                            <textarea id="m-data-binding" class="indicator-data-binding" placeholder='{"source": "dados.csv", "roles": {"category": "region", "value": "revenue"}}'></textarea>
+	                        </div>
+	                    </div>
+	                    <div id="preset-inspector" class="preset-inspector" aria-live="polite"></div>
                     <div class="form-group">
                         <label>Objetivo / Lógica:</label>
                         <textarea id="m-reason" class="indicator-reason"></textarea>
@@ -323,14 +333,14 @@
                 </div>
             </div>
             <div class="indicator-modal-actions">
-                <button type="button" class="btn btn-outline" onclick="document.getElementById('indicator-modal').close()">Cancelar</button>
-                <button type="button" class="btn btn-secondary" id="modal-regenerate-btn" onclick="App.handleRegenerateCurrentIndicator()">Salvar e regerar</button>
+                <button type="button" class="btn btn-outline" data-action="close-indicator-modal">Cancelar</button>
+                <button type="button" class="btn btn-secondary" id="modal-regenerate-btn" data-action="regenerate-current-indicator">Salvar e gerar novamente</button>
                 <button type="submit" class="btn">Salvar Alterações</button>
             </div>
         </form>
     </dialog>
 
-    <dialog id="file-preview-modal" class="file-preview-modal">
+    <dialog id="file-preview-modal" class="file-preview-modal" aria-labelledby="file-preview-title">
         <div class="file-preview-header">
             <div>
                 <h3 id="file-preview-title">Arquivo</h3>
@@ -338,7 +348,7 @@
             </div>
             <div class="file-preview-actions">
                 <button type="button" class="btn btn-outline" id="file-preview-download">Baixar</button>
-                <button type="button" class="btn btn-outline" onclick="App.closeFilePreview()">Fechar</button>
+                <button type="button" class="btn btn-outline" data-action="close-file-preview">Fechar</button>
             </div>
         </div>
         <div id="file-preview-body" class="file-preview-body"></div>

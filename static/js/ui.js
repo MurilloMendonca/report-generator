@@ -11,25 +11,38 @@ const UI = {
     renderRecentSessions(sessions) {
         const el = document.getElementById('recent-sessions');
         if (!el) return;
+        el.textContent = '';
 
         if (!sessions || sessions.length === 0) {
-            el.innerHTML = '<div class="recent-empty">Nenhuma sessão recente.</div>';
+            const empty = document.createElement('div');
+            empty.className = 'recent-empty';
+            empty.textContent = 'Nenhuma sessão recente.';
+            el.appendChild(empty);
             return;
         }
 
-        el.innerHTML = sessions.map(session => {
+        const fragment = document.createDocumentFragment();
+        sessions.forEach(session => {
             const updatedAt = session.updated_at ? new Date(session.updated_at).toLocaleString() : '';
             const prompt = session.initial_prompt || 'Sessão sem objetivo';
             const status = session.status || 'Sem status';
-            return `
-                <a class="recent-session" href="/session/${encodeURIComponent(session.job_id)}">
-                    <div class="recent-session-title">${UI.escapeHtml(prompt)}</div>
-                    <div class="recent-session-meta">
-                        ${UI.escapeHtml(status)} · ${session.file_count || 0} arquivo(s) · ${UI.escapeHtml(updatedAt)}
-                    </div>
-                </a>
-            `;
-        }).join('');
+            const link = document.createElement('a');
+            link.className = 'recent-session';
+            link.href = `/session/${encodeURIComponent(session.job_id)}`;
+
+            const title = document.createElement('div');
+            title.className = 'recent-session-title';
+            title.textContent = prompt;
+
+            const meta = document.createElement('div');
+            meta.className = 'recent-session-meta';
+            meta.textContent = `${status} · ${session.file_count || 0} arquivo(s) · ${updatedAt}`;
+
+            link.appendChild(title);
+            link.appendChild(meta);
+            fragment.appendChild(link);
+        });
+        el.appendChild(fragment);
     },
 
     updateStatus(status, progress) {
@@ -38,9 +51,16 @@ const UI = {
     },
 
     renderLogs(logs) {
-        document.getElementById('log-container').innerHTML = (logs || []).slice(-5)
-            .map(l => `<div>${UI.escapeHtml(l)}</div>`)
-            .join('');
+        const container = document.getElementById('log-container');
+        if (!container) return;
+        container.textContent = '';
+        const fragment = document.createDocumentFragment();
+        (logs || []).slice(-5).forEach(line => {
+            const item = document.createElement('div');
+            item.textContent = line;
+            fragment.appendChild(item);
+        });
+        container.appendChild(fragment);
     },
 
     renderMessageText(value) {
@@ -73,28 +93,42 @@ const UI = {
         if (el.dataset.signature === signature) return;
 
         const shouldStickToBottom = !el.dataset.signature || (el.scrollTop + el.clientHeight >= el.scrollHeight - 16);
-        const parts = [
-            `<div class="message ai initial"><b>Objetivo inicial:</b><br>${UI.renderMessageText(initialPrompt)}</div>`
-        ];
+        const allowedKinds = ['status', 'initial', 'error', 'legacy'];
+        const fragment = document.createDocumentFragment();
+
+        const appendMessage = (roleClass, kindClass, label, content, initial = false) => {
+            const message = document.createElement('div');
+            message.className = `message ${roleClass} ${kindClass}${initial ? ' initial' : ''}`;
+            const strong = document.createElement('b');
+            strong.textContent = `${label}:`;
+            message.appendChild(strong);
+            const body = document.createElement('span');
+            body.textContent = content;
+            body.style.whiteSpace = 'pre-wrap';
+            if (initial) {
+                message.appendChild(document.createElement('br'));
+            } else {
+                message.appendChild(document.createTextNode(' '));
+            }
+            message.appendChild(body);
+            fragment.appendChild(message);
+        };
+
+        appendMessage('ai', 'initial', 'Objetivo inicial', initialPrompt, true);
 
         if (!messages.length) {
-            parts.push('<div class="message ai status"><b>Studio:</b> Peça uma mudança global ou ajuste fino para melhorar o relatório.</div>');
+            appendMessage('ai', 'status', 'Studio', 'Peça uma mudança global ou ajuste fino para melhorar o relatório.');
         } else {
             messages.forEach(message => {
                 const isUser = message.role === 'user';
                 const roleClass = isUser ? 'user' : 'ai';
-                const allowedKinds = ['status', 'initial', 'error', 'legacy'];
                 const kindClass = allowedKinds.includes(message.kind) ? message.kind : 'message';
                 const label = isUser ? 'Você' : 'Studio';
-                parts.push(`
-                    <div class="message ${roleClass} ${kindClass}">
-                        <b>${label}:</b> ${UI.renderMessageText(message.content)}
-                    </div>
-                `);
+                appendMessage(roleClass, kindClass, label, message.content || '');
             });
         }
 
-        el.innerHTML = parts.join('');
+        el.appendChild(fragment);
         el.dataset.signature = signature;
         if (shouldStickToBottom) el.scrollTop = el.scrollHeight;
     },
@@ -133,6 +167,18 @@ const UI = {
         return `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
     },
 
+    clearElement(el) {
+        if (!el) return;
+        while (el.firstChild) el.removeChild(el.firstChild);
+    },
+
+    buildOption(value, label) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        return option;
+    },
+
     renderFiles(files) {
         const tray = document.getElementById('file-tray');
         if (!tray) return;
@@ -141,17 +187,22 @@ const UI = {
         const summary = document.getElementById('file-summary');
         if (summary) summary.textContent = `${list.length} arquivo${list.length === 1 ? '' : 's'}`;
 
+        UI.clearElement(tray);
         if (!list.length) {
-            tray.innerHTML = `
-                <div class="file-empty">
-                    <strong>Nenhum arquivo na sessão.</strong>
-                    <span>Arraste arquivos para cá ou use o botão de adicionar.</span>
-                </div>
-            `;
+            const empty = document.createElement('div');
+            empty.className = 'file-empty';
+            const strong = document.createElement('strong');
+            strong.textContent = 'Nenhum arquivo na sessão.';
+            const span = document.createElement('span');
+            span.textContent = 'Arraste arquivos para cá ou use o botão de adicionar.';
+            empty.appendChild(strong);
+            empty.appendChild(span);
+            tray.appendChild(empty);
             return;
         }
 
-        tray.innerHTML = list.map((f, index) => {
+        const fragment = document.createDocumentFragment();
+        list.forEach((f, index) => {
             const filename = f.original_filename || `arquivo-${index + 1}`;
             const kind = UI.fileKind(filename);
             const hasPreprocessed = Boolean(f.preprocessed_path || f.filtered_path);
@@ -159,34 +210,78 @@ const UI = {
             const metadata = f.artifact && !f.artifact.error
                 ? `${f.artifact.rows || f.artifact.pages || ''}${f.artifact.rows ? ' linhas' : f.artifact.pages ? ' paginas' : ''}`
                 : (f.artifact && f.artifact.error ? 'nao analisado' : 'aguardando analise');
-            const processLabel = hasPreprocessed
-                ? `<span class="file-state-badge">Pré-processado</span>`
-                : '';
-            return `
-                <article class="file-card" data-file-index="${index}">
-                    <button class="file-open" type="button" title="Visualizar ${UI.escapeHtml(filename)}" onclick="App.previewFile(${index})">
-                        <span class="file-type file-type-${kind}">${UI.fileIcon(kind)}</span>
-                        <span class="file-title">
-                            <span class="file-name">${UI.escapeHtml(filename)}</span>
-                            ${processLabel}
-                        </span>
-                    </button>
-                    <div class="file-meta">
-                        <span>${UI.escapeHtml(metadata)}</span>
-                        ${size ? `<span>${UI.escapeHtml(size)}</span>` : ''}
-                    </div>
-                    <div class="file-actions">
-                        <button type="button" class="file-action-btn" onclick="App.previewFile(${index})">Abrir</button>
-                        <button type="button" class="file-action-btn" onclick="App.downloadFile(${index})">Baixar</button>
-                        <button type="button" class="file-action-btn danger" onclick="App.deleteFile(${index})">Remover</button>
-                    </div>
-                </article>
-            `;
-        }).join('');
+            const card = document.createElement('article');
+            card.className = 'file-card';
+            card.dataset.fileIndex = index;
+
+            const openBtn = document.createElement('button');
+            openBtn.className = 'file-open';
+            openBtn.type = 'button';
+            openBtn.title = `Visualizar ${filename}`;
+            openBtn.setAttribute('aria-label', `Visualizar ${filename}`);
+            openBtn.dataset.action = 'preview-file';
+            openBtn.dataset.fileIndex = index;
+
+            const type = document.createElement('span');
+            type.className = `file-type file-type-${kind}`;
+            type.textContent = UI.fileIcon(kind);
+            const title = document.createElement('span');
+            title.className = 'file-title';
+            const name = document.createElement('span');
+            name.className = 'file-name';
+            name.textContent = filename;
+            title.appendChild(name);
+            if (hasPreprocessed) {
+                const badge = document.createElement('span');
+                badge.className = 'file-state-badge';
+                badge.textContent = 'Pré-processado';
+                title.appendChild(badge);
+            }
+            openBtn.appendChild(type);
+            openBtn.appendChild(title);
+
+            const meta = document.createElement('div');
+            meta.className = 'file-meta';
+            const metaText = document.createElement('span');
+            metaText.textContent = metadata;
+            meta.appendChild(metaText);
+            if (size) {
+                const sizeEl = document.createElement('span');
+                sizeEl.textContent = size;
+                meta.appendChild(sizeEl);
+            }
+
+            const actions = document.createElement('div');
+            actions.className = 'file-actions';
+            [
+                ['Abrir', 'preview-file'],
+                ['Baixar', 'download-file'],
+                ['Remover', 'delete-file'],
+            ].forEach(([label, action]) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `file-action-btn${action === 'delete-file' ? ' danger' : ''}`;
+                button.dataset.action = action;
+                button.dataset.fileIndex = index;
+                button.setAttribute('aria-label', `${label} ${filename}`);
+                button.textContent = label;
+                actions.appendChild(button);
+            });
+
+            card.appendChild(openBtn);
+            card.appendChild(meta);
+            card.appendChild(actions);
+            fragment.appendChild(card);
+        });
+        tray.appendChild(fragment);
     },
 
     renderArtifacts(artifacts, onEdit, onDelete) {
-        document.getElementById('artifacts-visual').innerHTML = (artifacts || []).map((art, i) => {
+        const container = document.getElementById('artifacts-visual');
+        if (!container) return;
+        UI.clearElement(container);
+        const fragment = document.createDocumentFragment();
+        (artifacts || []).forEach((art, i) => {
             const type = art.type || 'graphic';
             const colors = {
                 metric: 'var(--md-sys-color-primary)',
@@ -194,29 +289,97 @@ const UI = {
                 graphic: 'var(--md-sys-color-tertiary, #3498db)'
             };
             const color = colors[type] || colors.graphic;
-            
-            return `
-            <div class="artifact-card" style="border-left: 6px solid ${color}">
-                <div class="artifact-header">
-                    <b style="color: var(--md-sys-color-on-surface)">${UI.escapeHtml(art.indicator)}</b>
-                    <div class="artifact-actions">
-                        <span style="font-size: 0.65rem; background: ${color}; color: white; padding: 2px 8px; border-radius: 10px; margin-right: 8px; font-weight: bold;">${type.toUpperCase()}</span>
-                        <button class="btn btn-outline" style="padding: 4px 8px;" onclick="App.handleEditIndicator(${i})">✏️</button>
-                        <button class="btn btn-danger" style="padding: 4px 8px;" onclick="App.handleDeleteIndicator(${i})">🗑️</button>
-                    </div>
-                </div>
-                <div style="font-size: 0.75rem; color: var(--md-sys-color-outline);">ID: ${UI.escapeHtml(art.id)}</div>
-                ${art.component_preset_id || art.visual_theme_id || art.chart_style_id ? `
-                    <div class="artifact-visual-meta">
-                        ${art.component_preset_id ? `<span>${UI.escapeHtml(art.component_preset_id)}</span>` : ''}
-                        ${art.visual_theme_id ? `<span>Tema: ${UI.escapeHtml(art.visual_theme_id)}</span>` : ''}
-                        ${art.chart_style_id ? `<span>Estilo: ${UI.escapeHtml(art.chart_style_id)}</span>` : ''}
-                    </div>
-                ` : ''}
-                <div style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-top: 0.5rem;">${UI.escapeHtml(art.reason || "")}</div>
-            </div>
-            `;
-        }).join('');
+
+            const card = document.createElement('div');
+            card.className = 'artifact-card';
+            card.style.borderLeft = `6px solid ${color}`;
+
+            const header = document.createElement('div');
+            header.className = 'artifact-header';
+            const name = document.createElement('b');
+            name.style.color = 'var(--md-sys-color-on-surface)';
+            name.textContent = art.indicator || '';
+            header.appendChild(name);
+
+            const actions = document.createElement('div');
+            actions.className = 'artifact-actions';
+            const badge = document.createElement('span');
+            badge.style.cssText = `font-size: 0.65rem; background: ${color}; color: white; padding: 2px 8px; border-radius: 10px; margin-right: 8px; font-weight: bold;`;
+            badge.textContent = type.toUpperCase();
+            actions.appendChild(badge);
+
+            const editBtn = document.createElement('button');
+            editBtn.className = 'btn btn-outline';
+            editBtn.style.padding = '4px 8px';
+            editBtn.type = 'button';
+            editBtn.dataset.action = 'edit-indicator';
+            editBtn.dataset.index = i;
+            editBtn.setAttribute('aria-label', `Editar componente ${art.indicator || ''}`);
+            editBtn.textContent = '✏️';
+            actions.appendChild(editBtn);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'btn btn-danger';
+            deleteBtn.style.padding = '4px 8px';
+            deleteBtn.type = 'button';
+            deleteBtn.dataset.action = 'delete-indicator';
+            deleteBtn.dataset.index = i;
+            deleteBtn.setAttribute('aria-label', `Excluir componente ${art.indicator || ''}`);
+            deleteBtn.textContent = '🗑️';
+            actions.appendChild(deleteBtn);
+
+            header.appendChild(actions);
+            card.appendChild(header);
+
+            const id = document.createElement('div');
+            id.style.fontSize = '0.75rem';
+            id.style.color = 'var(--md-sys-color-outline)';
+            id.textContent = `ID: ${art.id || ''}`;
+            card.appendChild(id);
+
+            if (art.component_preset_id || art.visual_theme_id || art.chart_style_id || art.render_mode) {
+                const meta = document.createElement('div');
+                meta.className = 'artifact-visual-meta';
+                if (art.component_preset_id) {
+                    const span = document.createElement('span');
+                    span.textContent = art.component_preset_id;
+                    meta.appendChild(span);
+                }
+                if (art.visual_theme_id) {
+                    const span = document.createElement('span');
+                    span.textContent = `Tema: ${art.visual_theme_id}`;
+                    meta.appendChild(span);
+                }
+                if (art.chart_style_id) {
+                    const span = document.createElement('span');
+                    span.textContent = `Estilo: ${art.chart_style_id}`;
+                    meta.appendChild(span);
+                }
+                if (art.render_mode) {
+                    const span = document.createElement('span');
+                    span.textContent = `Modo: ${art.render_mode}`;
+                    meta.appendChild(span);
+                }
+                card.appendChild(meta);
+            }
+
+            if (Array.isArray(art.visual_warnings) && art.visual_warnings.length) {
+                const warnings = document.createElement('div');
+                warnings.className = 'artifact-visual-warnings';
+                warnings.textContent = art.visual_warnings.slice(0, 2).join(' · ');
+                card.appendChild(warnings);
+            }
+
+            const reason = document.createElement('div');
+            reason.style.fontSize = '0.8rem';
+            reason.style.color = 'var(--md-sys-color-on-surface-variant)';
+            reason.style.marginTop = '0.5rem';
+            reason.textContent = art.reason || '';
+            card.appendChild(reason);
+
+            fragment.appendChild(card);
+        });
+        container.appendChild(fragment);
     },
 
     renderLayoutCanvas(session, onUpdate) {
@@ -227,7 +390,7 @@ const UI = {
         
         canvas.setAttribute('data-job-id', session.job_id);
         canvas.setAttribute('data-template', templateSignature);
-        canvas.innerHTML = '';
+        UI.clearElement(canvas);
 
         const template = session.template || [];
         const pageCount = Math.max(1, ...template.map(item => item.page || 1));
@@ -250,11 +413,19 @@ const UI = {
             block.style.top = (item.y * MM_TO_PX) + 'px';
             block.style.width = (item.w * MM_TO_PX) + 'px';
             block.style.height = (item.h * MM_TO_PX) + 'px';
-            block.innerHTML = `
-                <span>${UI.escapeHtml(art.indicator)}</span>
-                <button class="del-btn" onclick="App.handleDeleteIndicatorById('${item.id}', event)">✕</button>
-                <div class="resizer"></div>
-            `;
+            const label = document.createElement('span');
+            label.textContent = art.indicator || '';
+            const del = document.createElement('button');
+            del.className = 'del-btn';
+            del.type = 'button';
+            del.dataset.action = 'delete-layout-block';
+            del.dataset.componentId = item.id;
+            del.textContent = '✕';
+            const resizer = document.createElement('div');
+            resizer.className = 'resizer';
+            block.appendChild(label);
+            block.appendChild(del);
+            block.appendChild(resizer);
             Utils.makeDraggable(block);
             pageEl.appendChild(block);
         });
@@ -269,27 +440,63 @@ const UI = {
     },
 
     renderDataArtifacts(session) {
-        let html = `
-            <div style="margin-bottom: 2rem; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); padding: 1.5rem; border-radius: 16px;">
-                <h4 style="margin-top:0">📊 Métricas Calculadas</h4>
-                <pre style="font-family: 'Roboto Mono', monospace; font-size: 0.85rem;">${UI.escapeHtml(Utils.formatJson(session.calculated_metrics || {}))}</pre>
-            </div>
-        `;
-        html += (session.files || []).map(f => `
-            <div style="margin-bottom: 1.5rem; border-bottom: 1px solid var(--md-sys-color-outline); padding-bottom: 1rem;">
-                <h4 style="color: var(--md-sys-color-primary)">📄 ${UI.escapeHtml(f.original_filename)}</h4>
-                ${f.preprocessing_description || f.filter_description ? `<div style="font-size: 0.78rem; color: var(--md-sys-color-on-surface-variant); margin-bottom: 0.5rem;">Pré-processamento: ${UI.escapeHtml(f.preprocessing_description || f.filter_description)}</div>` : ''}
-                <pre style="font-size: 0.75rem; background: #f5f5f5; padding: 1rem; border-radius: 8px; overflow-x: auto;">${UI.escapeHtml(Utils.formatJson(f.artifact))}</pre>
-            </div>
-        `).join('');
-        document.getElementById('data-artifacts-container').innerHTML = html;
+        const container = document.getElementById('data-artifacts-container');
+        if (!container) return;
+        UI.clearElement(container);
+
+        const metrics = document.createElement('div');
+        metrics.style.marginBottom = '2rem';
+        metrics.style.background = 'var(--md-sys-color-primary-container)';
+        metrics.style.color = 'var(--md-sys-color-on-primary-container)';
+        metrics.style.padding = '1.5rem';
+        metrics.style.borderRadius = '16px';
+        const metricsTitle = document.createElement('h4');
+        metricsTitle.style.marginTop = '0';
+        metricsTitle.textContent = '📊 Métricas Calculadas';
+        const metricsPre = document.createElement('pre');
+        metricsPre.style.fontFamily = "'Roboto Mono', monospace";
+        metricsPre.style.fontSize = '0.85rem';
+        metricsPre.textContent = Utils.formatJson(session.calculated_metrics || {});
+        metrics.appendChild(metricsTitle);
+        metrics.appendChild(metricsPre);
+        container.appendChild(metrics);
+
+        (session.files || []).forEach(f => {
+            const section = document.createElement('div');
+            section.style.marginBottom = '1.5rem';
+            section.style.borderBottom = '1px solid var(--md-sys-color-outline)';
+            section.style.paddingBottom = '1rem';
+            const title = document.createElement('h4');
+            title.style.color = 'var(--md-sys-color-primary)';
+            title.textContent = `📄 ${f.original_filename || ''}`;
+            section.appendChild(title);
+            if (f.preprocessing_description || f.filter_description) {
+                const desc = document.createElement('div');
+                desc.style.fontSize = '0.78rem';
+                desc.style.color = 'var(--md-sys-color-on-surface-variant)';
+                desc.style.marginBottom = '0.5rem';
+                desc.textContent = `Pré-processamento: ${f.preprocessing_description || f.filter_description}`;
+                section.appendChild(desc);
+            }
+            const pre = document.createElement('pre');
+            pre.style.fontSize = '0.75rem';
+            pre.style.background = '#f5f5f5';
+            pre.style.padding = '1rem';
+            pre.style.borderRadius = '8px';
+            pre.style.overflowX = 'auto';
+            pre.textContent = Utils.formatJson(f.artifact);
+            section.appendChild(pre);
+            container.appendChild(section);
+        });
     },
 
     renderFullScript(script) {
         const el = document.getElementById('full-script-content');
         if (!script) return;
         el.textContent = script;
-        hljs.highlightElement(el);
+        if (window.hljs && typeof window.hljs.highlightElement === 'function') {
+            window.hljs.highlightElement(el);
+        }
     },
 
     updateSettingsForm(settings, session) {
@@ -313,15 +520,17 @@ const UI = {
         document.getElementById('s-alignment').value = settings.alignment || "J";
         document.getElementById('s-line-height').value = settings.line_height || 5;
         document.getElementById('s-language').value = settings.language || "Portuguese";
+        const includeSamplesEl = document.getElementById('s-include-data-samples');
+        if (includeSamplesEl) includeSamplesEl.checked = Boolean(settings.include_data_samples);
         document.getElementById('s-layout-template').value = settings.selected_template_id || "";
         const themeEl = document.getElementById('s-visual-theme');
         const styleEl = document.getElementById('s-chart-style');
         const visualInstructionsEl = document.getElementById('s-visual-instructions');
+        if (styleEl) styleEl.value = settings.chart_style_id || "modern";
         if (themeEl) {
             themeEl.value = settings.visual_theme_id || "executive_clean";
             themeEl.dispatchEvent(new Event('change'));
         }
-        if (styleEl) styleEl.value = settings.chart_style_id || "modern";
         if (visualInstructionsEl && document.activeElement !== visualInstructionsEl) {
             visualInstructionsEl.value = settings.visual_instructions || "";
         }
@@ -332,29 +541,39 @@ const UI = {
         const themeSelect = document.getElementById('s-visual-theme');
         const styleSelect = document.getElementById('s-chart-style');
         const themePreview = document.getElementById('visual-theme-preview');
+        const themeInspector = document.getElementById('visual-theme-inspector');
         if (!themeSelect || !styleSelect) return;
 
         const currentTheme = themeSelect.value;
         const currentStyle = styleSelect.value;
         const themes = library.themes || [];
         const styles = library.chart_styles || [];
-        themeSelect.innerHTML = themes.map(theme => `
-            <option value="${theme.id}">${UI.escapeHtml(theme.name)}</option>
-        `).join('');
-        styleSelect.innerHTML = styles.map(style => `
-            <option value="${style.id}">${UI.escapeHtml(style.name)}</option>
-        `).join('');
+        UI.clearElement(themeSelect);
+        UI.clearElement(styleSelect);
+        themes.forEach(theme => themeSelect.appendChild(UI.buildOption(theme.id, theme.name)));
+        styles.forEach(style => styleSelect.appendChild(UI.buildOption(style.id, style.name)));
         themeSelect.value = currentTheme || library.default_theme_id || "executive_clean";
         styleSelect.value = currentStyle || library.default_chart_style_id || "modern";
         const renderPreview = () => {
-            if (!themePreview) return;
             const theme = themes.find(item => item.id === themeSelect.value);
+            const style = styles.find(item => item.id === styleSelect.value);
             const palette = theme && theme.palette ? theme.palette : [];
-            themePreview.innerHTML = palette.map(color => `
-                <span class="palette-swatch" style="background:${UI.escapeHtml(color)}" title="${UI.escapeHtml(color)}"></span>
-            `).join('');
+            if (themePreview) {
+                UI.clearElement(themePreview);
+                palette.forEach(color => {
+                    const swatch = document.createElement('span');
+                    swatch.className = 'palette-swatch';
+                    swatch.style.background = color;
+                    swatch.title = color;
+                    themePreview.appendChild(swatch);
+                });
+            }
+            if (themeInspector && theme) {
+                UI.renderThemeInspector(themeInspector, theme, style, 'bar_ranked');
+            }
         };
         themeSelect.onchange = renderPreview;
+        styleSelect.onchange = renderPreview;
         renderPreview();
     },
 
@@ -365,22 +584,161 @@ const UI = {
 
         const currentTheme = themeSelect.value;
         const currentStyle = styleSelect.value;
-        themeSelect.innerHTML = '<option value="">Usar tema global</option>' + (library.themes || []).map(theme => `
-            <option value="${theme.id}">${UI.escapeHtml(theme.name)}</option>
-        `).join('');
-        styleSelect.innerHTML = '<option value="">Usar estilo global</option>' + (library.chart_styles || []).map(style => `
-            <option value="${style.id}">${UI.escapeHtml(style.name)}</option>
-        `).join('');
+        UI.clearElement(themeSelect);
+        UI.clearElement(styleSelect);
+        themeSelect.appendChild(UI.buildOption('', 'Usar tema global'));
+        styleSelect.appendChild(UI.buildOption('', 'Usar estilo global'));
+        (library.themes || []).forEach(theme => themeSelect.appendChild(UI.buildOption(theme.id, theme.name)));
+        (library.chart_styles || []).forEach(style => styleSelect.appendChild(UI.buildOption(style.id, style.name)));
         if (currentTheme) themeSelect.value = currentTheme;
         if (currentStyle) styleSelect.value = currentStyle;
+    },
+
+    previewUrl(presetId, themeId, styleId) {
+        const params = new URLSearchParams({
+            theme: themeId || 'executive_clean',
+            style: styleId || 'modern'
+        });
+        return `/api/component-library/presets/${encodeURIComponent(presetId)}/preview?${params.toString()}`;
+    },
+
+    appendInfoList(container, title, items) {
+        if (!items || !items.length) return;
+        const group = document.createElement('div');
+        group.className = 'visual-info-group';
+        const label = document.createElement('span');
+        label.className = 'visual-info-label';
+        label.textContent = title;
+        group.appendChild(label);
+        const tags = document.createElement('div');
+        tags.className = 'visual-info-tags';
+        items.forEach(item => {
+            const tag = document.createElement('span');
+            tag.className = 'visual-info-tag';
+            tag.textContent = item;
+            tags.appendChild(tag);
+        });
+        group.appendChild(tags);
+        container.appendChild(group);
+    },
+
+    renderPreviewCard(container, imageUrl, title, description) {
+        const media = document.createElement('div');
+        media.className = 'visual-preview-media';
+        const image = document.createElement('img');
+        image.src = imageUrl;
+        image.alt = title;
+        image.loading = 'lazy';
+        media.appendChild(image);
+        container.appendChild(media);
+
+        const body = document.createElement('div');
+        body.className = 'visual-preview-body';
+        const heading = document.createElement('div');
+        heading.className = 'visual-preview-heading';
+        heading.textContent = title;
+        body.appendChild(heading);
+        if (description) {
+            const text = document.createElement('p');
+            text.textContent = description;
+            body.appendChild(text);
+        }
+        container.appendChild(body);
+        return body;
+    },
+
+    renderThemeInspector(container, theme, style, presetId = 'bar_ranked') {
+        UI.clearElement(container);
+        container.className = 'visual-choice-inspector';
+        const card = document.createElement('div');
+        card.className = 'visual-preview-card';
+        const imageUrl = UI.previewUrl(presetId, theme.id, style && style.id);
+        const body = UI.renderPreviewCard(card, imageUrl, `${theme.name} + ${(style && style.name) || 'Moderno'}`, theme.description);
+        UI.appendInfoList(body, 'Bom para', theme.best_for || []);
+        UI.appendInfoList(body, 'Evitar em', theme.avoid_when || []);
+        if (theme.accessibility_notes) {
+            const note = document.createElement('p');
+            note.className = 'visual-accessibility-note';
+            note.textContent = theme.accessibility_notes;
+            body.appendChild(note);
+        }
+        container.appendChild(card);
+    },
+
+    renderPresetInspector(library) {
+        const container = document.getElementById('preset-inspector');
+        if (!container) return;
+        UI.clearElement(container);
+
+        const type = document.getElementById('m-type').value || 'graphic';
+        const presetSelect = document.getElementById('m-preset');
+        const themeSelect = document.getElementById('m-visual-theme');
+        const styleSelect = document.getElementById('m-chart-style');
+        const renderModeSelect = document.getElementById('m-render-mode');
+        const dataBindingInput = document.getElementById('m-data-binding');
+        const globalTheme = document.getElementById('s-visual-theme');
+        const globalStyle = document.getElementById('s-chart-style');
+        const allowedPresets = (library.presets || []).filter(p => (p.allowed_types || []).includes(type) || type === 'graphic');
+        const selectedPresetId = presetSelect && presetSelect.value;
+        const preset = (library.presets || []).find(item => item.id === selectedPresetId) || allowedPresets[0];
+        if (!preset) {
+            const empty = document.createElement('div');
+            empty.className = 'visual-inspector-empty';
+            empty.textContent = 'Nenhum preset visual disponível para este tipo.';
+            container.appendChild(empty);
+            return;
+        }
+
+        const themeId = (themeSelect && themeSelect.value) || (globalTheme && globalTheme.value) || library.default_theme_id || 'executive_clean';
+        const styleId = (styleSelect && styleSelect.value) || (globalStyle && globalStyle.value) || library.default_chart_style_id || 'modern';
+        const theme = (library.themes || []).find(item => item.id === themeId);
+        const style = (library.chart_styles || []).find(item => item.id === styleId);
+
+        const card = document.createElement('div');
+        card.className = 'visual-preview-card preset-preview-card';
+        const prefix = selectedPresetId ? '' : 'Automático: ';
+        const body = UI.renderPreviewCard(
+            card,
+            UI.previewUrl(preset.id, themeId, styleId),
+            `${prefix}${preset.name}`,
+            preset.preview_description || preset.description
+        );
+        UI.appendInfoList(body, 'Usar para', preset.best_for || []);
+        UI.appendInfoList(body, 'Evitar em', preset.avoid_when || []);
+        UI.appendInfoList(body, 'Papéis exigidos', preset.required_roles || []);
+        UI.appendInfoList(body, 'Opções', preset.common_options || []);
+        if (theme || style) {
+            const context = document.createElement('p');
+            context.className = 'visual-context-note';
+            context.textContent = `Tema efetivo: ${(theme && theme.name) || themeId}. Estilo: ${(style && style.name) || styleId}.`;
+            body.appendChild(context);
+        }
+        if (renderModeSelect) {
+            const mode = document.createElement('p');
+            mode.className = 'visual-context-note';
+            mode.textContent = `Modo de renderização: ${renderModeSelect.value || 'generated_code'}.`;
+            body.appendChild(mode);
+        }
+        if (dataBindingInput && dataBindingInput.value.trim()) {
+            try {
+                const binding = JSON.parse(dataBindingInput.value);
+                const roles = binding && binding.roles ? Object.entries(binding.roles).map(([role, column]) => `${role}: ${column}`) : [];
+                UI.appendInfoList(body, 'Data binding', roles);
+            } catch (error) {
+                const warning = document.createElement('p');
+                warning.className = 'visual-binding-warning';
+                warning.textContent = 'Data binding ainda não é um JSON válido.';
+                body.appendChild(warning);
+            }
+        }
+        container.appendChild(card);
     },
 
     renderTemplateOptions(templates) {
         const select = document.getElementById('s-layout-template');
         const currentValue = select.value;
-        select.innerHTML = (templates || []).map(template => `
-            <option value="${UI.escapeHtml(template.id)}">${UI.escapeHtml(template.name)}</option>
-        `).join('');
+        UI.clearElement(select);
+        (templates || []).forEach(template => select.appendChild(UI.buildOption(template.id, template.name)));
         if (currentValue) select.value = currentValue;
         UI.renderTemplatePreviews(templates, select.value);
         select.onchange = () => UI.updateSelectedTemplatePreview(select.value);
@@ -392,27 +750,43 @@ const UI = {
 
         const list = templates || [];
         if (!list.length) {
-            container.innerHTML = '<div class="template-preview-empty">Nenhum template disponível.</div>';
+            UI.clearElement(container);
+            const empty = document.createElement('div');
+            empty.className = 'template-preview-empty';
+            empty.textContent = 'Nenhum template disponível.';
+            container.appendChild(empty);
             return;
         }
 
-        container.innerHTML = `
-            <div class="template-preview-legend" aria-hidden="true">
-                <span><i class="template-preview-swatch text"></i>Texto</span>
-                <span><i class="template-preview-swatch graphic"></i>Gráfico</span>
-            </div>
-        ` + list.map(template => `
-            <button
-                type="button"
-                class="template-preview-card${template.id === selectedId ? ' selected' : ''}"
-                data-template-id="${UI.escapeHtml(template.id)}"
-                onclick="UI.selectTemplatePreview('${UI.escapeHtml(template.id)}')"
-                title="${UI.escapeHtml(template.description || template.name)}"
-            >
-                ${UI.templatePreviewSvg(template)}
-                <span class="template-preview-name">${UI.escapeHtml(template.name)}</span>
-            </button>
-        `).join('');
+        UI.clearElement(container);
+        const legend = document.createElement('div');
+        legend.className = 'template-preview-legend';
+        legend.setAttribute('aria-hidden', 'true');
+        const legendText = ['Texto', 'Gráfico'];
+        legendText.forEach((label, index) => {
+            const span = document.createElement('span');
+            const swatch = document.createElement('i');
+            swatch.className = `template-preview-swatch ${index === 0 ? 'text' : 'graphic'}`;
+            span.appendChild(swatch);
+            span.appendChild(document.createTextNode(label));
+            legend.appendChild(span);
+        });
+        container.appendChild(legend);
+        list.forEach(template => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `template-preview-card${template.id === selectedId ? ' selected' : ''}`;
+            button.dataset.templateId = template.id;
+            button.dataset.action = 'select-template-preview';
+            button.title = template.description || template.name;
+            button.setAttribute('aria-label', `Selecionar template ${template.name}`);
+            button.appendChild(UI.templatePreviewSvgElement(template));
+            const name = document.createElement('span');
+            name.className = 'template-preview-name';
+            name.textContent = template.name;
+            button.appendChild(name);
+            container.appendChild(button);
+        });
     },
 
     selectTemplatePreview(templateId) {
@@ -430,6 +804,11 @@ const UI = {
     },
 
     templatePreviewSvg(template) {
+        const svg = UI.templatePreviewSvgElement(template);
+        return svg.outerHTML;
+    },
+
+    templatePreviewSvgElement(template) {
         const slots = template.slots || [];
         const pages = slots.map(slot => Number(slot.page || 1)).filter(Boolean);
         const page = pages.length ? Math.min(...pages) : 1;
@@ -438,24 +817,48 @@ const UI = {
         const height = 104;
         const scaleX = width / 210;
         const scaleY = height / 297;
-        const blocks = pageSlots.map(slot => {
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('class', 'template-preview-svg');
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.setAttribute('role', 'img');
+        svg.setAttribute('aria-hidden', 'true');
+
+        const pageRect = document.createElementNS(svgNS, 'rect');
+        pageRect.setAttribute('class', 'template-preview-page');
+        pageRect.setAttribute('x', '0.5');
+        pageRect.setAttribute('y', '0.5');
+        pageRect.setAttribute('width', `${width - 1}`);
+        pageRect.setAttribute('height', `${height - 1}`);
+        pageRect.setAttribute('rx', '2');
+        svg.appendChild(pageRect);
+
+        pageSlots.forEach(slot => {
             const type = slot.type === 'text' ? 'text' : 'graphic';
             const x = Math.max(0, Math.min(width, Number(slot.x || 0) * scaleX));
             const y = Math.max(0, Math.min(height, Number(slot.y || 0) * scaleY));
             const w = Math.max(2, Math.min(width - x, Number(slot.w || 10) * scaleX));
             const h = Math.max(2, Math.min(height - y, Number(slot.h || 10) * scaleY));
-            return `<rect class="template-preview-${type}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5"></rect>`;
-        }).join('');
-        const extraPages = new Set(slots.map(slot => Number(slot.page || 1))).size > 1
-            ? '<text x="67" y="99" text-anchor="end" class="template-preview-page-count">+p</text>'
-            : '';
+            const rect = document.createElementNS(svgNS, 'rect');
+            rect.setAttribute('class', `template-preview-${type}`);
+            rect.setAttribute('x', x.toFixed(1));
+            rect.setAttribute('y', y.toFixed(1));
+            rect.setAttribute('width', w.toFixed(1));
+            rect.setAttribute('height', h.toFixed(1));
+            rect.setAttribute('rx', '1.5');
+            svg.appendChild(rect);
+        });
 
-        return `
-            <svg class="template-preview-svg" viewBox="0 0 ${width} ${height}" role="img" aria-hidden="true">
-                <rect class="template-preview-page" x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="2"></rect>
-                ${blocks}
-                ${extraPages}
-            </svg>
-        `;
+        if (new Set(slots.map(slot => Number(slot.page || 1))).size > 1) {
+            const count = document.createElementNS(svgNS, 'text');
+            count.setAttribute('x', '67');
+            count.setAttribute('y', '99');
+            count.setAttribute('text-anchor', 'end');
+            count.setAttribute('class', 'template-preview-page-count');
+            count.textContent = '+p';
+            svg.appendChild(count);
+        }
+
+        return svg;
     }
 };

@@ -1,0 +1,40 @@
+from fastapi import APIRouter
+
+import app.main as main
+
+
+router = APIRouter()
+
+router.add_api_route("/", main.read_index, methods=["GET"], response_class=main.HTMLResponse)
+router.add_api_route("/templates", main.read_template_editor, methods=["GET"], response_class=main.HTMLResponse)
+router.add_api_route("/session/{job_id}", main.read_session_workspace, methods=["GET"], response_class=main.HTMLResponse)
+
+router.add_api_route("/api/auth/login", main.login, methods=["POST"])
+router.add_api_route("/api/auth/logout", main.logout, methods=["POST"])
+router.add_api_route("/api/auth/check", main.check_login, methods=["GET"])
+router.add_api_route("/api/models", main.available_models, methods=["GET"])
+router.add_api_route("/api/component-library", main.visual_component_library, methods=["GET"])
+router.add_api_route("/api/component-library/previews", main.visual_component_library_previews, methods=["GET"])
+router.add_api_route("/api/component-library/presets/{preset_id}/preview", main.visual_component_preset_preview, methods=["GET"])
+router.add_api_route("/api/sessions", main.start_session, methods=["POST"])
+router.add_api_route("/api/sessions", main.recent_sessions, methods=["GET"])
+router.add_api_route("/api/sessions/{job_id}/files", main.add_files_to_session, methods=["POST"])
+router.add_api_route("/api/sessions/{job_id}/files/{file_index}/download", main.download_session_file, methods=["GET"])
+router.add_api_route("/api/sessions/{job_id}/files/{file_index}/preview", main.preview_session_file, methods=["GET"])
+router.add_api_route("/api/sessions/{job_id}/files/{file_index}", main.delete_session_file, methods=["DELETE"])
+router.add_api_route("/api/sessions/{job_id}", main.get_session_status, methods=["GET"])
+router.add_api_route("/api/sessions/{job_id}", main.delete_session, methods=["DELETE"])
+router.add_api_route("/api/admin/workspace-usage", main.workspace_usage, methods=["GET"])
+router.add_api_route("/api/admin/cleanup", main.admin_cleanup, methods=["POST"])
+router.add_api_route("/api/sessions/{job_id}/chat", main.chat_refinement, methods=["POST"])
+router.add_api_route("/api/sessions/{job_id}/artifacts", main.update_artifacts_manually, methods=["PUT"])
+router.add_api_route("/api/sessions/{job_id}/template", main.update_template_manually, methods=["PUT"])
+router.add_api_route("/api/sessions/{job_id}/settings", main.update_settings, methods=["PUT"])
+router.add_api_route("/api/sessions/{job_id}/regenerate", main.regenerate_session, methods=["POST"])
+router.add_api_route("/api/layout-templates", main.list_layout_templates, methods=["GET"])
+router.add_api_route("/api/layout-templates", main.create_layout_template, methods=["POST"])
+router.add_api_route("/api/layout-templates/{template_id}", main.update_layout_template, methods=["PUT"])
+router.add_api_route("/api/layout-templates/{template_id}", main.remove_layout_template, methods=["DELETE"])
+router.add_api_route("/api/sessions/{job_id}/pdf", main.get_pdf, methods=["GET"])
+router.add_api_route("/api/sessions/{job_id}/components/{component_id}/preview", main.preview_component, methods=["GET"])
+router.add_api_route("/api/sessions/{job_id}/explore", main.explore_data, methods=["POST"])

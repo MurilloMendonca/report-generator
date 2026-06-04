@@ -4,7 +4,7 @@ import uuid
 import unittest
 
 from app.models.session import CURRENT_SESSION_SCHEMA_VERSION, normalize_session
-from app.services.session_manager import create_session, get_session, get_session_lock_path, get_session_path, set_session_stage, update_session
+from app.services.session_manager import append_stage_event, create_session, get_session, get_session_lock_path, get_session_path, set_session_stage, update_session
 
 
 class SessionSchemaTests(unittest.TestCase):
@@ -175,6 +175,20 @@ class SessionSchemaTests(unittest.TestCase):
         self.assertEqual(session["progress"], 100)
         self.assertEqual(session["status"], "Render failed")
         self.assertEqual(session["error"]["code"], "render_error")
+
+    def test_append_stage_event_persists_stage_history(self):
+        job_id = self.new_job_id()
+        create_session(job_id, {"job_id": job_id, "initial_prompt": "Observability"})
+
+        append_stage_event(job_id, "metadata", "start", status="in_progress", provider="deepseek", model_name="deepseek-v4-flash")
+        append_stage_event(job_id, "metadata", "end", status="ok", duration_ms=123.4, provider="deepseek", model_name="deepseek-v4-flash")
+
+        session = get_session(job_id)
+        self.assertEqual(len(session["stage_history"]), 2)
+        self.assertEqual(session["stage_history"][0]["stage"], "metadata")
+        self.assertEqual(session["stage_history"][0]["event"], "start")
+        self.assertEqual(session["stage_history"][1]["status"], "ok")
+        self.assertEqual(session["stage_history"][1]["duration_ms"], 123.4)
 
     def test_normalize_session_accepts_none(self):
         self.assertIsNone(normalize_session(None))

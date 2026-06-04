@@ -1,8 +1,14 @@
 import os
 import hashlib
 import json
+import logging
 import re
+import signal
+import threading
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any
 from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -14,8 +20,18 @@ from app.utils.component_library import (
     presets_prompt_summary,
     resolved_visual_context,
 )
+from app.utils.component_renderers import (
+    hybrid_component_code,
+    library_component_code,
+    rename_generated_component_code,
+    runtime_api_prompt_reference,
+    supports_library_renderer,
+)
+from app.services.session_manager import record_llm_usage
 
 load_dotenv()
+logger = logging.getLogger(__name__)
+LLM_OPERATION_CONTEXT: ContextVar[dict[str, Any] | None] = ContextVar("LLM_OPERATION_CONTEXT", default=None)
 
 PROMPTS_DIR = "prompts"
 DEFAULT_PROVIDER = "deepseek"
@@ -72,6 +88,14 @@ class LlmArtifact(BaseModel):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
+    @model_validator(mode="after")
+    def ensure_required_fields(self):
+        if not str(self.id or "").strip():
+            raise ValueError("artifact id is required")
+        if not str(self.indicator or "").strip():
+            raise ValueError("artifact indicator is required")
+        return self
+
 
 class LlmPreprocessingPlan(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -87,6 +111,8 @@ class LlmPreprocessingPlan(BaseModel):
             self.needs_preprocessing = True
         if self.needs_preprocessing:
             self.needs_filter = True
+        if self.needs_preprocessing and not str(self.code or "").strip():
+            raise ValueError("preprocessing code is required when preprocessing is enabled")
         return self
 
 
@@ -97,22 +123,249 @@ class LlmTranslationPayload(BaseModel):
     components: dict[str, str] = Field(default_factory=dict)
 
 
-def parse_llm_artifacts(text: str) -> list[dict]:
-    payload = json.loads(extract_json_payload(text, "[", "]"))
-    if not isinstance(payload, list):
-        raise ValueError("artifact response must be a list")
-    return [LlmArtifact.model_validate(item).model_dump(exclude_none=True) for item in payload]
+class LLMContractError(ValueError):
+    def __init__(
+        self,
+        stage: str,
+        detail: str,
+        *,
+        field: str | None = None,
+        provider: str | None = None,
+        model_name: str | None = None,
+        raw_excerpt: str | None = None,
+        cause: Exception | None = None,
+    ):
+        self.stage = stage
+        self.field = field
+        self.provider = provider
+        self.model_name = model_name
+        self.raw_excerpt = raw_excerpt
+        self.cause = cause
+        message = detail
+        if field:
+            message = f"{message} [field={field}]"
+        if provider or model_name:
+            message = f"{message} [provider={provider or 'unknown'} model={model_name or 'unknown'}]"
+        super().__init__(message)
+
+    def as_error_dict(self) -> dict[str, Any]:
+        error = {
+            "code": "llm_contract_error",
+            "message": str(self),
+            "stage": self.stage,
+            "retryable": True,
+        }
+        if self.field:
+            error["field"] = self.field
+        if self.provider:
+            error["provider"] = self.provider
+        if self.model_name:
+            error["model_name"] = self.model_name
+        if self.raw_excerpt:
+            error["raw_excerpt"] = self.raw_excerpt
+        if self.cause:
+            error["details"] = str(self.cause)
+        return error
 
 
-def parse_llm_preprocessing_plan(text: str) -> dict:
-    payload = json.loads(extract_json_payload(text, "{", "}"))
-    return LlmPreprocessingPlan.model_validate(payload).model_dump()
+class LLMBudgetError(RuntimeError):
+    def __init__(self, operation: str, budget: int):
+        self.operation = operation
+        self.budget = budget
+        super().__init__(f"LLM call budget exceeded for {operation} ({budget})")
+
+    def as_error_dict(self) -> dict[str, Any]:
+        return {
+            "code": "llm_budget_exceeded",
+            "message": str(self),
+            "stage": self.operation,
+            "retryable": False,
+            "budget": self.budget,
+        }
 
 
-def parse_llm_text_map(text: str) -> dict[str, str]:
-    payload = json.loads(extract_json_payload(text, "{", "}"))
-    if not isinstance(payload, dict):
-        raise ValueError("text response must be an object")
+class LLMTimeoutError(RuntimeError):
+    def __init__(self, operation: str, timeout_seconds: int):
+        self.operation = operation
+        self.timeout_seconds = timeout_seconds
+        super().__init__(f"LLM call timed out after {timeout_seconds}s for {operation}")
+
+    def as_error_dict(self) -> dict[str, Any]:
+        return {
+            "code": "llm_timeout",
+            "message": str(self),
+            "stage": self.operation,
+            "retryable": True,
+            "timeout_seconds": self.timeout_seconds,
+        }
+
+
+@contextmanager
+def llm_operation_context(
+    *,
+    job_id: str | None = None,
+    operation: str | None = None,
+    settings: dict | None = None,
+    provider: str | None = None,
+    model_name: str | None = None,
+):
+    current = dict(LLM_OPERATION_CONTEXT.get() or {})
+    merged_settings = dict(current.get("settings") or {})
+    if settings:
+        merged_settings.update(settings)
+
+    context = {
+        **current,
+        "job_id": job_id or current.get("job_id"),
+        "operation": operation or current.get("operation"),
+        "provider": provider or current.get("provider"),
+        "model_name": model_name or current.get("model_name"),
+        "settings": merged_settings,
+        "call_count": int(current.get("call_count", 0) or 0),
+        "attempt_count": int(current.get("attempt_count", 0) or 0),
+    }
+    token = LLM_OPERATION_CONTEXT.set(context)
+    try:
+        yield context
+    finally:
+        LLM_OPERATION_CONTEXT.reset(token)
+
+
+def current_llm_context() -> dict[str, Any]:
+    return LLM_OPERATION_CONTEXT.get() or {}
+
+
+def _llm_timeout_seconds(context: dict[str, Any], timeout_seconds: int | None = None) -> int:
+    if timeout_seconds is not None:
+        return max(1, int(timeout_seconds))
+    settings = context.get("settings") or {}
+    setting_timeout = settings.get("llm_timeout_seconds")
+    if setting_timeout:
+        return max(1, int(setting_timeout))
+    env_timeout = os.getenv("PDF_REPORT_LLM_TIMEOUT_SECONDS")
+    if env_timeout:
+        return max(1, int(env_timeout))
+    return 45
+
+
+def _llm_call_budget(context: dict[str, Any]) -> int:
+    settings = context.get("settings") or {}
+    setting_budget = settings.get("llm_call_budget")
+    if setting_budget is not None:
+        return max(0, int(setting_budget))
+    env_budget = os.getenv("PDF_REPORT_LLM_CALL_BUDGET")
+    if env_budget:
+        return max(0, int(env_budget))
+    return 0
+
+
+def _llm_fallback(context: dict[str, Any]) -> tuple[str | None, str | None]:
+    settings = context.get("settings") or {}
+    fallback_provider = settings.get("llm_fallback_provider") or os.getenv("PDF_REPORT_LLM_FALLBACK_PROVIDER")
+    fallback_model = settings.get("llm_fallback_model_name") or os.getenv("PDF_REPORT_LLM_FALLBACK_MODEL_NAME")
+    if fallback_provider:
+        return str(fallback_provider), str(fallback_model) if fallback_model else None
+    return None, None
+
+
+@contextmanager
+def _alarm_timeout(seconds: int):
+    if (
+        seconds <= 0
+        or not hasattr(signal, "SIGALRM")
+        or threading.current_thread() is not threading.main_thread()
+    ):
+        yield
+        return
+
+    def _handler(signum, frame):  # pragma: no cover - platform specific
+        raise TimeoutError(f"LLM request timed out after {seconds}s")
+
+    previous_handler = signal.signal(signal.SIGALRM, _handler)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, float(seconds))
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] or previous_timer[1]:
+            signal.setitimer(signal.ITIMER_REAL, previous_timer[0], previous_timer[1])
+
+
+def _raw_excerpt(text: str, limit: int = 280) -> str:
+    clean = strip_code_fence(text or "").strip()
+    clean = " ".join(clean.split())
+    return clean[:limit]
+
+
+def _parse_contract_json(
+    text: str,
+    expected_type: type,
+    stage: str,
+    field: str,
+    provider: str | None = None,
+    model_name: str | None = None,
+) -> Any:
+    payload_text = extract_json_payload(text, "{" if expected_type is dict else "[", "}" if expected_type is dict else "]")
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as exc:
+        raise LLMContractError(
+            stage,
+            f"Invalid JSON payload for {field}: {exc.msg}",
+            field=field,
+            provider=provider,
+            model_name=model_name,
+            raw_excerpt=_raw_excerpt(text),
+            cause=exc,
+        ) from exc
+
+    if not isinstance(payload, expected_type):
+        raise LLMContractError(
+            stage,
+            f"Expected {expected_type.__name__} payload for {field}, got {type(payload).__name__}",
+            field=field,
+            provider=provider,
+            model_name=model_name,
+            raw_excerpt=_raw_excerpt(text),
+        )
+    return payload
+
+
+def parse_llm_artifacts(text: str, provider: str | None = None, model_name: str | None = None) -> list[dict]:
+    payload = _parse_contract_json(text, list, "artifact_plan", "artifacts", provider, model_name)
+    try:
+        return [LlmArtifact.model_validate(item).model_dump(exclude_none=True) for item in payload]
+    except ValidationError as exc:
+        raise LLMContractError(
+            "artifact_plan",
+            "Artifact payload failed schema validation",
+            field="artifacts",
+            provider=provider,
+            model_name=model_name,
+            raw_excerpt=_raw_excerpt(text),
+            cause=exc,
+        ) from exc
+
+
+def parse_llm_preprocessing_plan(text: str, provider: str | None = None, model_name: str | None = None) -> dict:
+    payload = _parse_contract_json(text, dict, "data_preprocessing", "preprocessing_plan", provider, model_name)
+    try:
+        return LlmPreprocessingPlan.model_validate(payload).model_dump()
+    except ValidationError as exc:
+        raise LLMContractError(
+            "data_preprocessing",
+            "Preprocessing payload failed schema validation",
+            field="preprocessing_plan",
+            provider=provider,
+            model_name=model_name,
+            raw_excerpt=_raw_excerpt(text),
+            cause=exc,
+        ) from exc
+
+
+def parse_llm_text_map(text: str, provider: str | None = None, model_name: str | None = None) -> dict[str, str]:
+    payload = _parse_contract_json(text, dict, "text_generation", "text_map", provider, model_name)
     return {
         str(key): str(value).strip()
         for key, value in payload.items()
@@ -120,9 +373,37 @@ def parse_llm_text_map(text: str) -> dict[str, str]:
     }
 
 
-def parse_llm_translation_payload(text: str) -> dict:
-    payload = json.loads(extract_json_payload(text, "{", "}"))
-    return LlmTranslationPayload.model_validate(payload).model_dump()
+def parse_llm_translation_payload(text: str, provider: str | None = None, model_name: str | None = None) -> dict:
+    payload = _parse_contract_json(text, dict, "workspace_translation", "translation_payload", provider, model_name)
+    try:
+        return LlmTranslationPayload.model_validate(payload).model_dump()
+    except ValidationError as exc:
+        raise LLMContractError(
+            "workspace_translation",
+            "Translation payload failed schema validation",
+            field="translation_payload",
+            provider=provider,
+            model_name=model_name,
+            raw_excerpt=_raw_excerpt(text),
+            cause=exc,
+        ) from exc
+
+
+def parse_llm_refinement_target(text: str) -> str:
+    target = strip_code_fence(text).strip()
+    target = target.split()[0] if target else ""
+    normalized_target = target.upper()
+    allowed_targets = {"ALL", "LAYOUT", "SETTINGS"}
+    if normalized_target in allowed_targets:
+        return normalized_target
+    if target and re.fullmatch(r"[A-Za-z0-9_\-]+", target):
+        return target
+    raise LLMContractError(
+        "refinement_routing",
+        f"Invalid refinement target '{target or ''}'",
+        field="target",
+        raw_excerpt=_raw_excerpt(text),
+    )
 
 
 def model_catalog() -> dict:
@@ -240,65 +521,194 @@ def resolve_llm_config(provider: str = None, model_name: str = None) -> tuple[st
     return provider, model_name
 
 
-def call_llm(provider: str, model_name: str, system_instruction: str, user_prompt: str, retries=3, delay=10):
+def call_llm(provider: str, model_name: str, system_instruction: str, user_prompt: str, retries=3, delay=10, timeout_seconds: int | None = None, allow_fallback: bool = True):
     provider, model_name = resolve_llm_config(provider, model_name)
+    context = current_llm_context()
+    operation = context.get("operation") or "llm"
+    job_id = context.get("job_id")
+    timeout_seconds = _llm_timeout_seconds(context, timeout_seconds)
+    budget = _llm_call_budget(context)
+    call_count = int(context.get("call_count", 0) or 0)
+    attempt_count = int(context.get("attempt_count", 0) or 0)
+    prompt_chars = len(str(system_instruction or "")) + len(str(user_prompt or ""))
+
+    if budget and call_count >= budget:
+        raise LLMBudgetError(operation, budget)
+
+    last_error: Exception | None = None
     for i in range(retries):
+        attempt_number = i + 1
+        start_time = time.perf_counter()
         try:
-            if provider == "gemini":
-                client = get_gemini_client()
-                response = client.models.generate_content(
-                    model=normalize_gemini_model_name(model_name),
-                    contents=f"{system_instruction}\n\n{user_prompt}",
+            with _alarm_timeout(timeout_seconds):
+                if provider == "gemini":
+                    client = get_gemini_client()
+                    response = client.models.generate_content(
+                        model=normalize_gemini_model_name(model_name),
+                        contents=f"{system_instruction}\n\n{user_prompt}",
+                    )
+                    text = response.text
+                elif provider == "deepseek":
+                    client = get_deepseek_client()
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": system_instruction},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        stream=False,
+                        timeout=timeout_seconds,
+                    )
+                    text = response.choices[0].message.content
+                else:
+                    raise ValueError(f"Unsupported LLM provider '{provider}'.")
+
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            if job_id:
+                record_llm_usage(
+                    job_id,
+                    operation,
+                    provider,
+                    model_name,
+                    attempt=attempt_number,
+                    duration_ms=duration_ms,
+                    status="ok",
+                    prompt_chars=prompt_chars,
+                    response_chars=len(text or ""),
                 )
-                return response.text
-            elif provider == "deepseek":
-                client = get_deepseek_client()
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": system_instruction},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    stream=False
+            context["call_count"] = int(context.get("call_count", 0) or 0) + 1
+            context["attempt_count"] = int(context.get("attempt_count", 0) or 0) + 1
+            return text
+        except TimeoutError as exc:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            last_error = LLMTimeoutError(operation, timeout_seconds)
+            if job_id:
+                record_llm_usage(
+                    job_id,
+                    operation,
+                    provider,
+                    model_name,
+                    attempt=attempt_number,
+                    duration_ms=duration_ms,
+                    status="timeout",
+                    prompt_chars=prompt_chars,
+                    response_chars=0,
+                    error=str(last_error),
                 )
-                return response.choices[0].message.content
+            context["call_count"] = int(context.get("call_count", 0) or 0) + 1
+            context["attempt_count"] = int(context.get("attempt_count", 0) or 0) + 1
+            if i < retries - 1:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            break
         except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            last_error = e
+            if job_id:
+                record_llm_usage(
+                    job_id,
+                    operation,
+                    provider,
+                    model_name,
+                    attempt=attempt_number,
+                    duration_ms=duration_ms,
+                    status="error",
+                    prompt_chars=prompt_chars,
+                    response_chars=0,
+                    error=str(e)[:500],
+                )
+            context["call_count"] = int(context.get("call_count", 0) or 0) + 1
+            context["attempt_count"] = int(context.get("attempt_count", 0) or 0) + 1
             if "429" in str(e) or (hasattr(e, 'status_code') and e.status_code == 429):
                 if i < retries - 1:
                     time.sleep(delay)
                     delay *= 2
                     continue
-            raise e
+            break
 
-def generate_artifacts(all_metadata: str, prompt: str, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, template_context: dict = None) -> list:
-    system_instruction = load_prompt("GENERATE_ARTIFACTS.md")
-    lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
-    layout_constraints = ""
-    if template_context:
-        layout_constraints = (
-            "Selected Layout Template:\n"
-            f"{json.dumps(template_context, indent=2)}\n\n"
-            "Hard constraint: generate visible text and graphic artifacts that fit this exact template. "
-            "Metric artifacts can exceed the visual slot counts because they are not directly rendered.\n\n"
+    fallback_provider, fallback_model = _llm_fallback(context)
+    if allow_fallback and fallback_provider and fallback_provider != provider:
+        logger.warning(
+            "llm_fallback job_id=%s operation=%s provider=%s fallback_provider=%s",
+            job_id or "",
+            operation,
+            provider,
+            fallback_provider,
         )
-    visual_catalog = json.dumps(presets_prompt_summary(), indent=2, ensure_ascii=False)
-    user_prompt = (
-        f"Target Language: {lang}\n"
-        f"{layout_constraints}"
-        f"Available Visual Component Presets:\n{visual_catalog}\n\n"
-        f"Data Artifacts:\n{all_metadata}\n\n"
-        f"User's Initial Prompt: {prompt}"
-    )
-    
-    for attempt in range(3):
-        try:
-            artifacts = parse_llm_artifacts(call_llm(provider, model_name, system_instruction, user_prompt))
-            if isinstance(artifacts, list) and len(artifacts) > 0:
-                return artifacts
-        except (ValueError, json.JSONDecodeError, ValidationError):
-            time.sleep(2)
-            
-    return []
+        return call_llm(
+            fallback_provider,
+            fallback_model or DEFAULT_MODEL_BY_PROVIDER.get(fallback_provider),
+            system_instruction,
+            user_prompt,
+            retries=max(1, retries - 1),
+            delay=delay,
+            timeout_seconds=timeout_seconds,
+            allow_fallback=False,
+        )
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("LLM call failed without raising an explicit error.")
+
+def generate_artifacts(
+    all_metadata: str,
+    prompt: str,
+    provider: str = DEFAULT_PROVIDER,
+    model_name: str = DEFAULT_MODEL_NAME,
+    settings: dict = None,
+    template_context: dict = None,
+    job_id: str | None = None,
+) -> list:
+    with llm_operation_context(job_id=job_id, operation="artifact_plan", settings=settings, provider=provider, model_name=model_name):
+        system_instruction = load_prompt("GENERATE_ARTIFACTS.md")
+        lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
+        layout_constraints = ""
+        if template_context:
+            layout_constraints = (
+                "Selected Layout Template:\n"
+                f"{json.dumps(template_context, indent=2)}\n\n"
+                "Hard constraint: generate visible text and graphic artifacts that fit this exact template. "
+                "Metric artifacts can exceed the visual slot counts because they are not directly rendered.\n\n"
+            )
+        visual_catalog = json.dumps(presets_prompt_summary(), indent=2, ensure_ascii=False)
+        user_prompt = (
+            f"Target Language: {lang}\n"
+            f"{layout_constraints}"
+            f"Available Visual Component Presets:\n{visual_catalog}\n\n"
+            f"Data Artifacts:\n{all_metadata}\n\n"
+            f"User's Initial Prompt: {prompt}"
+        )
+
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                artifacts = parse_llm_artifacts(call_llm(provider, model_name, system_instruction, user_prompt), provider, model_name)
+                if isinstance(artifacts, list) and len(artifacts) > 0:
+                    return artifacts
+            except Exception as exc:
+                last_error = exc
+                time.sleep(2)
+        if last_error:
+            if isinstance(last_error, LLMContractError):
+                raise LLMContractError(
+                    last_error.stage,
+                    str(last_error),
+                    field=last_error.field,
+                    provider=provider,
+                    model_name=model_name,
+                    raw_excerpt=last_error.raw_excerpt,
+                    cause=last_error.cause or last_error,
+                ) from last_error
+            raise LLMContractError(
+                "artifact_plan",
+                "Failed to generate a valid artifact plan after retries",
+                provider=provider,
+                model_name=model_name,
+                raw_excerpt=str(last_error),
+                cause=last_error,
+            ) from last_error
+        return []
 
 def generate_template(artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, template_id: str = None) -> list:
     return normalize_template(build_layout_from_template(artifacts, template_id))
@@ -331,24 +741,52 @@ def normalize_preprocessing_payload(payload: dict) -> dict:
     }
 
 
-def generate_data_filter(all_metadata: str, prompt: str, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None) -> dict:
-    system_instruction = load_prompt("GENERATE_DATA_FILTER.md")
-    lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
-    user_prompt = (
-        f"Target Language: {lang}\n"
-        f"User Goal:\n{prompt}\n\n"
-        f"Raw Data Artifacts:\n{all_metadata}"
-    )
+def generate_data_filter(
+    all_metadata: str,
+    prompt: str,
+    provider: str = DEFAULT_PROVIDER,
+    model_name: str = DEFAULT_MODEL_NAME,
+    settings: dict = None,
+    job_id: str | None = None,
+) -> dict:
+    with llm_operation_context(job_id=job_id, operation="data_preprocessing", settings=settings, provider=provider, model_name=model_name):
+        system_instruction = load_prompt("GENERATE_DATA_FILTER.md")
+        lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
+        user_prompt = (
+            f"Target Language: {lang}\n"
+            f"User Goal:\n{prompt}\n\n"
+            f"Raw Data Artifacts:\n{all_metadata}"
+        )
 
-    for attempt in range(3):
-        try:
-            payload = parse_llm_preprocessing_plan(call_llm(provider, model_name, system_instruction, user_prompt))
-            return normalize_preprocessing_payload(payload)
-        except Exception as e:
-            print(f"DEBUG: data preprocessing generation attempt {attempt + 1} failed: {str(e)}")
-            time.sleep(2)
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                payload = parse_llm_preprocessing_plan(call_llm(provider, model_name, system_instruction, user_prompt), provider, model_name)
+                return normalize_preprocessing_payload(payload)
+            except Exception as e:
+                last_error = e
+                time.sleep(2)
 
-    return {"needs_preprocessing": False, "needs_filter": False, "description": "", "code": ""}
+        if last_error:
+            if isinstance(last_error, LLMContractError):
+                raise LLMContractError(
+                    last_error.stage,
+                    str(last_error),
+                    field=last_error.field,
+                    provider=provider,
+                    model_name=model_name,
+                    raw_excerpt=last_error.raw_excerpt,
+                    cause=last_error.cause or last_error,
+                ) from last_error
+            raise LLMContractError(
+                "data_preprocessing",
+                "Failed to generate a valid preprocessing plan after retries",
+                provider=provider,
+                model_name=model_name,
+                raw_excerpt=str(last_error),
+                cause=last_error,
+            ) from last_error
+        return {"needs_preprocessing": False, "needs_filter": False, "description": "", "code": ""}
 
 
 def dataframe_load_line(original_name: str, path: str, indent: str = "") -> str:
@@ -359,50 +797,62 @@ def dataframe_load_line(original_name: str, path: str, indent: str = "") -> str:
         return f"{indent}dataframes[{json.dumps(original_name)}] = pd.read_excel(r'{path}')"
     return ""
 
-def calculate_metric_value(all_metadata: str, artifact: dict, files_map: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME) -> any:
+def calculate_metric_value(
+    all_metadata: str,
+    artifact: dict,
+    files_map: dict,
+    provider: str = DEFAULT_PROVIDER,
+    model_name: str = DEFAULT_MODEL_NAME,
+    job_id: str | None = None,
+) -> any:
     """
     Generates and executes a script to calculate a metric value with automatic retries.
     """
-    system_instruction = load_prompt("GENERATE_METRIC_VALUE.md")
-    user_prompt = f"Target Metric:\n{json.dumps(artifact, indent=2)}\n\nData Artifacts:\n{all_metadata}"
-    
-    # Injetar carregamento dos dataframes para execução (com paths absolutos e raw strings)
-    setup_code = ["import pandas as pd", "import json", "import os", "dataframes = {}"]
-    for original_name, path in files_map.items():
-        abs_path = os.path.abspath(path)
-        line = dataframe_load_line(original_name, abs_path)
-        if line:
-            setup_code.append(line)
-    
-    for attempt in range(3):
-        try:
-            code = call_llm(provider, model_name, system_instruction, f"{user_prompt}\n\nAttempt: {attempt+1}").strip()
-            code = strip_code_fence(code, "python")
+    with llm_operation_context(job_id=job_id, operation="metric_value", provider=provider, model_name=model_name):
+        system_instruction = load_prompt("GENERATE_METRIC_VALUE.md")
+        user_prompt = f"Target Metric:\n{json.dumps(artifact, indent=2)}\n\nData Artifacts:\n{all_metadata}"
 
-            full_script = "\n".join(setup_code) + "\n\n" + code
-            
-            from app.services.executor_service import execute_script
-            import tempfile
-            
-            with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as tmp:
-                result = execute_script(full_script, tmp.name)
-                os.unlink(tmp.name) # Cleanup manual
-                
-                if result["success"]:
-                    output = result["stdout"].strip()
-                    for payload in reversed(extract_json_objects(output)):
-                        val = normalize_metric_value(payload.get("value"))
-                        if val != "N/A":
-                            return val
-                
-                # Se falhou, logamos o erro para debug (interno)
-                print(f"DEBUG: Metric {artifact['id']} attempt {attempt+1} failed: {result['stderr']}")
-        except Exception as e:
-            print(f"DEBUG: Metric {artifact['id']} exception: {str(e)}")
-            
-        time.sleep(1)
-        
-    return "N/A"
+        # Injetar carregamento dos dataframes para execução (com paths absolutos e raw strings)
+        setup_code = ["import pandas as pd", "import json", "import os", "dataframes = {}"]
+        for original_name, path in files_map.items():
+            abs_path = os.path.abspath(path)
+            line = dataframe_load_line(original_name, abs_path)
+            if line:
+                setup_code.append(line)
+
+        for attempt in range(3):
+            try:
+                code = call_llm(provider, model_name, system_instruction, f"{user_prompt}\n\nAttempt: {attempt+1}").strip()
+                code = strip_code_fence(code, "python")
+
+                full_script = "\n".join(setup_code) + "\n\n" + code
+
+                from app.services.executor_service import execute_script
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as tmp:
+                    result = execute_script(full_script, tmp.name)
+                    os.unlink(tmp.name) # Cleanup manual
+
+                    if result["success"]:
+                        output = result["stdout"].strip()
+                        for payload in reversed(extract_json_objects(output)):
+                            val = normalize_metric_value(payload.get("value"))
+                            if val != "N/A":
+                                return val
+
+                    logger.warning(
+                        "metric execution failed metric_id=%s attempt=%s stderr=%s",
+                        artifact.get("id", ""),
+                        attempt + 1,
+                        (result.get("stderr") or "")[:500],
+                    )
+            except Exception as e:
+                logger.exception("metric execution exception metric_id=%s attempt=%s", artifact.get("id", ""), attempt + 1)
+
+            time.sleep(1)
+
+        return "N/A"
 
 VISUAL_COMPONENT_TYPES = {'graphic', 'bar', 'line', 'pie', 'scatter', 'table', 'chart', 'radial', 'donut', 'gauge'}
 
@@ -487,99 +937,132 @@ def text_layout_guidance(text_artifacts: list, template: list, settings: dict = 
     return guidance
 
 
-def generate_component_code(all_metadata: str, artifact: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, calculated_metrics: dict = None, preceding_text: str = None, settings: dict = None, layout_slot: dict = None) -> str:
-    system_instruction = load_prompt("GENERATE_COMPONENT_CODE.md")
-    lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
-    
-    context = [
-        f"Target Language: {lang}",
-        f"Target Component JSON:\n{json.dumps(artifact, indent=2)}",
-        f"Data Artifacts:\n{all_metadata}"
-    ]
-    
-    if calculated_metrics:
-        context.append(f"Calculated Metrics (Available for reference):\n{json.dumps(calculated_metrics, indent=2)}")
-    
-    if preceding_text:
-        context.append(f"Preceding Report Text (for context/conclusion):\n{preceding_text}")
+def generate_component_code(all_metadata: str, artifact: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, calculated_metrics: dict = None, preceding_text: str = None, settings: dict = None, layout_slot: dict = None, job_id: str | None = None) -> str:
+    with llm_operation_context(job_id=job_id, operation="component_code", settings=settings, provider=provider, model_name=model_name):
+        system_instruction = load_prompt("GENERATE_COMPONENT_CODE.md")
+        lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
+        context = [
+            f"Target Language: {lang}",
+            f"Target Component JSON:\n{json.dumps(artifact, indent=2)}",
+            f"Data Artifacts:\n{all_metadata}"
+        ]
 
-    slot_guidance = visual_slot_guidance(layout_slot)
-    if slot_guidance:
-        context.append(f"Layout Slot Constraints:\n{json.dumps(slot_guidance, indent=2, ensure_ascii=False)}")
+        if calculated_metrics:
+            context.append(f"Calculated Metrics (Available for reference):\n{json.dumps(calculated_metrics, indent=2)}")
 
-    if artifact.get("type") in VISUAL_COMPONENT_TYPES:
-        visual_context = resolved_visual_context(artifact, settings or {})
-        context.append(
-            "Component Preset Contract:\n"
-            f"{json.dumps(visual_context['preset'], indent=2, ensure_ascii=False)}"
-        )
-        context.append(
-            "Resolved Visual Theme:\n"
-            f"{json.dumps(visual_context['theme'], indent=2, ensure_ascii=False)}"
-        )
-        context.append(
-            "Resolved Chart Style:\n"
-            f"{json.dumps(visual_context['style'], indent=2, ensure_ascii=False)}"
-        )
-        context.append(
-            "Resolved Visual Options:\n"
-            f"{json.dumps(visual_context['options'], indent=2, ensure_ascii=False)}"
-        )
+        if preceding_text:
+            context.append(f"Preceding Report Text (for context/conclusion):\n{preceding_text}")
 
-    if artifact.get("type") in VISUAL_COMPONENT_TYPES and settings:
-        visual_instructions = settings.get("visual_instructions")
-        chart_palette = settings.get("chart_palette")
-        if visual_instructions:
-            context.append(f"Visual Style Instructions:\n{visual_instructions}")
-        if chart_palette:
+        slot_guidance = visual_slot_guidance(layout_slot)
+        if slot_guidance:
+            context.append(f"Layout Slot Constraints:\n{json.dumps(slot_guidance, indent=2, ensure_ascii=False)}")
+
+        if artifact.get("type") in VISUAL_COMPONENT_TYPES:
+            visual_context = resolved_visual_context(artifact, settings or {})
             context.append(
-                "Preferred Chart Palette:\n"
-                f"{json.dumps(chart_palette, indent=2, ensure_ascii=False)}\n"
-                "Use these colors for chart marks instead of default blue palettes."
+                "Component Preset Contract:\n"
+                f"{json.dumps(visual_context['preset'], indent=2, ensure_ascii=False)}"
             )
-        
-    user_prompt = "\n\n".join(context)
-
-    last_code = ""
-    for attempt in range(3):
-        attempt_prompt = user_prompt
-        if attempt > 0:
-            attempt_prompt += (
-                "\n\nPrevious attempt violated chart layout safety: it combined data labels "
-                "or annotations with an inside upper-corner legend. Regenerate the function "
-                "with the legend outside the axes using bbox_to_anchor, or remove non-essential "
-                "data labels/annotations."
+            context.append(
+                "Resolved Visual Theme:\n"
+                f"{json.dumps(visual_context['theme'], indent=2, ensure_ascii=False)}"
+            )
+            context.append(
+                "Resolved Chart Style:\n"
+                f"{json.dumps(visual_context['style'], indent=2, ensure_ascii=False)}"
+            )
+            context.append(
+                "Resolved Visual Options:\n"
+                f"{json.dumps(visual_context['options'], indent=2, ensure_ascii=False)}"
+            )
+            if artifact.get("data_binding"):
+                context.append(
+                    "Data Binding Contract:\n"
+                    f"{json.dumps(artifact.get('data_binding'), indent=2, ensure_ascii=False)}"
+                )
+            if artifact.get("render_mode"):
+                context.append(f"Render Mode: {artifact.get('render_mode')}")
+            context.append(
+                "Runtime Renderer API Reference:\n"
+                f"{runtime_api_prompt_reference(artifact.get('component_preset_id'))}"
             )
 
-        text = call_llm(provider, model_name, system_instruction, attempt_prompt)
-        code = strip_code_fence(text, "python")
-        last_code = code
-        if artifact.get("type") not in VISUAL_COMPONENT_TYPES or not chart_code_has_layout_risk(code):
-            return code
-        time.sleep(1)
+        if artifact.get("type") in VISUAL_COMPONENT_TYPES and settings:
+            visual_instructions = settings.get("visual_instructions")
+            chart_palette = settings.get("chart_palette")
+            if visual_instructions:
+                context.append(f"Visual Style Instructions:\n{visual_instructions}")
+            if chart_palette:
+                context.append(
+                    "Preferred Chart Palette:\n"
+                    f"{json.dumps(chart_palette, indent=2, ensure_ascii=False)}\n"
+                    "Use these colors for chart marks instead of default blue palettes."
+                )
 
-    return last_code
+        user_prompt = "\n\n".join(context)
 
-def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metrics: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, template: list = None) -> dict:
-    system_instruction = load_prompt("GENERATE_ALL_TEXTS.md")
-    lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
-    layout_guidance = text_layout_guidance(text_artifacts, template or [], settings)
-    context = [
-        f"Target Language: {lang}",
-        f"Text Artifacts:\n{json.dumps(text_artifacts, indent=2, ensure_ascii=False)}",
-        f"Calculated Metrics:\n{json.dumps(calculated_metrics, indent=2, ensure_ascii=False)}",
-    ]
-    if layout_guidance:
-        context.append(f"Layout Slots:\n{json.dumps(layout_guidance, indent=2, ensure_ascii=False)}")
-    context.append(f"Data Artifacts:\n{all_metadata}")
-    user_prompt = "\n\n".join(context)
-    
-    for attempt in range(3):
-        try:
-            return parse_llm_text_map(call_llm(provider, model_name, system_instruction, user_prompt))
-        except (ValueError, json.JSONDecodeError, ValidationError):
-            time.sleep(2)
-    return {}
+        last_code = ""
+        for attempt in range(3):
+            attempt_prompt = user_prompt
+            if attempt > 0:
+                attempt_prompt += (
+                    "\n\nPrevious attempt violated chart layout safety: it combined data labels "
+                    "or annotations with an inside upper-corner legend. Regenerate the function "
+                    "with the legend outside the axes using bbox_to_anchor, or remove non-essential "
+                    "data labels/annotations."
+                )
+
+            text = call_llm(provider, model_name, system_instruction, attempt_prompt)
+            code = strip_code_fence(text, "python")
+            last_code = code
+            if artifact.get("type") not in VISUAL_COMPONENT_TYPES or not chart_code_has_layout_risk(code):
+                return code
+            time.sleep(1)
+
+        return last_code
+
+def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metrics: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, template: list = None, job_id: str | None = None) -> dict:
+    with llm_operation_context(job_id=job_id, operation="text_generation", settings=settings, provider=provider, model_name=model_name):
+        system_instruction = load_prompt("GENERATE_ALL_TEXTS.md")
+        lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
+        layout_guidance = text_layout_guidance(text_artifacts, template or [], settings)
+        context = [
+            f"Target Language: {lang}",
+            f"Text Artifacts:\n{json.dumps(text_artifacts, indent=2, ensure_ascii=False)}",
+            f"Calculated Metrics:\n{json.dumps(calculated_metrics, indent=2, ensure_ascii=False)}",
+        ]
+        if layout_guidance:
+            context.append(f"Layout Slots:\n{json.dumps(layout_guidance, indent=2, ensure_ascii=False)}")
+        context.append(f"Data Artifacts:\n{all_metadata}")
+        user_prompt = "\n\n".join(context)
+
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                return parse_llm_text_map(call_llm(provider, model_name, system_instruction, user_prompt), provider, model_name)
+            except Exception as exc:
+                last_error = exc
+                time.sleep(2)
+        if last_error:
+            if isinstance(last_error, LLMContractError):
+                raise LLMContractError(
+                    last_error.stage,
+                    str(last_error),
+                    field=last_error.field,
+                    provider=provider,
+                    model_name=model_name,
+                    raw_excerpt=last_error.raw_excerpt,
+                    cause=last_error.cause or last_error,
+                ) from last_error
+            raise LLMContractError(
+                "text_generation",
+                "Failed to generate valid narrative texts after retries",
+                provider=provider,
+                model_name=model_name,
+                raw_excerpt=str(last_error),
+                cause=last_error,
+            ) from last_error
+        return {}
 
 
 def estimate_text_block_capacity(block: dict, settings: dict = None) -> dict:
@@ -609,86 +1092,87 @@ def estimated_line_count(text: str, chars_per_line: int) -> int:
     return total
 
 
-def condense_texts_to_fit(texts_map: dict, text_artifacts: list, template: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None) -> dict:
-    texts_map = dict(texts_map or {})
-    blocks_by_id = {item.get("id"): item for item in normalize_template(template)}
-    overflow_items = []
+def condense_texts_to_fit(texts_map: dict, text_artifacts: list, template: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, job_id: str | None = None) -> dict:
+    with llm_operation_context(job_id=job_id, operation="text_condensation", settings=settings, provider=provider, model_name=model_name):
+        texts_map = dict(texts_map or {})
+        blocks_by_id = {item.get("id"): item for item in normalize_template(template)}
+        overflow_items = []
+        for artifact in text_artifacts:
+            artifact_id = artifact.get("id")
+            block = blocks_by_id.get(artifact_id)
+            text = texts_map.get(artifact_id)
+            if not block or not text:
+                continue
+            capacity = estimate_text_block_capacity(block, settings)
+            lines = estimated_line_count(text, capacity["chars_per_line"])
+            overflow_threshold = max(capacity["max_lines"] + 1, int(capacity["max_lines"] * 1.18))
+            if lines > overflow_threshold:
+                overflow_items.append({
+                    "id": artifact_id,
+                    "indicator": artifact.get("indicator", artifact_id),
+                    "slot": {"w_mm": block.get("w"), "h_mm": block.get("h")},
+                    "estimated_lines": lines,
+                    "max_lines": capacity["max_lines"],
+                    "overflow_threshold_lines": overflow_threshold,
+                    "target_words": capacity["target_words"],
+                    "soft_max_words": capacity["soft_max_words"],
+                    "text": text,
+                })
 
-    for artifact in text_artifacts:
-        artifact_id = artifact.get("id")
-        block = blocks_by_id.get(artifact_id)
-        text = texts_map.get(artifact_id)
-        if not block or not text:
-            continue
-        capacity = estimate_text_block_capacity(block, settings)
-        lines = estimated_line_count(text, capacity["chars_per_line"])
-        overflow_threshold = max(capacity["max_lines"] + 1, int(capacity["max_lines"] * 1.18))
-        if lines > overflow_threshold:
-            overflow_items.append({
-                "id": artifact_id,
-                "indicator": artifact.get("indicator", artifact_id),
-                "slot": {"w_mm": block.get("w"), "h_mm": block.get("h")},
-                "estimated_lines": lines,
-                "max_lines": capacity["max_lines"],
-                "overflow_threshold_lines": overflow_threshold,
-                "target_words": capacity["target_words"],
-                "soft_max_words": capacity["soft_max_words"],
-                "text": text,
-            })
+        if not overflow_items:
+            return texts_map
 
-    if not overflow_items:
+        lang = settings.get("language", "Portuguese") if settings else "Portuguese"
+        system_instruction = (
+            "You are an executive editor for PDF report text blocks. Rewrite only the provided "
+            "overflowing text components so they fit their exact PDF slots. Preserve the most "
+            "important metrics, conclusions, and analytical meaning. Return only valid JSON."
+        )
+        user_prompt = (
+            f"Target Language: {lang}\n"
+            "Each item below overflowed its assigned PDF text block. Condense each text to no more "
+            "than its soft_max_words, and only go down to target_words if strictly necessary. "
+            "Use complete sentences, no markdown, no bullet lists, and no ellipses. "
+            "Return a JSON object mapping each id to the condensed string.\n\n"
+            f"Overflowing Text Blocks:\n{json.dumps(overflow_items, indent=2, ensure_ascii=False)}"
+        )
+
+        for attempt in range(3):
+            try:
+                response = call_llm(provider, model_name, system_instruction, user_prompt)
+                payload = parse_llm_text_map(response)
+                for key, value in payload.items():
+                    if key in texts_map and isinstance(value, str) and value.strip():
+                        texts_map[key] = value.strip()
+                return texts_map
+            except Exception as e:
+                logger.warning("text condensation failed attempt=%s error=%s", attempt + 1, str(e))
+                time.sleep(2)
+
         return texts_map
 
-    lang = settings.get("language", "Portuguese") if settings else "Portuguese"
-    system_instruction = (
-        "You are an executive editor for PDF report text blocks. Rewrite only the provided "
-        "overflowing text components so they fit their exact PDF slots. Preserve the most "
-        "important metrics, conclusions, and analytical meaning. Return only valid JSON."
-    )
-    user_prompt = (
-        f"Target Language: {lang}\n"
-        "Each item below overflowed its assigned PDF text block. Condense each text to no more "
-        "than its soft_max_words, and only go down to target_words if strictly necessary. "
-        "Use complete sentences, no markdown, no bullet lists, and no ellipses. "
-        "Return a JSON object mapping each id to the condensed string.\n\n"
-        f"Overflowing Text Blocks:\n{json.dumps(overflow_items, indent=2, ensure_ascii=False)}"
-    )
 
-    for attempt in range(3):
+def generate_report_title(all_metadata: str, prompt: str, artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, job_id: str | None = None) -> str:
+    with llm_operation_context(job_id=job_id, operation="title_generation", settings=settings, provider=provider, model_name=model_name):
+        system_instruction = load_prompt("GENERATE_REPORT_TITLE.md")
+        lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
+        user_prompt = (
+            f"Target Language: {lang}\n"
+            f"User Goal:\n{prompt}\n\n"
+            f"Data Artifacts:\n{all_metadata}\n\n"
+            f"Selected Artifacts:\n{json.dumps(artifacts, indent=2, ensure_ascii=False)}"
+        )
+
         try:
-            response = call_llm(provider, model_name, system_instruction, user_prompt)
-            payload = parse_llm_text_map(response)
-            for key, value in payload.items():
-                if key in texts_map and isinstance(value, str) and value.strip():
-                    texts_map[key] = value.strip()
-            return texts_map
+            title = call_llm(provider, model_name, system_instruction, user_prompt).strip()
+            title = strip_code_fence(title).strip().strip('"').strip("'")
+            title = " ".join(title.split())
+            if title:
+                return title
         except Exception as e:
-            print(f"DEBUG: text condensation attempt {attempt + 1} failed: {str(e)}")
-            time.sleep(2)
+            logger.warning("title generation failed error=%s", str(e))
 
-    return texts_map
-
-
-def generate_report_title(all_metadata: str, prompt: str, artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None) -> str:
-    system_instruction = load_prompt("GENERATE_REPORT_TITLE.md")
-    lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
-    user_prompt = (
-        f"Target Language: {lang}\n"
-        f"User Goal:\n{prompt}\n\n"
-        f"Data Artifacts:\n{all_metadata}\n\n"
-        f"Selected Artifacts:\n{json.dumps(artifacts, indent=2, ensure_ascii=False)}"
-    )
-
-    try:
-        title = call_llm(provider, model_name, system_instruction, user_prompt).strip()
-        title = strip_code_fence(title).strip().strip('"').strip("'")
-        title = " ".join(title.split())
-        if title:
-            return title
-    except Exception as e:
-        print(f"DEBUG: title generation failed: {str(e)}")
-
-    return fallback_report_title(prompt)
+        return fallback_report_title(prompt)
 
 
 def fallback_report_title(prompt: str) -> str:
@@ -706,6 +1190,7 @@ def assemble_script(
     page_format: tuple[float, float] | None = None,
     include_title: bool = True,
     normalize_layout: bool = True,
+    artifacts: list[dict] | None = None,
 ) -> str:
     template = sorted(
         normalize_template(template) if normalize_layout else [item.copy() for item in template or []],
@@ -730,6 +1215,12 @@ def assemble_script(
     if not isinstance(chart_palette, list):
         chart_palette = []
     
+    artifacts_by_id = {
+        str(artifact.get("id")): artifact
+        for artifact in artifacts or []
+        if isinstance(artifact, dict) and artifact.get("id")
+    }
+
     script = [
         "import os", "os.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')",
         "import json",
@@ -766,149 +1257,17 @@ def assemble_script(
         "    'text.color': CHART_THEME.get('text_color', '#111827'),",
         "})",
         "",
-        "def _resolved_chart_theme():",
-        "    return dict(CHART_THEME or {})",
-        "",
-        "def _chart_colors(n):",
-        "    palette = CHART_PALETTE or CHART_THEME.get('palette') or ['#2563eb', '#16a34a', '#f59e0b', '#dc2626']",
-        "    if n <= len(palette):",
-        "        return palette[:n]",
-        "    return [palette[i % len(palette)] for i in range(n)]",
-        "",
-        "def _apply_chart_theme(fig, ax=None, theme=None):",
-        "    theme = theme or CHART_THEME",
-        "    fig.patch.set_facecolor(theme.get('figure_facecolor', '#ffffff'))",
-        "    axes = fig.axes if ax is None else [ax]",
-        "    for axis in axes:",
-        "        axis.set_facecolor(theme.get('axes_facecolor', '#ffffff'))",
-        "        axis.tick_params(colors=theme.get('muted_text_color', '#6b7280'))",
-        "        axis.xaxis.label.set_color(theme.get('text_color', '#111827'))",
-        "        axis.yaxis.label.set_color(theme.get('text_color', '#111827'))",
-        "        axis.title.set_color(theme.get('text_color', '#111827'))",
-        "        axis.grid(color=theme.get('grid_color', '#e5e7eb'), alpha=0.7)",
-        "        for spine in axis.spines.values():",
-        "            spine.set_color(theme.get('grid_color', '#e5e7eb'))",
-        "    return fig",
-        "",
-        "def _format_compact_number(value):",
-        "    try:",
-        "        value = float(value)",
-        "    except Exception:",
-        "        return str(value)",
-        "    abs_value = abs(value)",
-        "    if abs_value >= 1_000_000_000:",
-        "        return f'{value / 1_000_000_000:.1f}B'",
-        "    if abs_value >= 1_000_000:",
-        "        return f'{value / 1_000_000:.1f}M'",
-        "    if abs_value >= 1_000:",
-        "        return f'{value / 1_000:.1f}K'",
-        "    if value.is_integer():",
-        "        return f'{value:.0f}'",
-        "    return f'{value:.1f}'",
-        "",
-        "def _top_n_with_others(df, category_col, value_col, top_n=10, others_label='Others'):",
-        "    if df is None or df.empty or category_col not in df.columns or value_col not in df.columns:",
-        "        return pd.DataFrame(columns=[category_col, value_col])",
-        "    grouped = df.groupby(category_col, dropna=False)[value_col].sum().reset_index()",
-        "    grouped = grouped.sort_values(value_col, ascending=False)",
-        "    top_n = int(top_n or 10)",
-        "    if len(grouped) <= top_n:",
-        "        return grouped",
-        "    top = grouped.head(top_n).copy()",
-        "    other_value = grouped.iloc[top_n:][value_col].sum()",
-        "    other = pd.DataFrame([{category_col: others_label, value_col: other_value}])",
-        "    return pd.concat([top, other], ignore_index=True)",
-        "",
-        "def _save_chart_to_pdf(fig, pdf, x, y, w, h):",
-        "    _apply_chart_theme(fig)",
-        "    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:",
-        "        fig.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)",
-        "        plt.close(fig)",
-        "        pdf.image(tmp.name, x=x, y=y, w=w, h=h)",
-        "        os.unlink(tmp.name)",
-        "",
-        "def _render_table_image(pdf, dataframe, x, y, w, h, title=None, theme=None):",
-        "    theme = theme or CHART_THEME",
-        "    table_theme = theme.get('table', {})",
-        "    df = dataframe.copy() if dataframe is not None else pd.DataFrame()",
-        "    max_rows = 5 if h < 60 else 8 if h < 95 else 12",
-        "    max_cols = 4 if w < 100 else 6 if w < 150 else 8",
-        "    df = df.iloc[:max_rows, :max_cols]",
-        "    df = df.fillna('')",
-        "    for column in df.columns:",
-        "        df[column] = df[column].map(lambda value: _format_compact_number(value) if isinstance(value, (int, float, np.integer, np.floating)) else str(value)[:42])",
-        "    fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))",
-        "    ax.axis('off')",
-        "    if title:",
-        "        ax.set_title(str(title), fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)",
-        "    if df.empty:",
-        "        ax.text(0.5, 0.5, 'Dados indisponíveis', ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE)",
-        "        _save_chart_to_pdf(fig, pdf, x, y, w, h)",
-        "        return",
-        "    table = ax.table(cellText=df.values, colLabels=[str(c)[:28] for c in df.columns], cellLoc='center', loc='center')",
-        "    table.auto_set_font_size(False)",
-        "    font_size = max(4, CHART_TABLE_FONTSIZE - (1 if h < 65 else 0) - (1 if len(df.columns) > 5 else 0))",
-        "    table.set_fontsize(font_size)",
-        "    table.scale(1, 1.15 if h < 75 else 1.3)",
-        "    for (row, col), cell in table.get_celld().items():",
-        "        cell.set_edgecolor(table_theme.get('border', '#d1d5db'))",
-        "        cell.set_linewidth(0.4)",
-        "        if row == 0:",
-        "            cell.set_facecolor(table_theme.get('header_bg', '#111827'))",
-        "            cell.get_text().set_color(table_theme.get('header_text', '#ffffff'))",
-        "            cell.get_text().set_fontweight('bold')",
-        "        else:",
-        "            cell.set_facecolor(table_theme.get('alt_row_bg', '#f9fafb') if row % 2 == 0 else table_theme.get('row_bg', '#ffffff'))",
-        "            cell.get_text().set_color(theme.get('text_color', '#111827'))",
-        "    fig.subplots_adjust(left=0.02, right=0.98, top=0.86 if title else 0.98, bottom=0.02)",
-        "    _save_chart_to_pdf(fig, pdf, x, y, w, h)",
-        "",
-        "def _install_standard_chart_style():",
-        "    from matplotlib.axes import Axes",
-        "    original_set_title = Axes.set_title",
-        "    original_set_xlabel = Axes.set_xlabel",
-        "    original_set_ylabel = Axes.set_ylabel",
-        "    original_tick_params = Axes.tick_params",
-        "    original_legend = Axes.legend",
-        "    original_plt_legend = plt.legend",
-        "    def set_title(self, label, fontdict=None, loc=None, pad=None, *, y=None, **kwargs):",
-        "        fontdict = dict(fontdict or {})",
-        "        fontdict['fontsize'] = CHART_TITLE_FONTSIZE",
-        "        fontdict['fontweight'] = CHART_TITLE_FONTWEIGHT",
-        "        kwargs['fontsize'] = CHART_TITLE_FONTSIZE",
-        "        kwargs['fontweight'] = CHART_TITLE_FONTWEIGHT",
-        "        return original_set_title(self, label, fontdict=fontdict, loc=loc, pad=CHART_TITLE_PAD if pad is None else pad, y=y, **kwargs)",
-        "    def set_xlabel(self, xlabel, fontdict=None, labelpad=None, loc=None, **kwargs):",
-        "        fontdict = dict(fontdict or {})",
-        "        fontdict['fontsize'] = CHART_LABEL_FONTSIZE",
-        "        fontdict['fontweight'] = 'normal'",
-        "        kwargs['fontsize'] = CHART_LABEL_FONTSIZE",
-        "        kwargs['fontweight'] = 'normal'",
-        "        return original_set_xlabel(self, xlabel, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs)",
-        "    def set_ylabel(self, ylabel, fontdict=None, labelpad=None, loc=None, **kwargs):",
-        "        fontdict = dict(fontdict or {})",
-        "        fontdict['fontsize'] = CHART_LABEL_FONTSIZE",
-        "        fontdict['fontweight'] = 'normal'",
-        "        kwargs['fontsize'] = CHART_LABEL_FONTSIZE",
-        "        kwargs['fontweight'] = 'normal'",
-        "        return original_set_ylabel(self, ylabel, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs)",
-        "    def tick_params(self, axis='both', **kwargs):",
-        "        kwargs['labelsize'] = CHART_TICK_FONTSIZE",
-        "        return original_tick_params(self, axis=axis, **kwargs)",
-        "    def legend(self, *args, **kwargs):",
-        "        kwargs['fontsize'] = CHART_LEGEND_FONTSIZE",
-        "        return original_legend(self, *args, **kwargs)",
-        "    def plt_legend(*args, **kwargs):",
-        "        kwargs['fontsize'] = CHART_LEGEND_FONTSIZE",
-        "        return original_plt_legend(*args, **kwargs)",
-        "    Axes.set_title = set_title",
-        "    Axes.set_xlabel = set_xlabel",
-        "    Axes.set_ylabel = set_ylabel",
-        "    Axes.tick_params = tick_params",
-        "    Axes.legend = legend",
-        "    plt.legend = plt_legend",
-        "",
-        "_install_standard_chart_style()",
+        "import pdf_report_renderers.runtime as render_runtime",
+        "from pdf_report_renderers.runtime import (",
+        "    configure_visual_runtime, render_visual_component, render_bar_chart,",
+        "    render_line_chart, render_scatter_plot, render_donut_chart, render_gauge_chart,",
+        "    render_summary_table, render_detail_table, _resolved_chart_theme,",
+        "    _chart_colors, _apply_chart_theme, _format_compact_number,",
+        "    _top_n_with_others, _save_chart_to_pdf, _render_table_image,",
+        "    _library_dataframe, _library_resolve_column, _library_resolve_columns,",
+        "    _library_aggregate, _library_limit_top, _library_empty_chart,",
+        ")",
+        "configure_visual_runtime(CHART_THEME, CHART_PALETTE, CHART_STYLE)",
         "",
         "def _safe_pdf_text(value):",
         "    replacements = {",
@@ -997,11 +1356,36 @@ def assemble_script(
         f"    pdf.multi_cell(w, line_height, fitted_text, align='{settings.get('alignment', 'J')}')",
         ""
     ]
+    library_wrapper_ids = set()
     for comp_id, func_code in components.items():
-        script.append(func_code)
+        artifact = artifacts_by_id.get(str(comp_id))
+        render_mode = str((artifact or {}).get("render_mode") or "generated_code")
+        if artifact and render_mode == "library" and supports_library_renderer(artifact):
+            continue
+        if artifact and render_mode == "hybrid" and supports_library_renderer(artifact):
+            script.append(rename_generated_component_code(str(comp_id), func_code))
+        else:
+            script.append(func_code)
         script.append("")
+
+    for item in template:
+        artifact = artifacts_by_id.get(str(item.get("id")))
+        if not artifact or not supports_library_renderer(artifact):
+            continue
+        render_mode = str(artifact.get("render_mode") or "generated_code")
+        if render_mode not in {"library", "hybrid"}:
+            continue
+        artifact_id = str(artifact.get("id"))
+        if artifact_id in library_wrapper_ids:
+            continue
+        wrapper = hybrid_component_code(artifact) if render_mode == "hybrid" else library_component_code(artifact)
+        script.append(wrapper)
+        script.append("")
+        library_wrapper_ids.add(artifact_id)
+
     script.append("def generate_report():")
     script.append("    dataframes = {}")
+    script.append("    import logging")
     for original_name, path in files_map.items():
         line = dataframe_load_line(original_name, path, indent="    ")
         if line:
@@ -1039,8 +1423,7 @@ def assemble_script(
         script.append(f"        component_manifest.append({{'id': {json.dumps(item['id'])}, 'status': 'rendered'}})")
         script.append(f"    except Exception as e: ")
         script.append(f"        component_manifest.append({{'id': {json.dumps(item['id'])}, 'status': 'failed', 'error': str(e)}})")
-        script.append(f"        print(f'Erro no componente {item['id']}: {{e}}')")
-        script.append(f"        import traceback; traceback.print_exc()")
+        script.append(f"        logging.getLogger(__name__).exception('Erro no componente {json.dumps(item['id'])}')")
     script.append(f"    manifest_path = r'{output_pdf_path}.manifest.json'")
     script.append("    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:")
     script.append("        json.dump({'components': component_manifest}, manifest_file, indent=2, ensure_ascii=False)")
@@ -1053,121 +1436,174 @@ def assemble_script(
     script.append("    generate_report()")
     return "\n".join(script)
 
-def fix_script(current_script: str, error: str, all_metadata: str, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME) -> str:
-    system_instruction = load_prompt("FIX_SCRIPT.md")
-    user_prompt = f"Reported Error: {error}\n\nCurrent Failing Script:\n{current_script}\n\nData Artifacts:\n{all_metadata}"
-    
-    text = call_llm(provider, model_name, system_instruction, user_prompt)
-    return strip_code_fence(text, "python")
+def fix_script(current_script: str, error: str, all_metadata: str, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, job_id: str | None = None) -> str:
+    with llm_operation_context(job_id=job_id, operation="script_fix", provider=provider, model_name=model_name):
+        system_instruction = load_prompt("FIX_SCRIPT.md")
+        user_prompt = f"Reported Error: {error}\n\nCurrent Failing Script:\n{current_script}\n\nData Artifacts:\n{all_metadata}"
 
-def generate_exploration_script(all_metadata: str, query: str, files_map: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, history: list = None) -> str:
-    system_instruction = load_prompt("EXPLORE_DATA.md")
-    history_str = ""
-    if history:
-        history_str = "Conversation History:\n"
-        for h in history: history_str += f"{h['role'].upper()}: {h['content']}\n"
-    
-    user_prompt = f"{history_str}\nData Artifacts:\n{all_metadata}\n\nUser Query: {query}"
-    
-    text = call_llm(provider, model_name, system_instruction, user_prompt)
-    text = strip_code_fence(text, "python")
-    
-    # Injetar carregamento dos dataframes
-    setup_code = [
-        "import pandas as pd",
-        "dataframes = {}"
-    ]
-    for original_name, path in files_map.items():
-        line = dataframe_load_line(original_name, path)
-        if line:
-            setup_code.append(line)
-    
-    full_script = "\n".join(setup_code) + "\n\n" + text
-    return full_script
+        text = call_llm(provider, model_name, system_instruction, user_prompt)
+        return strip_code_fence(text, "python")
 
-def translate_workspace(session: dict, target_lang: str) -> dict:
-    system_instruction = load_prompt("TRANSLATE_WORKSPACE.md")
+def generate_exploration_script(all_metadata: str, query: str, files_map: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, history: list = None, job_id: str | None = None) -> str:
+    with llm_operation_context(job_id=job_id, operation="exploration_script", provider=provider, model_name=model_name):
+        system_instruction = load_prompt("EXPLORE_DATA.md")
+        history_str = ""
+        if history:
+            history_str = "Conversation History:\n"
+            for h in history: history_str += f"{h['role'].upper()}: {h['content']}\n"
+
+        user_prompt = f"{history_str}\nData Artifacts:\n{all_metadata}\n\nUser Query: {query}"
+
+        text = call_llm(provider, model_name, system_instruction, user_prompt)
+        text = strip_code_fence(text, "python")
+
+        # Injetar carregamento dos dataframes
+        setup_code = [
+            "import pandas as pd",
+            "dataframes = {}"
+        ]
+        for original_name, path in files_map.items():
+            line = dataframe_load_line(original_name, path)
+            if line:
+                setup_code.append(line)
+
+        full_script = "\n".join(setup_code) + "\n\n" + text
+        return full_script
+
+def translate_workspace(session: dict, target_lang: str, job_id: str | None = None) -> dict:
     provider = session.get('provider', DEFAULT_PROVIDER)
     model_name = session.get('model_name')
-    
-    workspace_data = {
-        "target_language": target_lang,
-        "artifacts": session.get('artifacts', []),
-        "components": session.get('components', {})
-    }
-    
-    user_prompt = f"Workspace to Translate:\n{json.dumps(workspace_data, indent=2)}"
-    
-    for attempt in range(3):
-        try:
-            return parse_llm_translation_payload(call_llm(provider, model_name, system_instruction, user_prompt))
-        except (ValueError, json.JSONDecodeError, ValidationError):
-            time.sleep(2)
-    return None
+    with llm_operation_context(job_id=job_id or session.get("job_id"), operation="workspace_translation", settings=session.get("settings"), provider=provider, model_name=model_name):
+        system_instruction = load_prompt("TRANSLATE_WORKSPACE.md")
 
-def refine_session_modular(session: dict, new_prompt: str) -> dict:
+        workspace_data = {
+            "target_language": target_lang,
+            "artifacts": session.get('artifacts', []),
+            "components": session.get('components', {})
+        }
+
+        user_prompt = f"Workspace to Translate:\n{json.dumps(workspace_data, indent=2)}"
+
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                return parse_llm_translation_payload(call_llm(provider, model_name, system_instruction, user_prompt), provider, model_name)
+            except Exception as exc:
+                last_error = exc
+                time.sleep(2)
+        if last_error:
+            if isinstance(last_error, LLMContractError):
+                raise LLMContractError(
+                    last_error.stage,
+                    str(last_error),
+                    field=last_error.field,
+                    provider=provider,
+                    model_name=model_name,
+                    raw_excerpt=last_error.raw_excerpt,
+                    cause=last_error.cause or last_error,
+                ) from last_error
+            raise LLMContractError(
+                "workspace_translation",
+                "Failed to translate workspace after retries",
+                provider=provider,
+                model_name=model_name,
+                raw_excerpt=str(last_error),
+                cause=last_error,
+            ) from last_error
+        return None
+
+def refine_session_modular(session: dict, new_prompt: str, job_id: str | None = None) -> dict:
     provider = session.get('provider', DEFAULT_PROVIDER)
     model_name = session.get('model_name')
-    system_instruction = load_prompt("REFINE_MODULAR.md")
     settings = session.get('settings', {})
     lang = settings.get('language', 'Portuguese')
-    
-    artifacts_str = json.dumps([{"id": a["id"], "name": a["indicator"]} for a in session.get("artifacts", [])], indent=2)
-    user_prompt = f"Target Language: {lang}\nUser Feedback/Prompt: \"{new_prompt}\"\n\nCurrent List of Indicators:\n{artifacts_str}"
-    
-    target = call_llm(provider, model_name, system_instruction, user_prompt).strip()
-    
-    all_metadata = json.dumps([f['artifact'] for f in session['files'] if f.get('artifact')], indent=2)
+    base_job_id = job_id or session.get("job_id")
 
-    if target in [a["id"] for a in session.get("artifacts", [])]:
-        artifact = next(a for a in session["artifacts"] if a["id"] == target)
-        refine_instruction = f"Target Language: {lang}\nUpdate the FUNCTION render_{target} based on: {new_prompt}\n\nCurrent Code:\n{session['components'][target]}\n\nData Artifacts:\n{all_metadata}"
-        
-        new_func = call_llm(provider, model_name, "Expert Python Developer specialized in report components.", refine_instruction).strip()
-        new_func = strip_code_fence(new_func, "python")
-        session['components'][target] = new_func
-        session['needs_script_update'] = True
-    elif target == "LAYOUT":
-        refine_instruction = f"Target Language: {lang}\nUpdate the layout JSON based on: {new_prompt}\n\nCurrent Layout: {json.dumps(session['template'], indent=2)}"
-        res = call_llm(provider, model_name, "Expert Information Designer specialized in JSON layouts.", refine_instruction).strip()
-        res = extract_json_payload(res, "[", "]")
-        try:
-            session['template'] = normalize_template(json.loads(res))
+    with llm_operation_context(job_id=base_job_id, operation="refinement_routing", settings=settings, provider=provider, model_name=model_name):
+        system_instruction = load_prompt("REFINE_MODULAR.md")
+
+        artifacts_str = json.dumps([{"id": a["id"], "name": a["indicator"]} for a in session.get("artifacts", [])], indent=2)
+        user_prompt = f"Target Language: {lang}\nUser Feedback/Prompt: \"{new_prompt}\"\n\nCurrent List of Indicators:\n{artifacts_str}"
+
+        target = parse_llm_refinement_target(call_llm(provider, model_name, system_instruction, user_prompt))
+
+        all_metadata = json.dumps([f['artifact'] for f in session['files'] if f.get('artifact')], indent=2)
+
+        if target in [a["id"] for a in session.get("artifacts", [])]:
+            artifact = next(a for a in session["artifacts"] if a["id"] == target)
+            current_code = session.get('components', {}).get(
+                target,
+                "No custom function exists yet; this component may currently be rendered by the runtime library."
+            )
+            runtime_reference = ""
+            if artifact.get("type") in VISUAL_COMPONENT_TYPES:
+                runtime_reference = (
+                    "\n\nTarget Component JSON:\n"
+                    f"{json.dumps(artifact, indent=2, ensure_ascii=False)}"
+                    "\n\nRuntime Renderer API Reference:\n"
+                    f"{runtime_api_prompt_reference(artifact.get('component_preset_id'))}"
+                    "\n\nRefinement Rendering Rules:\n"
+                    "- The returned function will be the primary renderer after this refinement.\n"
+                    "- Prefer a short custom function that calls the runtime API or adapts a small dataframe before calling a helper.\n"
+                    "- Only write bespoke matplotlib/table code for the part the user explicitly customized."
+                )
+            refine_instruction = (
+                f"Target Language: {lang}\n"
+                f"Update the FUNCTION render_{target} based on: {new_prompt}\n\n"
+                f"Current Code:\n{current_code}\n\n"
+                f"Data Artifacts:\n{all_metadata}"
+                f"{runtime_reference}"
+            )
+
+            with llm_operation_context(job_id=base_job_id, operation="refinement_component", settings=settings, provider=provider, model_name=model_name):
+                new_func = call_llm(provider, model_name, "Expert Python Developer specialized in report components.", refine_instruction).strip()
+            new_func = strip_code_fence(new_func, "python")
+            session.setdefault('components', {})[target] = new_func
+            if artifact.get("type") in VISUAL_COMPONENT_TYPES and supports_library_renderer(artifact):
+                artifact["render_mode"] = "generated_code"
             session['needs_script_update'] = True
-        except: pass
-    elif target == "SETTINGS":
-        refine_instruction = f"Update the report settings JSON based on: {new_prompt}\n\nCurrent Settings: {json.dumps(settings, indent=2)}\n\nFormat: {{\"title\": str, \"font\": str, \"font_size\": int, \"alignment\": \"L\"|\"C\"|\"R\"|\"J\", \"line_height\": int, \"language\": str}}"
-        res = call_llm(provider, model_name, "Expert Designer specialized in document settings.", refine_instruction).strip()
-        res = extract_json_payload(res, "{", "}")
-        try:
-            new_settings = json.loads(res)
-            current_settings = session.get('settings', {
-                "title": "Relatório Analítico",
-                "font": "Arial",
-                "font_size": 10,
-                "alignment": "J",
-                "line_height": 5,
-                "language": "Portuguese"
-            })
-            
-            old_lang = current_settings.get('language')
-            new_lang = new_settings.get('language')
-            
-            current_settings.update(new_settings)
-            session['settings'] = current_settings
-            session['needs_script_update'] = True
-            
-            if new_lang and old_lang and new_lang != old_lang:
-                # Trigger workspace translation
-                translated = translate_workspace(session, new_lang)
-                if translated:
-                    session['artifacts'] = translated['artifacts']
-                    session['components'] = translated['components']
-                    # Also translate title if it was default
-                    if "Relatório" in current_settings['title'] or "Report" in current_settings['title']:
-                         # Simple heuristic or let LLM decide title in prompt
-                         pass
-        except: pass
-    else:
-        session['needs_full_regeneration'] = True
-    return session
+        elif target == "LAYOUT":
+            refine_instruction = f"Target Language: {lang}\nUpdate the layout JSON based on: {new_prompt}\n\nCurrent Layout: {json.dumps(session['template'], indent=2)}"
+            with llm_operation_context(job_id=base_job_id, operation="refinement_layout", settings=settings, provider=provider, model_name=model_name):
+                res = call_llm(provider, model_name, "Expert Information Designer specialized in JSON layouts.", refine_instruction).strip()
+            res = extract_json_payload(res, "[", "]")
+            try:
+                session['template'] = normalize_template(json.loads(res))
+                session['needs_script_update'] = True
+            except:
+                pass
+        elif target == "SETTINGS":
+            refine_instruction = f"Update the report settings JSON based on: {new_prompt}\n\nCurrent Settings: {json.dumps(settings, indent=2)}\n\nFormat: {{\"title\": str, \"font\": str, \"font_size\": int, \"alignment\": \"L\"|\"C\"|\"R\"|\"J\", \"line_height\": int, \"language\": str}}"
+            with llm_operation_context(job_id=base_job_id, operation="refinement_settings", settings=settings, provider=provider, model_name=model_name):
+                res = call_llm(provider, model_name, "Expert Designer specialized in document settings.", refine_instruction).strip()
+            res = extract_json_payload(res, "{", "}")
+            try:
+                new_settings = json.loads(res)
+                current_settings = session.get('settings', {
+                    "title": "Relatório Analítico",
+                    "font": "Arial",
+                    "font_size": 10,
+                    "alignment": "J",
+                    "line_height": 5,
+                    "language": "Portuguese"
+                })
+
+                old_lang = current_settings.get('language')
+                new_lang = new_settings.get('language')
+
+                current_settings.update(new_settings)
+                session['settings'] = current_settings
+                session['needs_script_update'] = True
+
+                if new_lang and old_lang and new_lang != old_lang:
+                    translated = translate_workspace(session, new_lang, job_id=base_job_id)
+                    if translated:
+                        session['artifacts'] = translated['artifacts']
+                        session['components'] = translated['components']
+                        if "Relatório" in current_settings['title'] or "Report" in current_settings['title']:
+                            pass
+            except:
+                pass
+        else:
+            session['needs_full_regeneration'] = True
+        return session

@@ -8,9 +8,17 @@ class ArtifactValidationTests(unittest.TestCase):
         return [{
             "filename": "sales.csv",
             "columns": [
-                {"name": "region", "unique_values": 4},
-                {"name": "customer", "unique_values": 120},
-                {"name": "revenue", "unique_values": 50},
+                {"name": "region", "type": "object", "unique_values": 4},
+                {"name": "customer", "type": "object", "unique_values": 120},
+                {"name": "revenue", "type": "float64", "unique_values": 50},
+                {"name": "date", "type": "datetime64[ns]", "unique_values": 12},
+                {
+                    "name": "Year",
+                    "type": "int64",
+                    "role": "measure",
+                    "unique_values": 5,
+                    "stats": {"min": 2020, "max": 2024},
+                },
             ],
         }]
 
@@ -56,6 +64,10 @@ class ArtifactValidationTests(unittest.TestCase):
         self.assertEqual(artifacts[0]["component_preset_id"], "table_summary")
         self.assertEqual(artifacts[0]["visual_options"]["top_n"], 5)
         self.assertTrue(artifacts[0]["visual_options"]["striped_rows"])
+        self.assertEqual(artifacts[0]["render_mode"], "generated_code")
+        self.assertEqual(artifacts[0]["data_binding"]["source"], "sales.csv")
+        self.assertEqual(artifacts[0]["data_binding"]["roles"]["dimensions"], "region")
+        self.assertEqual(artifacts[0]["data_binding"]["roles"]["metrics"], "revenue")
         self.assertNotIn("invalid_component_preset", {issue["code"] for issue in issues})
 
     def test_reports_invalid_component_preset(self):
@@ -79,6 +91,83 @@ class ArtifactValidationTests(unittest.TestCase):
         ], self.metadata(), {"text_slots": 1, "graphic_slots": 2})
 
         self.assertIn("text_template_limit", {issue["code"] for issue in issues})
+
+    def test_validates_data_binding_roles(self):
+        artifacts, issues = validate_report_plan([
+            {
+                "id": "g_scatter",
+                "indicator": "Scatter",
+                "type": "scatter",
+                "component_preset_id": "scatter_relationship",
+                "columns": ["sales.csv:region", "sales.csv:revenue"],
+                "data_binding": {
+                    "source": "sales.csv",
+                    "roles": {"x": "region", "y": "revenue"},
+                    "aggregation": "sum",
+                },
+            }
+        ], self.metadata())
+
+        self.assertEqual(artifacts[0]["data_binding"]["roles"]["x"], "region")
+        self.assertIn("data_binding_role_mismatch", {issue["code"] for issue in issues})
+        self.assertTrue(artifacts[0]["visual_warnings"])
+
+    def test_infers_missing_roles_when_data_binding_is_partial(self):
+        artifacts, issues = validate_report_plan([
+            {
+                "id": "g_table",
+                "indicator": "Top regions",
+                "type": "table",
+                "component_preset_id": "table_summary",
+                "columns": ["sales.csv:region", "sales.csv:revenue"],
+                "data_binding": {
+                    "source": "sales.csv",
+                    "roles": {},
+                    "aggregation": "sum",
+                    "filters": [],
+                },
+                "render_mode": "library",
+            }
+        ], self.metadata())
+
+        self.assertEqual(artifacts[0]["data_binding"]["roles"]["dimensions"], "region")
+        self.assertEqual(artifacts[0]["data_binding"]["roles"]["metrics"], "revenue")
+        self.assertFalse(artifacts[0]["visual_warnings"])
+        self.assertNotIn("data_binding_role_missing", {issue["code"] for issue in issues})
+
+    def test_accepts_numeric_year_as_temporal_binding(self):
+        artifacts, issues = validate_report_plan([
+            {
+                "id": "g_yearly",
+                "indicator": "Yearly revenue",
+                "type": "graphic",
+                "component_preset_id": "line_timeseries",
+                "columns": ["sales.csv:Year", "sales.csv:revenue"],
+                "data_binding": {
+                    "source": "sales.csv",
+                    "roles": {"date": "Year", "value": "revenue"},
+                    "aggregation": "sum",
+                },
+            }
+        ], self.metadata())
+
+        self.assertEqual(artifacts[0]["data_binding"]["roles"]["date"], "Year")
+        self.assertEqual(artifacts[0]["visual_warnings"], [])
+        self.assertNotIn("data_binding_role_mismatch", {issue["code"] for issue in issues})
+
+    def test_library_render_mode_is_preserved_for_supported_presets(self):
+        artifacts, issues = validate_report_plan([
+            {
+                "id": "g_table",
+                "indicator": "Table",
+                "type": "table",
+                "columns": ["sales.csv:region", "sales.csv:revenue"],
+                "render_mode": "library",
+            }
+        ], self.metadata())
+
+        self.assertEqual(artifacts[0]["render_mode"], "library")
+        self.assertNotIn("library_render_unsupported", {issue["code"] for issue in issues})
 
 
 if __name__ == "__main__":

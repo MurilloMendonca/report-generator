@@ -62,6 +62,7 @@ workspace/
   sessions/                  Session JSON files
   sandbox_support/           Runtime guard used by sandboxed script execution
 requirements.txt             Python dependencies
+requirements-lock.txt        Frozen dependency set for reproducible installs
 list_models.py               Helper script for listing Gemini models
 ```
 
@@ -75,6 +76,12 @@ Create and activate a virtual environment, then install dependencies:
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
+
+For reproducible installs, prefer the frozen lockfile when you want the exact tested set of versions:
+
+```bash
+pip install -r requirements-lock.txt
 ```
 
 Create a `.env` file with at least one provider key:
@@ -171,7 +178,7 @@ Preprocessed files are treated as the analytical input for all metrics and compo
   - `model_name`: provider model name.
 - `GET /api/sessions`: returns recent sessions.
 - `GET /api/sessions/{job_id}`: returns the full session state.
-- `DELETE /api/sessions/{job_id}`: deletes the session record and associated runtime files.
+- `DELETE /api/sessions/{job_id}`: deletes the session record and all associated workspace files (uploads, scripts, reports, JSON).
 - `POST /api/sessions/{job_id}/files`: adds more files and reruns the pipeline.
 - `GET /api/sessions/{job_id}/files/{file_index}/preview`: previews an uploaded file. Use `?variant=preprocessed` when available.
 - `GET /api/sessions/{job_id}/files/{file_index}/download`: downloads an uploaded file. Use `?variant=preprocessed` when available.
@@ -187,8 +194,34 @@ Preprocessed files are treated as the analytical input for all metrics and compo
 - `POST /api/layout-templates`: creates a layout template.
 - `PUT /api/layout-templates/{template_id}`: updates a layout template.
 - `DELETE /api/layout-templates/{template_id}`: deletes a layout template.
+- `GET /api/admin/workspace-usage`: returns disk usage statistics for each workspace directory.
+- `POST /api/admin/cleanup`: manually triggers the cleanup of expired artifacts based on the retention policy.
 
 All `/api/*` endpoints except `/api/auth/login` require a valid signed session cookie. `X-Access-Token` is still accepted for non-browser clients, but it must contain a signed session token returned by the app, not the raw access secret.
+
+## Workspace Maintenance
+
+The application includes a data lifecycle management system to prevent the indefinite accumulation of files.
+
+### Retention Policy
+
+The default retention policy is:
+- **Sessions:** 30 days.
+- **Reports (PDFs):** 30 days.
+- **Uploads:** 30 days.
+- **Scripts:** 7 days.
+- **Filtered/Preprocessed data:** 7 days.
+
+Files older than these limits are subject to automatic removal during cleanup tasks.
+
+### Cleanup Tasks
+
+- **Session Deletion:** Using `DELETE /api/sessions/{job_id}` removes all physical files linked to that session across all workspace subdirectories.
+- **Automated Cleanup:** The `POST /api/admin/cleanup` endpoint triggers a scan of the workspace to remove orphaned files or expired sessions based on the configured retention policy.
+
+### Disk Usage
+
+The `GET /api/admin/workspace-usage` endpoint provides a breakdown of storage consumption by category (uploads, scripts, reports, etc.), helping administrators monitor workspace growth.
 
 ## Session Shape
 
@@ -235,7 +268,7 @@ The LLM behavior is controlled by Markdown prompt files in `prompts/`:
 - `EXPLORE_DATA.md`: returns Python code that prints an ad-hoc answer.
 - `TRANSLATE_WORKSPACE.md`: returns translated artifacts and component code.
 
-Most LLM outputs are parsed from raw text with simple code-fence stripping and JSON slicing. Keep prompt output formats strict when changing these files.
+Most structured LLM outputs are parsed with schema validation and clear diagnostics. Keep prompt output formats strict when changing these files.
 
 ## Frontend Behavior
 
@@ -272,7 +305,7 @@ Visual components are expected to render themselves as temporary matplotlib imag
 - The app executes LLM-generated Python for preprocessing, metrics, exploration, and PDF rendering.
 - Generated scripts run through a local sandbox that restricts environment variables, filesystem access, network connections, temporary directories, process spawning, and execution time.
 - The local sandbox reduces risk for controlled development and internal use, but production multi-user deployments should still prefer stronger isolation such as containers/seccomp and per-job credentials.
-- Data metadata samples redact values from columns with sensitive names such as email, token, password, document, phone, and address before prompt context is sent to an LLM provider.
+- Data metadata samples redact values from columns with sensitive names such as email, token, password, document, phone, and address before prompt context is sent to an LLM provider. Sample rows are omitted from prompt payloads by default; enable "Incluir amostras de dados nos prompts" in report settings only when extra context is necessary.
 - Do not commit provider keys or access secrets. Use `.env`.
 
 ## Important Maintenance Notes

@@ -71,9 +71,9 @@ The runner validates:
 - preprocessing cases produce a derived file under `workspace/filtered`
 - computed preprocessing columns appear in processed metadata
 
-Results are saved to `tests/canonical/results/`.
+Results are saved locally to `tests/canonical/results/`.
 
-Each normal run now creates a timestamped artifact folder:
+Each normal run creates a timestamped artifact folder:
 
 ```text
 tests/canonical/results/{timestamp}/{case_id}/
@@ -93,7 +93,7 @@ For easier manual review, every generated canonical PDF is also copied to:
 tests/canonical/generated_pdfs/
 ```
 
-This folder is intentionally review-friendly: open the PDFs there after a canonical run and inspect spacing, title wrapping, text fit, chart legends, annotations, and whether the report content matches the source data.
+These PDFs are runtime artifacts, not committed source files. Open them after a canonical run and inspect spacing, title wrapping, text fit, chart legends, annotations, and whether the report content matches the source data.
 
 Skip artifact capture when needed:
 
@@ -115,4 +115,5 @@ venv/bin/python tests/canonical/run_canonical_sessions.py --no-save-artifacts
 
 - These tests call live LLM providers and can vary between runs. The checks are intentionally structural and content-aware rather than pixel-perfect.
 - The generated `session.json` is often the best debugging artifact when a case fails.
+- Keep generated PDFs and timestamped results out of version control. Only fixtures, the playbook, the runner, and `.gitkeep` in `generated_pdfs/` should remain tracked.
 - If a PDF looks bad but checks pass, add a targeted validator to `run_canonical_sessions.py` and a unit test in `tests/test_canonical_runner.py`.
