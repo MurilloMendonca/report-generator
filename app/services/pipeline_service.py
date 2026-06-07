@@ -266,9 +266,33 @@ def normalize_filter_prompt(prompt: str) -> str:
     return " ".join(text.lower().split())
 
 
+def is_visual_label_refinement(prompt: str) -> bool:
+    normalized = normalize_filter_prompt(prompt)
+    label_terms = [
+        "legenda", "legendas", "eixo", "eixos", "rotulo", "rotulos",
+        "label", "labels", "axis", "axes", "legend", "legends",
+        "nome das colunas", "nomes das colunas", "cabecalho", "cabecalhos",
+        "header", "headers",
+    ]
+    visual_terms = [
+        "grafico", "graficos", "tabela", "tabelas", "visual", "visuais",
+        "chart", "charts", "plot", "plots",
+    ]
+    translation_terms = [
+        "traduzir", "traduza", "traducao", "portugues", "ingles",
+        "translate", "translation", "friendly", "amigavel", "amigaveis",
+    ]
+    has_label = any(term in normalized for term in label_terms)
+    has_visual = any(term in normalized for term in visual_terms)
+    has_translation = any(term in normalized for term in translation_terms)
+    return has_label and (has_visual or has_translation)
+
+
 def should_consider_data_filter(prompt: str, session: dict = None) -> bool:
     if session and preprocessing_needed(session.get("data_preprocessing") or session.get("data_filter")):
         return True
+    if is_visual_label_refinement(prompt):
+        return False
     normalized = normalize_filter_prompt(prompt)
     keywords = [
         "filtrar", "filtro", "excluir", "exclua", "remover", "remova",

@@ -22,6 +22,7 @@ You are a Senior Data Scientist. Your goal is to design a hierarchical insight-d
 - **Insight Density**: Choose indicators that provide the most value for the user's initial prompt.
 - **Preset Selection**: For every visual component, choose a `component_preset_id` from the Available Visual Component Presets provided in the user prompt.
 - **Data Binding**: For every visual component, include a `data_binding` object whenever the required roles are clear from the Data Artifacts. Use actual filenames and column names from the metadata.
+- **Translated Visual Labels**: For every visual component, include `visual_options.labels` as an object mapping every bound CSV/data column used by the visual to a user-facing label in the **Target Language**. Never rely on raw column names such as `base_stat_total`, `is_legendary`, `type_1`, or `customer_id` for chart axes, legends, or table headers.
 - **Render Mode**: Prefer `render_mode: "library"` for standard presets that expose `supported_render_modes` containing `library`. Use `"hybrid"` when the visual needs a custom fallback, and `"generated_code"` only for visuals that cannot be handled by the component library.
 - **Tables Are First-Class Visual Evidence**: Use `table_summary` when the insight depends on exact values, short rankings, side-by-side metric comparison, or a compact executive summary. Use `table_detail` only when individual rows are genuinely important.
 - **Radial Discipline**: Use `radial_donut` only for low-cardinality part-to-whole comparisons. Use `radial_gauge` only when there is a clear progress value and target/total. Otherwise prefer `bar_ranked`.
@@ -44,7 +45,10 @@ Return ONLY a JSON list of objects. Use the **Target Language** provided in the 
     "type": "graphic",
     "sub_type": "line",
     "component_preset_id": "line_timeseries",
-    "visual_options": {"show_markers": true},
+    "visual_options": {
+      "show_markers": true,
+      "labels": {"Date": "Date", "Price": "Sales Value"}
+    },
     "data_binding": {
       "source": "data.csv",
       "roles": {"date": "Date", "value": "Price"},

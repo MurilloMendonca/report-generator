@@ -3,7 +3,7 @@ import uuid
 import unittest
 from unittest.mock import patch
 
-from app.services.pipeline_service import run_pipeline, run_script_generation
+from app.services.pipeline_service import is_visual_label_refinement, run_pipeline, run_script_generation, should_consider_data_filter
 from app.services.session_manager import create_session, get_session, get_session_path, get_session_lock_path
 
 
@@ -25,6 +25,15 @@ class PipelineContractTests(unittest.TestCase):
         job_id = f"test-contract-{uuid.uuid4().hex}"
         self.job_ids.append(job_id)
         return job_id
+
+    def test_friendly_label_feedback_is_visual_not_data_preprocessing(self):
+        prompt = (
+            'Troque o nome das legendas dos gráficos por nomes mais amigáveis, '
+            'por exemplo base_stat_total por Total de Stats Base'
+        )
+
+        self.assertTrue(is_visual_label_refinement(prompt))
+        self.assertFalse(should_consider_data_filter(prompt))
 
     def test_full_pipeline_completes_with_mocked_llm_contracts(self):
         job_id = self.new_job_id()

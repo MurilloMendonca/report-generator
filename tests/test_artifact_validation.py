@@ -57,12 +57,16 @@ class ArtifactValidationTests(unittest.TestCase):
                 "indicator": "Top regions",
                 "type": "table",
                 "columns": ["sales.csv:region", "sales.csv:revenue"],
-                "visual_options": {"top_n": 5},
+                "visual_options": {
+                    "top_n": 5,
+                    "labels": {"region": "Regiao", "revenue": "Receita"},
+                },
             }
         ], self.metadata())
 
         self.assertEqual(artifacts[0]["component_preset_id"], "table_summary")
         self.assertEqual(artifacts[0]["visual_options"]["top_n"], 5)
+        self.assertEqual(artifacts[0]["visual_options"]["labels"]["revenue"], "Receita")
         self.assertTrue(artifacts[0]["visual_options"]["striped_rows"])
         self.assertEqual(artifacts[0]["render_mode"], "generated_code")
         self.assertEqual(artifacts[0]["data_binding"]["source"], "sales.csv")

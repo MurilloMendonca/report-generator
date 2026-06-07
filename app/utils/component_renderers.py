@@ -58,6 +58,8 @@ def runtime_api_prompt_reference(preset_id: str | None = None) -> str:
     Customization rule:
     - Keep generated code small. Do not paste runtime helper bodies into the component function.
     - If the standard helper is close, prepare/transform `options`, `artifact`, or a small dataframe and call the helper.
+    - For translated or friendly labels, prefer `artifact["visual_options"]["labels"]`; do not rename dataframe columns just to change axis labels, legends, or table headers.
+    - For `render_mode: "library"` adapters that truly need data transformation, copy the needed dataframe, update `artifact`/`dataframes` consistently, and call `render_visual_component(...)`.
     - If the user explicitly asks for a custom table/chart, use runtime helper behavior as the base and override only the specific visual detail.
     """).strip()
 
@@ -121,7 +123,9 @@ def hybrid_component_code(artifact: dict) -> str:
 def sandbox_runtime_source() -> str:
     return dedent(r"""
     import os
+    import re
     import tempfile
+    import textwrap
 
     import matplotlib as mpl
     import matplotlib.pyplot as plt
@@ -232,10 +236,50 @@ def sandbox_runtime_source() -> str:
     def _save_chart_to_pdf(fig, pdf, x, y, w, h):
         _apply_chart_theme(fig)
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-            fig.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)
+            fig.savefig(tmp.name, dpi=300)
             plt.close(fig)
             pdf.image(tmp.name, x=x, y=y, w=w, h=h)
             os.unlink(tmp.name)
+
+
+    def _wrapped_chart_title(title, w=None):
+        clean = ' '.join(str(title or '').split())
+        if not clean:
+            return ''
+        width = 42
+        try:
+            if w is not None:
+                width = max(22, min(58, int(float(w) * 0.42)))
+        except Exception:
+            pass
+        lines = textwrap.wrap(clean, width=width) or [clean]
+        return '\n'.join(lines[:2])
+
+
+    def _set_axis_chart_title(ax, title, w=None):
+        wrapped = _wrapped_chart_title(title, w)
+        if not wrapped:
+            return 0
+        line_count = wrapped.count('\n') + 1
+        ax.set_title(
+            wrapped,
+            loc='center',
+            pad=CHART_TITLE_PAD,
+            fontsize=CHART_TITLE_FONTSIZE,
+            fontweight=CHART_TITLE_FONTWEIGHT,
+            color=CHART_THEME.get('text_color', '#111827'),
+        )
+        return line_count
+
+
+    def _chart_top_margin(title_lines):
+        return 0.88 if title_lines <= 1 else 0.80
+
+
+    def _table_bbox_for_title(title_lines):
+        if not title_lines:
+            return [0.0, 0.06, 1.0, 0.88]
+        return [0.0, 0.04, 1.0, 0.82 if title_lines <= 1 else 0.78]
 
 
     def _render_table_image(pdf, dataframe, x, y, w, h, title=None, theme=None):
@@ -254,17 +298,22 @@ def sandbox_runtime_source() -> str:
             )
         fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))
         ax.axis('off')
-        if title:
-            ax.set_title(str(title), fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)
+        title_lines = _set_axis_chart_title(ax, title, w)
         if df.empty:
             ax.text(0.5, 0.5, 'Dados indisponiveis', ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE)
             _save_chart_to_pdf(fig, pdf, x, y, w, h)
             return
-        table = ax.table(cellText=df.values, colLabels=[str(c)[:28] for c in df.columns], cellLoc='center', loc='center')
+        table_bbox = _table_bbox_for_title(title_lines)
+        table = ax.table(
+            cellText=df.values,
+            colLabels=[str(c)[:28] for c in df.columns],
+            cellLoc='center',
+            loc='upper center',
+            bbox=table_bbox,
+        )
         table.auto_set_font_size(False)
         font_size = max(4, CHART_TABLE_FONTSIZE - (1 if h < 65 else 0) - (1 if len(df.columns) > 5 else 0))
         table.set_fontsize(font_size)
-        table.scale(1, 1.15 if h < 75 else 1.3)
         for (row, col), cell in table.get_celld().items():
             cell.set_edgecolor(table_theme.get('border', '#d1d5db'))
             cell.set_linewidth(0.4)
@@ -275,7 +324,7 @@ def sandbox_runtime_source() -> str:
             else:
                 cell.set_facecolor(table_theme.get('alt_row_bg', '#f9fafb') if row % 2 == 0 else table_theme.get('row_bg', '#ffffff'))
                 cell.get_text().set_color(theme.get('text_color', '#111827'))
-        fig.subplots_adjust(left=0.02, right=0.98, top=0.86 if title else 0.98, bottom=0.02)
+        fig.subplots_adjust(left=0.02, right=0.98, top=_chart_top_margin(title_lines) if title_lines else 0.98, bottom=0.02)
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
 
@@ -370,6 +419,99 @@ def library_renderer_source() -> str:
             text = text.split(':', 1)[1]
         return text
 
+    def _library_label_map(options=None):
+        options = options or {}
+        labels = options.get('labels') or options.get('label_map') or options.get('axis_labels') or {}
+        return labels if isinstance(labels, dict) else {}
+
+    def _library_humanize_label(value):
+        raw = _library_column_name(value)
+        text = str(raw or '').strip()
+        if not text:
+            return ''
+        known = {
+            'base_stat_total': 'Total de Stats Base',
+            'base_experience': 'Experiencia Base',
+            'capture_rate': 'Taxa de Captura',
+            'is_legendary': 'Lendario',
+            'is_mythical': 'Mitico',
+            'is_baby': 'Bebe',
+            'type_1': 'Tipo Primario',
+            'type_2': 'Tipo Secundario',
+            'generation': 'Geracao',
+            'name': 'Nome',
+            'pokedex_number': 'Numero na Pokedex',
+            'attack': 'Ataque',
+            'defense': 'Defesa',
+            'hp': 'HP',
+            'speed': 'Velocidade',
+            'sp_attack': 'Ataque Especial',
+            'sp_defense': 'Defesa Especial',
+            'height_m': 'Altura',
+            'weight_kg': 'Peso',
+            'revenue': 'Receita',
+            'sales': 'Vendas',
+            'region': 'Regiao',
+            'customer': 'Cliente',
+            'date': 'Data',
+            'price': 'Preco',
+            'quantity': 'Quantidade',
+            'count': 'Contagem',
+        }
+        normalized = text.strip().lower()
+        if normalized in known:
+            return known[normalized]
+        words = [word for word in re.split(r'[_\s\-]+', text) if word]
+        replacements = {
+            'avg': 'Media',
+            'mean': 'Media',
+            'total': 'Total',
+            'base': 'Base',
+            'stat': 'Stat',
+            'stats': 'Stats',
+            'rate': 'Taxa',
+            'count': 'Contagem',
+            'id': 'ID',
+            'number': 'Numero',
+            'type': 'Tipo',
+            'generation': 'Geracao',
+            'name': 'Nome',
+            'date': 'Data',
+            'value': 'Valor',
+        }
+        return ' '.join(replacements.get(word.lower(), word.capitalize()) for word in words)
+
+    def _library_display_label(value, options=None):
+        raw = _library_column_name(value)
+        labels = _library_label_map(options)
+        for key in (value, raw, str(value or ''), str(raw or '')):
+            if key in labels and str(labels[key]).strip():
+                return str(labels[key]).strip()
+        return _library_humanize_label(raw)
+
+    def _library_display_dataframe(df, options=None):
+        if df is None or df.empty:
+            return df
+        renamed = {}
+        used = set()
+        for column in df.columns:
+            label = _library_display_label(column, options)
+            candidate = label
+            index = 2
+            while candidate in used:
+                candidate = f'{label} {index}'
+                index += 1
+            used.add(candidate)
+            renamed[column] = candidate
+        return df.rename(columns=renamed)
+
+    def _library_measure_label(value, options=None, aggregation=None):
+        if str(aggregation or '').lower() == 'count':
+            labels = _library_label_map(options)
+            raw = _library_column_name(value)
+            return str(labels.get(value) or labels.get(raw) or labels.get('count') or 'Contagem')
+        return _library_display_label(value, options)
+
     def _library_resolve_column(df, value):
         column = _library_column_name(value)
         if not column:
@@ -426,9 +568,10 @@ def library_renderer_source() -> str:
     def _library_empty_chart(pdf, x, y, w, h, title=None, message='Dados indisponiveis'):
         fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
         ax.axis('off')
-        if title:
-            ax.set_title(str(title), fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)
+        title_lines = _set_axis_chart_title(ax, title, w)
         ax.text(0.5, 0.5, str(message), ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE, color=CHART_THEME.get('muted_text_color', '#6b7280'))
+        if title_lines:
+            fig.subplots_adjust(top=_chart_top_margin(title_lines))
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def _library_numeric(df, column):
@@ -481,6 +624,7 @@ def library_renderer_source() -> str:
 
         top_n = options.get('top_n') or options.get('limit')
         aggregation = options.get('aggregation') or 'sum'
+        measure_label = _library_measure_label(value_col, options, aggregation)
         orientation = str(options.get('orientation') or 'horizontal').lower()
         show_values = bool(options.get('show_values'))
         colors = _chart_colors(12)
@@ -498,10 +642,10 @@ def library_renderer_source() -> str:
             pivot = pivot.reindex(categories)
             pivot.plot(kind='bar', ax=ax, color=_chart_colors(len(pivot.columns)))
             ax.set_xlabel('')
-            ax.set_ylabel(str(value_col))
+            ax.set_ylabel(measure_label)
             if len(str(category_col)) < 18:
-                ax.set_xlabel(str(category_col))
-            ax.legend(loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
+                ax.set_xlabel(_library_display_label(category_col, options))
+            ax.legend(title=_library_display_label(series_col, options), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
             ax.tick_params(axis='x', rotation=30)
         else:
             grouped = _library_aggregate(df, [category_col], value_col, aggregation)
@@ -514,18 +658,18 @@ def library_renderer_source() -> str:
             if orientation == 'vertical':
                 bars = ax.bar(labels, values, color=colors[: len(values)])
                 ax.tick_params(axis='x', rotation=30)
-                ax.set_ylabel(str(value_col))
+                ax.set_ylabel(measure_label)
                 if show_values:
                     ax.bar_label(bars, labels=[_format_compact_number(v) for v in values], padding=2, fontsize=CHART_LABEL_FONTSIZE)
             else:
                 bars = ax.barh(labels, values, color=colors[: len(values)])
                 ax.invert_yaxis()
-                ax.set_xlabel(str(value_col))
+                ax.set_xlabel(measure_label)
                 if show_values:
                     ax.bar_label(bars, labels=[_format_compact_number(v) for v in values], padding=2, fontsize=CHART_LABEL_FONTSIZE)
 
-        ax.set_title(str(title or ''), loc='left')
-        fig.tight_layout(pad=0.8)
+        title_lines = _set_axis_chart_title(ax, title, w)
+        fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def render_line_chart(pdf, dataframes, x, y, w, h, *, date, value, source=None, series=None, title=None, options=None):
@@ -554,15 +698,15 @@ def library_renderer_source() -> str:
             grouped = work.groupby([date_col, series_col], dropna=False)[value_col].agg(aggregation).reset_index()
             pivot = grouped.pivot_table(index=date_col, columns=series_col, values=value_col, aggfunc='sum').sort_index()
             pivot.plot(ax=ax, marker=marker, linewidth=1.8, color=_chart_colors(len(pivot.columns)))
-            ax.legend(loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
+            ax.legend(title=_library_display_label(series_col, options), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
         else:
             grouped = work.groupby(date_col, dropna=False)[value_col].agg(aggregation).reset_index().sort_values(date_col)
             ax.plot(grouped[date_col], grouped[value_col], marker=marker, linewidth=1.9, color=_chart_colors(1)[0])
-        ax.set_title(str(title or ''), loc='left')
+        title_lines = _set_axis_chart_title(ax, title, w)
         ax.set_xlabel('')
-        ax.set_ylabel(str(value_col))
+        ax.set_ylabel(_library_display_label(value_col, options))
         ax.tick_params(axis='x', rotation=30)
-        fig.tight_layout(pad=0.8)
+        fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def render_scatter_plot(pdf, dataframes, x, y, w, h, *, x_value, y_value, source=None, color=None, title=None, options=None):
@@ -602,10 +746,10 @@ def library_renderer_source() -> str:
                 ax.plot(xs, coeffs[0] * xs + coeffs[1], color=_chart_colors(2)[1], linewidth=1.3)
             except Exception:
                 pass
-        ax.set_title(str(title or ''), loc='left')
-        ax.set_xlabel(str(x_col))
-        ax.set_ylabel(str(y_col))
-        fig.tight_layout(pad=0.8)
+        title_lines = _set_axis_chart_title(ax, title, w)
+        ax.set_xlabel(_library_display_label(x_col, options))
+        ax.set_ylabel(_library_display_label(y_col, options))
+        fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def render_donut_chart(pdf, dataframes, x, y, w, h, *, category, value, source=None, title=None, options=None):
@@ -629,9 +773,9 @@ def library_renderer_source() -> str:
         autopct = '%1.0f%%' if options.get('show_percent', True) else None
         ax.pie(values, labels=labels, colors=_chart_colors(len(values)), startangle=90, autopct=autopct, wedgeprops={'width': 0.42, 'edgecolor': 'white'})
         ax.text(0, 0, _format_compact_number(sum(values)), ha='center', va='center', fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT)
-        ax.set_title(str(title or ''), loc='left')
+        title_lines = _set_axis_chart_title(ax, title, w)
         ax.axis('equal')
-        fig.tight_layout(pad=0.8)
+        fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def render_gauge_chart(pdf, dataframes, x, y, w, h, *, value, source=None, target=None, title=None, options=None):
@@ -663,9 +807,8 @@ def library_renderer_source() -> str:
         label = f"{ratio * 100:.0f}%" if options.get('show_center_value', True) else _format_compact_number(actual)
         ax.text(0, 0.2, label, ha='center', va='center', fontsize=max(11, CHART_TITLE_FONTSIZE + 4), fontweight='bold')
         ax.text(0, -0.04, _format_compact_number(actual), ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE, color=CHART_THEME.get('muted_text_color', '#6b7280'))
-        if title:
-            ax.set_title(str(title), loc='left')
-        fig.tight_layout(pad=0.8)
+        title_lines = _set_axis_chart_title(ax, title, w)
+        fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def render_summary_table(pdf, dataframes, x, y, w, h, *, dimensions, metrics, source=None, title=None, options=None):
@@ -688,7 +831,7 @@ def library_renderer_source() -> str:
         if first_metric in grouped.columns:
             grouped = grouped.sort_values(first_metric, ascending=not bool(options.get('sort_desc', True)))
         limit = int(options.get('top_n') or options.get('limit') or 8)
-        _render_table_image(pdf, grouped.head(limit), x, y, w, h, title=title)
+        _render_table_image(pdf, _library_display_dataframe(grouped.head(limit), options), x, y, w, h, title=title)
 
     def render_detail_table(pdf, dataframes, x, y, w, h, *, columns=None, source=None, title=None, options=None):
         options = options or {}
@@ -698,7 +841,7 @@ def library_renderer_source() -> str:
         if not selected:
             selected = list(df.columns)[:6]
         limit = int(options.get('top_n') or options.get('limit') or 10)
-        _render_table_image(pdf, df[selected].head(limit), x, y, w, h, title=title)
+        _render_table_image(pdf, _library_display_dataframe(df[selected].head(limit), options), x, y, w, h, title=title)
 
     def render_visual_component(pdf, dataframes, artifact, x, y, w, h):
         artifact = artifact or {}

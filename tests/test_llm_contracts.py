@@ -158,6 +158,19 @@ class LlmContractTests(unittest.TestCase):
         self.assertNotIn("def render_donut_chart", script)
         self.assertIn("high_contrast", script)
 
+    def test_assemble_script_wraps_text_block_titles(self):
+        script = assemble_script(
+            {"t_long": "def render_t_long(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, 'Body', x, y, w, h, title='Very long title')"},
+            [{"id": "t_long", "page": 1, "x": 10, "y": 20, "w": 80, "h": 50}],
+            {},
+            "workspace/reports/test.pdf",
+            settings={"title": "Test", "font": "Arial", "font_size": 10, "alignment": "J", "line_height": 5},
+        )
+
+        self.assertIn("title_lines = _wrap_lines(title", script)
+        self.assertIn("pdf.multi_cell(w, title_line_height", script)
+        self.assertNotIn("pdf.cell(w, 7, title", script)
+
     def test_refinement_custom_visual_uses_generated_primary_with_runtime_reference(self):
         prompts = []
 

@@ -1347,8 +1347,14 @@ def assemble_script(
         f"    pdf.set_xy(x, y)",
         f"    if title:",
         f"        pdf.set_font('{font_family}', 'B', font_size)",
-        f"        pdf.cell(w, 7, title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)",
-        f"        body_height = max(1, h - 8)",
+        f"        title_line_height = max(4.5, line_height)",
+        f"        title_max_chars = max(12, int(w * 0.55 * (10 / max(font_size, 1))))",
+        f"        title_lines = _wrap_lines(title, title_max_chars)",
+        f"        available_lines = max(1, int(max(h - line_height, title_line_height) / title_line_height))",
+        f"        title_lines = title_lines[:available_lines]",
+        f"        pdf.multi_cell(w, title_line_height, '\\n'.join(title_lines), new_x=XPos.LMARGIN, new_y=YPos.NEXT)",
+        f"        title_height = len(title_lines) * title_line_height + 1",
+        f"        body_height = max(1, h - title_height)",
         f"        pdf.set_xy(x, pdf.get_y())",
         f"    ",
         f"    fitted_text = _fit_text_to_box(text, w, body_height, font_size, line_height)",
@@ -1360,12 +1366,12 @@ def assemble_script(
     for comp_id, func_code in components.items():
         artifact = artifacts_by_id.get(str(comp_id))
         render_mode = str((artifact or {}).get("render_mode") or "generated_code")
-        if artifact and render_mode == "library" and supports_library_renderer(artifact):
-            continue
         if artifact and render_mode == "hybrid" and supports_library_renderer(artifact):
             script.append(rename_generated_component_code(str(comp_id), func_code))
         else:
             script.append(func_code)
+            if artifact and render_mode == "library" and supports_library_renderer(artifact):
+                library_wrapper_ids.add(str(comp_id))
         script.append("")
 
     for item in template:
