@@ -9,6 +9,25 @@ import pandas as pd
 CSV_ENCODINGS = ["utf-8", "utf-8-sig", "latin-1"]
 CSV_SEPARATORS = [",", ";", "\t", "|"]
 MAX_PROFILE_ROWS = 10000
+MAX_PDF_TEXT_PAGES = 20
+MAX_PDF_TEXT_CHARS = 20000
+PDF_BINARY_MARKERS = (
+    "/filter",
+    "/flatedecode",
+    "/length",
+    "endstream",
+    "endobj",
+    " obj",
+    "xref",
+    "stream x",
+)
+PDF_FALLBACK_NOISE_MARKERS = (
+    "x11;",
+    "linux x86_64",
+    "khtml",
+    "like gecko",
+    "mozilla/",
+)
 SENSITIVE_COLUMN_TOKENS = {
     "email", "e-mail", "mail", "telefone", "phone", "mobile", "celular",
     "cpf", "cnpj", "ssn", "document", "documento", "passport", "rg",
@@ -216,6 +235,86 @@ def extract_metadata(file_path: str, original_filename: str = None) -> dict:
         return {"error": f"Erro ao analisar o arquivo: {str(e)}"}
 
 
+def clean_pdf_text_candidate(text: str) -> str:
+    text = text.replace("\x00", " ")
+    text = re.sub(r"\\[nrtbf()\\]", " ", text)
+    text = re.sub(r"\\[0-7]{1,3}", " ", text)
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", " ", text)
+    return " ".join(text.split())
+
+
+def pdf_text_quality(text: str) -> dict:
+    if not text:
+        return {
+            "printable_ratio": 0,
+            "control_ratio": 1,
+            "replacement_ratio": 0,
+            "alpha_numeric_ratio": 0,
+            "high_bit_ratio": 0,
+            "space_ratio": 0,
+            "word_count": 0,
+            "binary_marker_hits": 0,
+        }
+
+    total = len(text)
+    printable = sum(1 for char in text if char.isprintable() or char.isspace())
+    controls = sum(1 for char in text if not char.isprintable() and not char.isspace())
+    replacements = text.count("\ufffd")
+    alnum = sum(1 for char in text if char.isalnum())
+    high_bit = sum(1 for char in text if ord(char) > 126)
+    spaces = sum(1 for char in text if char.isspace())
+    symbols = sum(1 for char in text if not char.isalnum() and not char.isspace() and char not in ".,;:!?%$€£¥+-/()")
+    words = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9]{2,}", text)
+    lowered = text.lower()
+    marker_hits = sum(1 for marker in PDF_BINARY_MARKERS if marker in lowered)
+    noise_hits = sum(1 for marker in PDF_FALLBACK_NOISE_MARKERS if marker in lowered)
+
+    return {
+        "printable_ratio": round(printable / total, 4),
+        "control_ratio": round(controls / total, 4),
+        "replacement_ratio": round(replacements / total, 4),
+        "alpha_numeric_ratio": round(alnum / total, 4),
+        "high_bit_ratio": round(high_bit / total, 4),
+        "space_ratio": round(spaces / total, 4),
+        "symbol_ratio": round(symbols / total, 4),
+        "word_count": len(words),
+        "binary_marker_hits": marker_hits,
+        "fallback_noise_hits": noise_hits,
+    }
+
+
+def is_usable_pdf_text(text: str, *, strict: bool = False) -> bool:
+    quality = pdf_text_quality(text)
+    if quality["binary_marker_hits"]:
+        return False
+    if quality["printable_ratio"] < 0.96:
+        return False
+    if quality["control_ratio"] > 0.01 or quality["replacement_ratio"] > 0:
+        return False
+    if quality["word_count"] < 3:
+        return False
+    if quality["alpha_numeric_ratio"] < 0.35:
+        return False
+    if strict and quality["space_ratio"] < 0.08:
+        return False
+    if quality["high_bit_ratio"] > (0.25 if strict else 0.4):
+        return False
+    if strict:
+        if quality["word_count"] < 5:
+            return False
+        if quality["space_ratio"] < 0.12:
+            return False
+        if quality["alpha_numeric_ratio"] < 0.55:
+            return False
+        if quality["high_bit_ratio"] > 0.12:
+            return False
+        if quality["symbol_ratio"] > 0.08:
+            return False
+        if quality["fallback_noise_hits"]:
+            return False
+    return True
+
+
 def extract_pdf_metadata(file_path: str, display_name: str) -> dict:
     """
     Extract lightweight PDF metadata without external parser dependencies.
@@ -223,16 +322,21 @@ def extract_pdf_metadata(file_path: str, display_name: str) -> dict:
     """
     decoded = []
     page_count = None
+    discarded_candidates = 0
+    extraction_method = "pypdf"
     try:
         from pypdf import PdfReader
 
         reader = PdfReader(file_path)
         page_count = len(reader.pages)
-        for page in reader.pages[:5]:
-            text = " ".join((page.extract_text() or "").split())
-            if text:
-                decoded.append(text[:1000])
+        for page in reader.pages[:MAX_PDF_TEXT_PAGES]:
+            text = clean_pdf_text_candidate(page.extract_text() or "")
+            if text and is_usable_pdf_text(text):
+                decoded.append(text)
+            elif text:
+                discarded_candidates += 1
     except Exception:
+        extraction_method = "raw_pdf_fallback"
         with open(file_path, "rb") as f:
             content = f.read()
 
@@ -242,17 +346,40 @@ def extract_pdf_metadata(file_path: str, display_name: str) -> dict:
             try:
                 text = chunk.decode("latin-1")
             except UnicodeDecodeError:
+                discarded_candidates += 1
                 continue
-            text = re.sub(r"\\[nrtbf()\\]", " ", text)
-            text = " ".join(text.split())
-            if text:
+            text = clean_pdf_text_candidate(text)
+            if text and is_usable_pdf_text(text, strict=True):
                 decoded.append(text)
+            elif text:
+                discarded_candidates += 1
+
+    text_excerpt = " ".join(decoded)
+    full_text_length = len(text_excerpt)
+    if len(text_excerpt) > MAX_PDF_TEXT_CHARS:
+        text_excerpt = text_excerpt[:MAX_PDF_TEXT_CHARS].rsplit(" ", 1)[0]
+    quality = "usable" if text_excerpt else "unusable"
+    warnings = []
+    if discarded_candidates and not text_excerpt:
+        warnings.append("Extracted PDF text looked binary or encoded and was discarded.")
+    elif not text_excerpt:
+        warnings.append("No usable text could be extracted from this PDF.")
 
     return {
         "filename": display_name,
         "type": "pdf",
         "size_bytes": os.path.getsize(file_path),
         "pages": page_count,
-        "text_preview": decoded[:10],
+        "text_preview": [text[:1000] for text in decoded[:10]],
+        "text_excerpt": text_excerpt,
+        "text_extraction": {
+            "pages_attempted": MAX_PDF_TEXT_PAGES,
+            "characters_extracted": len(text_excerpt),
+            "truncated": full_text_length > len(text_excerpt),
+            "method": extraction_method,
+            "quality": quality,
+            "discarded_candidates": discarded_candidates,
+            "warnings": warnings,
+        },
         "note": "PDF metadata is available for context. It is not loaded as a pandas dataframe.",
     }

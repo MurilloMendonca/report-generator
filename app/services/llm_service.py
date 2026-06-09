@@ -6,6 +6,7 @@ import re
 import signal
 import threading
 import time
+import unicodedata
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -121,6 +122,46 @@ class LlmTranslationPayload(BaseModel):
 
     artifacts: list[dict] = Field(default_factory=list)
     components: dict[str, str] = Field(default_factory=dict)
+
+
+class LlmDocumentMetric(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str = ""
+    label: str = ""
+    value: Any = None
+    unit: str = ""
+    period: str = ""
+    source: str = ""
+    confidence: str = "low"
+    evidence: str = ""
+
+    @model_validator(mode="after")
+    def ensure_supported_metric(self):
+        if not str(self.id or "").strip():
+            raise ValueError("metric id is required")
+        if not str(self.label or "").strip():
+            raise ValueError("metric label is required")
+        if self.value in (None, ""):
+            raise ValueError("metric value is required")
+        if not str(self.source or "").strip():
+            raise ValueError("metric source is required")
+        if not str(self.evidence or "").strip():
+            raise ValueError("metric evidence is required")
+        confidence = str(self.confidence or "low").lower()
+        self.confidence = confidence if confidence in {"high", "medium", "low"} else "low"
+        return self
+
+
+class LlmDocumentInsights(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    summary: str = ""
+    key_points: list[str] = Field(default_factory=list)
+    entities: list[str] = Field(default_factory=list)
+    periods: list[str] = Field(default_factory=list)
+    metrics: list[LlmDocumentMetric] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class LLMContractError(ValueError):
@@ -382,6 +423,22 @@ def parse_llm_translation_payload(text: str, provider: str | None = None, model_
             "workspace_translation",
             "Translation payload failed schema validation",
             field="translation_payload",
+            provider=provider,
+            model_name=model_name,
+            raw_excerpt=_raw_excerpt(text),
+            cause=exc,
+        ) from exc
+
+
+def parse_llm_document_insights(text: str, provider: str | None = None, model_name: str | None = None) -> dict:
+    payload = _parse_contract_json(text, dict, "document_extraction", "document_insights", provider, model_name)
+    try:
+        return LlmDocumentInsights.model_validate(payload).model_dump(mode="json")
+    except ValidationError as exc:
+        raise LLMContractError(
+            "document_extraction",
+            "Document insights payload failed schema validation",
+            field="document_insights",
             provider=provider,
             model_name=model_name,
             raw_excerpt=_raw_excerpt(text),
@@ -651,6 +708,109 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
         raise last_error
     raise RuntimeError("LLM call failed without raising an explicit error.")
 
+
+def _document_pdf_provider(provider: str = None, model_name: str = None, settings: dict = None) -> tuple[str, str]:
+    settings = settings or {}
+    requested_provider = provider or DEFAULT_PROVIDER
+    if requested_provider == "gemini":
+        return resolve_llm_config(provider, model_name)
+
+    document_provider = settings.get("document_llm_provider") or os.getenv("PDF_REPORT_DOCUMENT_LLM_PROVIDER") or "gemini"
+    document_model = settings.get("document_llm_model_name") or os.getenv("PDF_REPORT_DOCUMENT_LLM_MODEL_NAME")
+    return resolve_llm_config(document_provider, document_model or DEFAULT_MODEL_BY_PROVIDER.get(document_provider))
+
+
+def call_llm_with_pdf(
+    provider: str,
+    model_name: str,
+    system_instruction: str,
+    user_prompt: str,
+    pdf_path: str,
+    retries=3,
+    delay=10,
+    timeout_seconds: int | None = None,
+    settings: dict = None,
+):
+    provider, model_name = _document_pdf_provider(provider, model_name, settings)
+    if provider != "gemini":
+        raise ValueError(f"Provider '{provider}' does not support PDF document extraction.")
+
+    context = current_llm_context()
+    operation = context.get("operation") or "document_extraction"
+    job_id = context.get("job_id")
+    timeout_seconds = _llm_timeout_seconds(context, timeout_seconds)
+    budget = _llm_call_budget(context)
+    call_count = int(context.get("call_count", 0) or 0)
+    prompt_chars = len(str(system_instruction or "")) + len(str(user_prompt or ""))
+
+    if budget and call_count >= budget:
+        raise LLMBudgetError(operation, budget)
+
+    with open(pdf_path, "rb") as pdf_file:
+        pdf_bytes = pdf_file.read()
+
+    last_error: Exception | None = None
+    for i in range(retries):
+        attempt_number = i + 1
+        start_time = time.perf_counter()
+        try:
+            with _alarm_timeout(timeout_seconds):
+                from google.genai import types
+
+                client = get_gemini_client()
+                response = client.models.generate_content(
+                    model=normalize_gemini_model_name(model_name),
+                    contents=[
+                        f"{system_instruction}\n\n{user_prompt}",
+                        types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
+                    ],
+                )
+                text = response.text
+
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            if job_id:
+                record_llm_usage(
+                    job_id,
+                    operation,
+                    provider,
+                    model_name,
+                    attempt=attempt_number,
+                    duration_ms=duration_ms,
+                    status="ok",
+                    prompt_chars=prompt_chars,
+                    response_chars=len(text or ""),
+                )
+            context["call_count"] = int(context.get("call_count", 0) or 0) + 1
+            context["attempt_count"] = int(context.get("attempt_count", 0) or 0) + 1
+            return text
+        except Exception as exc:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            last_error = exc
+            if job_id:
+                record_llm_usage(
+                    job_id,
+                    operation,
+                    provider,
+                    model_name,
+                    attempt=attempt_number,
+                    duration_ms=duration_ms,
+                    status="error",
+                    prompt_chars=prompt_chars,
+                    response_chars=0,
+                    error=str(exc)[:500],
+                )
+            context["call_count"] = int(context.get("call_count", 0) or 0) + 1
+            context["attempt_count"] = int(context.get("attempt_count", 0) or 0) + 1
+            if i < retries - 1:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            break
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("PDF LLM call failed without raising an explicit error.")
+
 def generate_artifacts(
     all_metadata: str,
     prompt: str,
@@ -709,6 +869,111 @@ def generate_artifacts(
                 cause=last_error,
             ) from last_error
         return []
+
+
+def generate_document_insights(
+    pdf_metadata: str,
+    prompt: str,
+    provider: str = DEFAULT_PROVIDER,
+    model_name: str = DEFAULT_MODEL_NAME,
+    settings: dict = None,
+    job_id: str | None = None,
+) -> dict:
+    with llm_operation_context(job_id=job_id, operation="document_extraction", settings=settings, provider=provider, model_name=model_name):
+        system_instruction = load_prompt("EXTRACT_DOCUMENT_INSIGHTS.md")
+        lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
+        user_prompt = (
+            f"Target Language: {lang}\n\n"
+            f"User's Report Goal:\n{prompt}\n\n"
+            f"PDF Metadata and Extracted Text:\n{pdf_metadata}"
+        )
+
+        last_error: Exception | None = None
+        for _attempt in range(3):
+            try:
+                return parse_llm_document_insights(call_llm(provider, model_name, system_instruction, user_prompt), provider, model_name)
+            except Exception as exc:
+                last_error = exc
+                time.sleep(2)
+        if last_error:
+            if isinstance(last_error, LLMContractError):
+                raise LLMContractError(
+                    last_error.stage,
+                    str(last_error),
+                    field=last_error.field,
+                    provider=provider,
+                    model_name=model_name,
+                    raw_excerpt=last_error.raw_excerpt,
+                    cause=last_error.cause or last_error,
+                ) from last_error
+            raise LLMContractError(
+                "document_extraction",
+                "Failed to extract valid document insights after retries",
+                provider=provider,
+                model_name=model_name,
+                raw_excerpt=str(last_error),
+                cause=last_error,
+            ) from last_error
+        return {}
+
+
+def generate_document_insights_from_pdf_file(
+    pdf_path: str,
+    pdf_metadata: str,
+    prompt: str,
+    provider: str = DEFAULT_PROVIDER,
+    model_name: str = DEFAULT_MODEL_NAME,
+    settings: dict = None,
+    job_id: str | None = None,
+) -> dict:
+    with llm_operation_context(job_id=job_id, operation="document_extraction_pdf", settings=settings, provider=provider, model_name=model_name):
+        system_instruction = load_prompt("EXTRACT_DOCUMENT_INSIGHTS.md")
+        lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
+        user_prompt = (
+            f"Target Language: {lang}\n\n"
+            f"User's Report Goal:\n{prompt}\n\n"
+            "Read the attached PDF directly. Use the metadata below only for source identification and extraction diagnostics; "
+            "do not infer metric values from filenames.\n\n"
+            f"PDF Metadata:\n{pdf_metadata}"
+        )
+
+        last_error: Exception | None = None
+        for _attempt in range(3):
+            try:
+                text = call_llm_with_pdf(
+                    provider,
+                    model_name,
+                    system_instruction,
+                    user_prompt,
+                    pdf_path,
+                    settings=settings,
+                )
+                payload = parse_llm_document_insights(text, provider, model_name)
+                payload["extraction_source"] = "pdf_file"
+                return payload
+            except Exception as exc:
+                last_error = exc
+                time.sleep(2)
+        if last_error:
+            if isinstance(last_error, LLMContractError):
+                raise LLMContractError(
+                    last_error.stage,
+                    str(last_error),
+                    field=last_error.field,
+                    provider=provider,
+                    model_name=model_name,
+                    raw_excerpt=last_error.raw_excerpt,
+                    cause=last_error.cause or last_error,
+                ) from last_error
+            raise LLMContractError(
+                "document_extraction",
+                "Failed to extract valid PDF document insights after retries",
+                provider=provider,
+                model_name=model_name,
+                raw_excerpt=str(last_error),
+                cause=last_error,
+            ) from last_error
+        return {}
 
 def generate_template(artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, template_id: str = None) -> list:
     return normalize_template(build_layout_from_template(artifacts, template_id))
@@ -1518,6 +1783,46 @@ def translate_workspace(session: dict, target_lang: str, job_id: str | None = No
             ) from last_error
         return None
 
+
+COLOR_REFINEMENT_VALUES = {
+    "vermelho": "#dc2626",
+    "red": "#dc2626",
+    "azul": "#2563eb",
+    "blue": "#2563eb",
+    "verde": "#16a34a",
+    "green": "#16a34a",
+    "amarelo": "#f59e0b",
+    "yellow": "#f59e0b",
+    "roxo": "#7c3aed",
+    "purple": "#7c3aed",
+    "cinza": "#6b7280",
+    "gray": "#6b7280",
+    "grey": "#6b7280",
+    "preto": "#111827",
+    "black": "#111827",
+}
+
+
+def _normalize_refinement_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(text or ""))
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return " ".join(normalized.lower().split())
+
+
+def requested_visual_color(prompt: str) -> str | None:
+    normalized = _normalize_refinement_text(prompt)
+    if not any(term in normalized for term in {"cor", "color", "cores", "colors", "paleta", "palette"}):
+        return None
+    requested = None
+    requested_position = -1
+    for name, color in COLOR_REFINEMENT_VALUES.items():
+        position = normalized.rfind(name)
+        if position > requested_position:
+            requested = color
+            requested_position = position
+    return requested
+
+
 def refine_session_modular(session: dict, new_prompt: str, job_id: str | None = None) -> dict:
     provider = session.get('provider', DEFAULT_PROVIDER)
     model_name = session.get('model_name')
@@ -1537,6 +1842,19 @@ def refine_session_modular(session: dict, new_prompt: str, job_id: str | None = 
 
         if target in [a["id"] for a in session.get("artifacts", [])]:
             artifact = next(a for a in session["artifacts"] if a["id"] == target)
+            requested_color = requested_visual_color(new_prompt)
+            if requested_color and artifact.get("type") in VISUAL_COMPONENT_TYPES and supports_library_renderer(artifact):
+                visual_options = dict(artifact.get("visual_options") or {})
+                visual_options["color"] = requested_color
+                if artifact.get("component_preset_id") == "line_timeseries" or artifact.get("type") == "line":
+                    visual_options["line_color"] = requested_color
+                else:
+                    visual_options["bar_color"] = requested_color
+                artifact["visual_options"] = visual_options
+                artifact["render_mode"] = "library"
+                session.setdefault("components", {}).pop(target, None)
+                session["needs_script_update"] = True
+                return session
             current_code = session.get('components', {}).get(
                 target,
                 "No custom function exists yet; this component may currently be rendered by the runtime library."

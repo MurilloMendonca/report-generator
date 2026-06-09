@@ -3,6 +3,7 @@ import unittest
 import uuid
 
 import pandas as pd
+from fpdf import FPDF
 
 from app.utils.data_analyzer import extract_metadata
 from app.services.pipeline_service import metadata_json, raw_metadata_json
@@ -113,6 +114,43 @@ class DataAnalyzerTests(unittest.TestCase):
         self.assertNotIn('"sample"', raw_prompt_payload)
         self.assertIn('"sample_policy"', prompt_payload)
         self.assertIn('"included": false', prompt_payload)
+
+    def test_pdf_metadata_includes_text_excerpt_for_document_extraction(self):
+        path = self.temp_path(".pdf")
+        pdf = FPDF()
+        pdf.set_compression(False)
+        pdf.add_page()
+        pdf.set_font("Helvetica", size=12)
+        pdf.multi_cell(0, 8, "Orçamento total aprovado: 10 milhões de euros em 2024.")
+        pdf.output(path)
+
+        metadata = extract_metadata(path, "brief.pdf")
+
+        self.assertEqual(metadata["type"], "pdf")
+        self.assertIn("text_excerpt", metadata)
+        self.assertIn("Orçamento", metadata["text_excerpt"])
+        self.assertGreater(metadata["text_extraction"]["characters_extracted"], 0)
+
+    def test_pdf_metadata_discards_binary_like_fallback_text(self):
+        path = self.temp_path(".pdf")
+        with open(path, "wb") as f:
+            f.write(
+                b"%PDF-1.4\n"
+                b"1 0 obj << /Type /Page /Filter /FlateDecode /Length 42 >>\n"
+                b"stream x\x9c(\x02\x8a\xff\x00\x91\x8d\x03)\n"
+                b"(N\xf7\xc5q|K\xc2\xe8\x81\x03)\n"
+                b"endstream\n"
+                b"endobj\n"
+                b"xref\n"
+            )
+
+        metadata = extract_metadata(path, "encoded.pdf")
+
+        self.assertEqual(metadata["type"], "pdf")
+        self.assertEqual(metadata["text_excerpt"], "")
+        self.assertEqual(metadata["text_preview"], [])
+        self.assertEqual(metadata["text_extraction"]["quality"], "unusable")
+        self.assertGreater(metadata["text_extraction"]["discarded_candidates"], 0)
 
 
 if __name__ == "__main__":

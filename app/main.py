@@ -812,6 +812,7 @@ async def start_session(
         "template": [],
         "components": {},
         "calculated_metrics": {},
+        "document_insights": {},
         "settings": DEFAULT_SETTINGS.copy(),
         "script": "",
         "provider": provider,
@@ -878,6 +879,7 @@ async def delete_session_file(job_id: str, file_index: int, background_tasks: Ba
         "template": [],
         "components": {},
         "calculated_metrics": {},
+        "document_insights": {},
     }
     if not files:
         update_payload.update({"status": "Aguardando arquivos", "script": "", "pdf_version": session.get("pdf_version", 0)})

@@ -25,6 +25,8 @@ from app.services.llm_service import (
     generate_artifacts,
     generate_component_code,
     generate_data_filter,
+    generate_document_insights,
+    generate_document_insights_from_pdf_file,
     generate_report_title,
     generate_template,
     slot_by_artifact_id,
@@ -70,6 +72,7 @@ DEFAULT_EXPLORATORY_PROMPT = (
     "inclua contexto suficiente para que o leitor entenda os principais insights sem uma "
     "pergunta específica do usuário."
 )
+DOCUMENT_TEXT_ONLY_TEMPLATE_ID = "document_text_only"
 
 for directory in [FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
     os.makedirs(directory, exist_ok=True)
@@ -130,6 +133,79 @@ def _invalidate_components_for_binding_warnings(
         if signatures.intersection(set(retry_state.get(artifact_id) or []))
     }
     return components, retry_state, sorted(set(invalidated_ids))
+
+
+def _apply_binding_warning_render_fallbacks(
+    artifacts: list,
+    validation_issues: list,
+    components: dict,
+) -> tuple[list, dict, list[str]]:
+    artifacts = [dict(artifact) for artifact in artifacts or []]
+    components = dict(components or {})
+    affected_ids = {
+        str(issue.get("id") or "")
+        for issue in validation_issues or []
+        if issue.get("code") in BINDING_REGENERATION_ISSUE_CODES
+    }
+    changed_ids = []
+
+    for artifact in artifacts:
+        artifact_id = str(artifact.get("id") or "")
+        if artifact_id not in affected_ids or not supports_library_renderer(artifact):
+            continue
+        render_mode = str(artifact.get("render_mode") or "generated_code")
+        if render_mode == "library":
+            artifact["render_mode"] = "hybrid"
+            components.pop(artifact_id, None)
+            changed_ids.append(artifact_id)
+
+    return artifacts, components, sorted(set(changed_ids))
+
+
+def _advance_render_modes_after_failure(session: dict, failed_component_ids: set[str] | None = None) -> tuple[dict | None, str | None, list[str]]:
+    artifacts = [dict(artifact) for artifact in session.get("artifacts") or []]
+    components = dict(session.get("components") or {})
+    failed_component_ids = {str(component_id) for component_id in (failed_component_ids or set()) if str(component_id)}
+    changed_ids = []
+    needs_component_generation = False
+
+    for artifact in artifacts:
+        if artifact.get("type") not in VISUAL_TYPES or not supports_library_renderer(artifact):
+            continue
+        artifact_id = str(artifact.get("id") or "")
+        if failed_component_ids and artifact_id not in failed_component_ids:
+            continue
+        render_mode = str(artifact.get("render_mode") or "generated_code")
+        if render_mode == "library":
+            artifact["render_mode"] = "hybrid"
+            components.pop(artifact_id, None)
+            changed_ids.append(artifact_id)
+            needs_component_generation = True
+        elif render_mode == "hybrid":
+            artifact["render_mode"] = "generated_code"
+            changed_ids.append(artifact_id)
+
+    if not changed_ids:
+        return None, None, []
+
+    payload = {"artifacts": artifacts, "components": components, "retry_count": 0}
+    next_stage = "pipeline" if needs_component_generation else "script"
+    return payload, next_stage, sorted(set(changed_ids))
+
+
+def _failed_components_from_manifest(manifest_path: str | None) -> set[str]:
+    if not manifest_path or not os.path.exists(manifest_path):
+        return set()
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+            manifest = json.load(manifest_file)
+    except (OSError, json.JSONDecodeError):
+        return set()
+    return {
+        str(item.get("id"))
+        for item in manifest.get("components", []) or []
+        if item.get("status") != "rendered" and item.get("id")
+    }
 
 
 def _pipeline_lock(job_id: str) -> threading.RLock:
@@ -247,6 +323,37 @@ def metadata_json(session: dict, include_samples: bool = False) -> str:
         if f.get("artifact")
     ]
     return json.dumps(artifacts, indent=2, ensure_ascii=False)
+
+
+def pdf_files(files: list) -> list:
+    return [
+        file_info for file_info in files or []
+        if (file_info.get("artifact") or {}).get("type") == "pdf"
+        or os.path.splitext(file_info.get("path", ""))[1].lower() == ".pdf"
+    ]
+
+
+def has_tabular_files(files: list) -> bool:
+    return any(supported_tabular_path(file_info.get("path", "")) for file_info in files or [])
+
+
+def is_document_only_session(files: list) -> bool:
+    return bool(files) and bool(pdf_files(files)) and not has_tabular_files(files)
+
+
+def document_metrics_from_insights(document_insights: dict) -> dict:
+    metrics = {}
+    for source_name, insights in (document_insights or {}).items():
+        for metric in (insights or {}).get("metrics", []) or []:
+            metric_id = str(metric.get("id") or "").strip()
+            if not metric_id:
+                continue
+            metrics[metric_id] = {
+                **metric,
+                "source_type": "document",
+                "source_document": metric.get("source") or source_name,
+            }
+    return metrics
 
 
 def raw_metadata_json(session: dict, include_samples: bool = False) -> str:
@@ -481,7 +588,66 @@ def _run_pipeline(job_id: str, run_id: int):
         data_filter = session.get("data_preprocessing") or session.get("data_filter", {})
         has_filter_decision = has_data_filter_decision(data_filter)
         filter_prompt = session.get('current_goal', session['initial_prompt'])
-        should_filter = should_consider_data_filter(filter_prompt, session)
+        should_filter = should_consider_data_filter(filter_prompt, session) and has_tabular_files(files)
+
+        document_insights = dict(session.get("document_insights") or {})
+        pdfs_needing_insights = [
+            (index, file_info)
+            for index, file_info in enumerate(files)
+            if (file_info.get("artifact") or {}).get("type") == "pdf"
+            and not (file_info.get("artifact") or {}).get("document_insights")
+        ]
+        if pdfs_needing_insights:
+            with tracked_stage(job_id, "document_extraction", 18, provider, model_name):
+                if not _ensure_current_run(job_id, run_id, "document_extraction"):
+                    return
+                for index, file_info in pdfs_needing_insights:
+                    artifact = file_info.get("artifact") or {}
+                    source_name = file_info.get("original_filename") or artifact.get("filename") or f"pdf_{index}"
+                    try:
+                        add_log(job_id, f"Extraindo métricas e achados do PDF: {source_name}")
+                        if str(artifact.get("text_excerpt") or "").strip():
+                            insights = generate_document_insights(
+                                json.dumps(artifact, indent=2, ensure_ascii=False),
+                                filter_prompt,
+                                provider,
+                                model_name,
+                                settings=session.get("settings"),
+                                job_id=job_id,
+                            )
+                            insights["extraction_source"] = "extracted_text"
+                        else:
+                            insights = generate_document_insights_from_pdf_file(
+                                file_info.get("path"),
+                                json.dumps(artifact, indent=2, ensure_ascii=False),
+                                filter_prompt,
+                                provider,
+                                model_name,
+                                settings=session.get("settings"),
+                                job_id=job_id,
+                            )
+                    except Exception as exc:
+                        logger.exception("Document extraction failed job_id=%s file=%s", job_id, source_name)
+                        insights = {
+                            "summary": "",
+                            "key_points": [],
+                            "entities": [],
+                            "periods": [],
+                            "metrics": [],
+                            "warnings": [f"Falha na extração documental: {str(exc)[:180]}"],
+                        }
+                        add_log(job_id, "Falha ao extrair métricas do PDF; seguindo sem insights desse documento.")
+                    artifact["document_insights"] = insights
+                    files[index]["artifact"] = artifact
+                    document_insights[source_name] = insights
+                session = update_session(job_id, {
+                    "files": files,
+                    "document_insights": document_insights,
+                    "semantic_model": build_semantic_model(files),
+                }) or session
+                files = session.get("files", files)
+                any_new_artifact = True
+
         if should_filter and (any_new_artifact or not has_filter_decision):
             with tracked_stage(job_id, "preprocessing_plan", 20, provider, model_name):
                 if not _ensure_current_run(job_id, run_id, "preprocessing_plan"):
@@ -514,6 +680,10 @@ def _run_pipeline(job_id: str, run_id: int):
         settings = session.get('settings', {})
         selected_template_id = settings.get('selected_template_id')
         selected_template = None
+        if not selected_template_id and is_document_only_session(files):
+            selected_template_id = DOCUMENT_TEXT_ONLY_TEMPLATE_ID
+            settings["selected_template_id"] = selected_template_id
+            session = update_session(job_id, {"settings": settings}) or session
 
         if not artifacts or any_new_artifact:
             with tracked_stage(job_id, "artifact_plan", 35, provider, model_name):
@@ -582,8 +752,16 @@ def _run_pipeline(job_id: str, run_id: int):
                 update_session(job_id, {"settings": settings})
 
         metrics_store = session.get('calculated_metrics', {})
+        document_metric_values = document_metrics_from_insights(session.get("document_insights") or {})
+        if document_metric_values:
+            metrics_store.update(document_metric_values)
         metric_artifacts = [a for a in artifacts if a.get('type') == 'metric']
         for art in metric_artifacts:
+            if str(art.get("source_type") or "").lower() == "document":
+                matching_metric = document_metric_values.get(art.get("id"))
+                if matching_metric is not None:
+                    metrics_store[art["id"]] = matching_metric
+                continue
             if art['id'] not in metrics_store or any_new_artifact:
                 with tracked_stage(job_id, "metrics", 55, provider, model_name):
                     if not _ensure_current_run(job_id, run_id, "metrics"):
@@ -605,6 +783,17 @@ def _run_pipeline(job_id: str, run_id: int):
                 update_session(job_id, {"template": normalize_template(template)})
 
         components = session.get('components', {})
+        artifacts, components, fallback_ids = _apply_binding_warning_render_fallbacks(
+            artifacts,
+            validation_issues,
+            components,
+        )
+        if fallback_ids:
+            session = update_session(job_id, {
+                "artifacts": artifacts,
+                "components": components,
+            }) or session
+            add_log(job_id, f"Usando modo híbrido para componente(s) com binding inconsistente: {', '.join(fallback_ids)}")
         components, component_validation_retries, invalidated_ids = _invalidate_components_for_binding_warnings(
             artifacts,
             validation_issues,
@@ -730,6 +919,21 @@ def _run_script_generation(job_id: str, run_id: int):
         session.get("components"),
         session.get("component_validation_retries"),
     )
+    artifacts, components, fallback_ids = _apply_binding_warning_render_fallbacks(
+        artifacts,
+        validation_issues,
+        components,
+    )
+    if fallback_ids:
+        update_session(job_id, {
+            "artifacts": artifacts,
+            "components": components,
+        })
+        session = get_session(job_id)
+        add_log(job_id, f"Usando modo híbrido para componente(s) com binding inconsistente: {', '.join(fallback_ids)}")
+        if _ensure_current_run(job_id, run_id, "graphics"):
+            run_pipeline(job_id)
+        return
     if invalidated_ids:
         update_session(job_id, {
             "components": components,
@@ -741,6 +945,19 @@ def _run_script_generation(job_id: str, run_id: int):
         return
     if component_validation_retries != session.get("component_validation_retries"):
         session = update_session(job_id, {"component_validation_retries": component_validation_retries}) or session
+
+    library_component_ids = {
+        str(artifact.get("id"))
+        for artifact in artifacts
+        if str(artifact.get("render_mode") or "generated_code") == "library" and supports_library_renderer(artifact)
+    }
+    if library_component_ids:
+        cleaned_components = dict(components or {})
+        for artifact_id in library_component_ids:
+            cleaned_components.pop(artifact_id, None)
+        if cleaned_components != components:
+            components = cleaned_components
+            session = update_session(job_id, {"components": components}) or session
 
     script_content = assemble_script(
         session['components'],
@@ -777,6 +994,20 @@ def run_execution(job_id: str, run_id: int | None = None):
             update_session(job_id, {"pdf_version": new_version, "retry_count": 0, "status": "Concluído", "current_step": "completed", "progress": 100, "error": {}})
             add_log(job_id, f"Relatório concluído em {duration:.1f}s")
             append_stage_event(job_id, "render", "end", status="ok", duration_ms=duration * 1000, provider=session.get('provider'), model_name=session.get('model_name'))
+            return
+
+        failed_component_ids = _failed_components_from_manifest(f"{session.get('pdf_path')}.manifest.json")
+        fallback_payload, next_stage, changed_ids = _advance_render_modes_after_failure(session, failed_component_ids)
+        if fallback_payload:
+            update_session(job_id, fallback_payload)
+            add_log(job_id, f"Fallback de renderização aplicado para: {', '.join(changed_ids)}")
+            append_stage_event(job_id, "render", "end", status="retrying", duration_ms=duration * 1000, provider=session.get('provider'), model_name=session.get('model_name'), details={"fallback_stage": next_stage, "component_ids": changed_ids})
+            if next_stage == "pipeline":
+                if _ensure_current_run(job_id, run_id, "graphics"):
+                    run_pipeline(job_id)
+                return
+            if _ensure_current_run(job_id, run_id, "script"):
+                run_script_generation(job_id, run_id=run_id)
             return
 
         if retries < max_retries - 1:

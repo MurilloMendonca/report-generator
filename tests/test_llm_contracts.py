@@ -1,3 +1,4 @@
+import os
 import unittest
 import threading
 from unittest.mock import patch
@@ -10,12 +11,14 @@ from app.services.llm_service import (
     LLMTimeoutError,
     assemble_script,
     call_llm,
+    generate_document_insights_from_pdf_file,
     generate_component_code,
     generate_report_title,
     llm_operation_context,
     model_catalog,
     normalize_gemini_model_name,
     parse_llm_artifacts,
+    parse_llm_document_insights,
     parse_llm_preprocessing_plan,
     parse_llm_refinement_target,
     parse_llm_text_map,
@@ -121,6 +124,42 @@ class LlmContractTests(unittest.TestCase):
         self.assertEqual(captured["context"]["operation"], "title_generation")
         self.assertEqual(captured["context"]["job_id"], "job-123")
 
+    def test_generate_document_insights_from_pdf_uses_gemini_file_input(self):
+        captured = {}
+        pdf_path = "workspace/uploads/test_llm_document.pdf"
+        os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
+        with open(pdf_path, "wb") as f:
+            f.write(b"%PDF-1.4\n% fake test pdf\n")
+
+        class FakeModels:
+            @staticmethod
+            def generate_content(*, model, contents):
+                captured["model"] = model
+                captured["contents"] = contents
+                return SimpleNamespace(text='{"summary":"Resumo","metrics":[{"id":"m_total","label":"Total","value":42,"source":"brief.pdf","evidence":"Total 42"}]}')
+
+        class FakeClient:
+            models = FakeModels()
+
+        try:
+            with patch("app.services.llm_service.get_gemini_client", return_value=FakeClient()):
+                insights = generate_document_insights_from_pdf_file(
+                    pdf_path,
+                    '{"filename":"brief.pdf","type":"pdf","text_excerpt":""}',
+                    "Extraia métricas",
+                    provider="deepseek",
+                    model_name="deepseek-v4-flash",
+                    settings={"language": "Portuguese"},
+                )
+        finally:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+
+        self.assertEqual(captured["model"], "gemini-3.1-flash-lite-preview")
+        self.assertEqual(insights["metrics"][0]["id"], "m_total")
+        self.assertEqual(insights["extraction_source"], "pdf_file")
+        self.assertEqual(len(captured["contents"]), 2)
+
     def test_llm_schema_parsers_validate_core_payloads(self):
         artifacts = parse_llm_artifacts('[{"id": "g1", "indicator": "Chart", "type": "graphic", "columns": "a, b"}]')
         self.assertEqual(artifacts[0]["columns"], ["a", "b"])
@@ -130,6 +169,10 @@ class LlmContractTests(unittest.TestCase):
 
         texts = parse_llm_text_map('{"t1": "Resumo", "empty": ""}')
         self.assertEqual(texts, {"t1": "Resumo"})
+
+        document = parse_llm_document_insights('{"summary":"Resumo","metrics":[{"id":"m_budget","label":"Orçamento","value":10,"source":"brief.pdf","evidence":"Orçamento de 10"}]}')
+        self.assertEqual(document["metrics"][0]["id"], "m_budget")
+        self.assertEqual(document["metrics"][0]["confidence"], "low")
 
         self.assertEqual(parse_llm_refinement_target("layout"), "LAYOUT")
         self.assertEqual(parse_llm_refinement_target("g_table"), "g_table")
@@ -206,6 +249,46 @@ class LlmContractTests(unittest.TestCase):
         self.assertTrue(updated["needs_script_update"])
         self.assertIn("Runtime Renderer API Reference", prompts[1])
         self.assertIn("primary renderer", prompts[1])
+
+    def test_refinement_color_change_updates_visual_options_without_generated_code(self):
+        session = {
+            "job_id": "job-refine-color",
+            "provider": DEFAULT_PROVIDER,
+            "model_name": DEFAULT_MODEL_NAME,
+            "settings": {"language": "Portuguese"},
+            "artifacts": [
+                {
+                    "id": "g_cases_trend",
+                    "indicator": "Tendência Temporal de Casos",
+                    "type": "graphic",
+                    "component_preset_id": "line_timeseries",
+                    "render_mode": "library",
+                    "visual_options": {},
+                }
+            ],
+            "components": {"g_cases_trend": "def render_g_cases_trend(pdf, dataframes, x, y, w, h):\n    pass"},
+            "files": [{"artifact": {"filename": "cases.csv", "columns": []}}],
+        }
+
+        calls = []
+
+        def fake_call_llm(*_args, **_kwargs):
+            calls.append(True)
+            return "g_cases_trend"
+
+        with patch("app.services.llm_service.call_llm", fake_call_llm):
+            updated = refine_session_modular(
+                session,
+                'Troque a cor do gráfico "Tendência Temporal de Casos" de azul para vermelho',
+                job_id="job-refine-color",
+            )
+
+        artifact = updated["artifacts"][0]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(artifact["render_mode"], "library")
+        self.assertEqual(artifact["visual_options"]["line_color"], "#dc2626")
+        self.assertNotIn("g_cases_trend", updated["components"])
+        self.assertTrue(updated["needs_script_update"])
 
     def test_call_llm_enforces_budget(self):
         class FakeDeepseekClient:

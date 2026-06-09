@@ -60,13 +60,48 @@ class ComponentRendererTests(unittest.TestCase):
         self.assertIn("def render_g_sales_generated", renamed)
         self.assertNotIn("def render_g_sales(pdf", renamed)
 
+    def test_hybrid_wrapper_prefers_generated_adapter(self):
+        from app.utils.component_renderers import hybrid_component_code
+
+        code = hybrid_component_code({
+            "id": "g_stats",
+            "indicator": "Stats",
+            "component_preset_id": "table_summary",
+            "render_mode": "hybrid",
+        })
+        namespace = {
+            "json": json,
+            "render_visual_component": lambda *_args, **_kwargs: "library",
+            "render_g_stats_generated": lambda *_args, **_kwargs: "generated",
+        }
+        exec(code, namespace)
+
+        self.assertEqual(namespace["render_g_stats"](object(), {}, 0, 0, 10, 10), "generated")
+
     def test_runtime_api_reference_supports_concise_customization(self):
         reference = runtime_api_prompt_reference("table_summary")
 
         self.assertIn("render_summary_table", reference)
+        self.assertIn("_render_table_image(pdf, dataframe, x, y, w, h, title=None, theme=None, options=None)", reference)
         self.assertIn("render_runtime", reference)
         self.assertIn("_library_dataframe", reference)
         self.assertIn("Do not paste runtime helper bodies", reference)
+
+    def test_table_image_accepts_options_table_theme(self):
+        namespace = {}
+        exec(sandbox_runtime_source(), namespace)
+        namespace["_save_chart_to_pdf"] = lambda *_args, **_kwargs: None
+
+        namespace["_render_table_image"](
+            object(),
+            pd.DataFrame({"Pais": ["Brazil"], "Casos": [207]}),
+            0,
+            0,
+            90,
+            60,
+            title="Resumo",
+            options={"table_theme": {"header_bg": "#123456"}},
+        )
 
     def test_assemble_script_executes_library_bar_renderer(self):
         csv_path = self.tracked_path(f"workspace/uploads/library_renderer_{uuid.uuid4().hex}.csv")
@@ -208,6 +243,161 @@ def render_g_stats(pdf, dataframes, x, y, w, h, df=None):
         counts = dict(zip(result["type_1"], result["name"]))
         self.assertEqual(counts, {"Fire": 3, "Grass": 1, "Water": 2})
 
+    def test_library_line_count_does_not_treat_text_ids_as_empty(self):
+        namespace = {}
+        exec(sandbox_runtime_source(), namespace)
+
+        def fail_empty_chart(*_args, **_kwargs):
+            raise AssertionError("line chart should not render an empty placeholder for count aggregation")
+
+        namespace["_library_empty_chart"] = fail_empty_chart
+        namespace["_save_chart_to_pdf"] = lambda *_args, **_kwargs: None
+
+        namespace["render_line_chart"](
+            object(),
+            {"cases.csv": pd.DataFrame({
+                "report_date": ["2026-01-01", "2026-01-02", "2026-01-02"],
+                "case_id": ["A", "B", "C"],
+            })},
+            0,
+            0,
+            120,
+            80,
+            date="report_date",
+            value="case_id",
+            source="cases.csv",
+            title="Cases",
+            options={"aggregation": "count"},
+        )
+
+    def test_library_line_monthly_title_groups_by_month(self):
+        namespace = {}
+        exec(sandbox_runtime_source(), namespace)
+        captured = {}
+
+        class PlotFrame(pd.DataFrame):
+            @property
+            def _constructor(self):
+                return PlotFrame
+
+            def plot(self, *args, **kwargs):
+                captured["values"] = self.iloc[:, 0].tolist()
+
+        original_pivot_table = pd.DataFrame.pivot_table
+
+        def tracked_pivot_table(self, *args, **kwargs):
+            return PlotFrame(original_pivot_table(self, *args, **kwargs))
+
+        namespace["pd"].DataFrame.pivot_table = tracked_pivot_table
+        namespace["_save_chart_to_pdf"] = lambda *_args, **_kwargs: None
+        try:
+            namespace["render_line_chart"](
+                object(),
+                {"cases.csv": pd.DataFrame({
+                    "report_date": ["2026-01-01", "2026-01-15", "2026-02-01"],
+                    "case_id": ["A", "B", "C"],
+                    "series": ["Total", "Total", "Total"],
+                })},
+                0,
+                0,
+                120,
+                80,
+                date="report_date",
+                value="case_id",
+                series="series",
+                source="cases.csv",
+                title="Evolução Mensal de Casos",
+                options={"aggregation": "count"},
+            )
+        finally:
+            namespace["pd"].DataFrame.pivot_table = original_pivot_table
+
+        self.assertEqual(captured["values"], [2, 1])
+
+    def test_library_line_annual_axis_uses_label_and_integer_years(self):
+        namespace = {}
+        exec(sandbox_runtime_source(), namespace)
+        namespace["_save_chart_to_pdf"] = lambda *_args, **_kwargs: None
+
+        namespace["render_line_chart"](
+            object(),
+            {"cases.xlsx": pd.DataFrame({
+                "Year": [2020, 2020, 2021, 2022],
+                "Violence_Victims": [10, 5, 12, 14],
+            })},
+            0,
+            0,
+            90,
+            75,
+            date="Year",
+            value="Violence_Victims",
+            source="cases.xlsx",
+            title="Tendência Anual do Total de Vítimas",
+            options={"aggregation": "sum", "labels": {"Year": "Ano", "Violence_Victims": "Vítimas"}},
+        )
+
+        ax = namespace["plt"].gcf().axes[0]
+        self.assertEqual(ax.get_xlabel(), "Ano")
+        tick_labels = [label.get_text() for label in ax.get_xticklabels()]
+        self.assertIn("2020", tick_labels)
+        self.assertIn("2022", tick_labels)
+
+    def test_library_line_chart_uses_requested_line_color(self):
+        namespace = {}
+        exec(sandbox_runtime_source(), namespace)
+        namespace["_save_chart_to_pdf"] = lambda *_args, **_kwargs: None
+
+        namespace["render_line_chart"](
+            object(),
+            {"cases.csv": pd.DataFrame({
+                "report_date": ["2026-01-01", "2026-01-02"],
+                "case_id": ["A", "B"],
+            })},
+            0,
+            0,
+            90,
+            75,
+            date="report_date",
+            value="case_id",
+            source="cases.csv",
+            title="Tendência Temporal de Casos",
+            options={"aggregation": "count", "line_color": "#dc2626"},
+        )
+
+        ax = namespace["plt"].gcf().axes[0]
+        self.assertEqual(ax.lines[0].get_color(), "#dc2626")
+
+    def test_library_summary_table_count_keeps_categorical_ids(self):
+        namespace = {}
+        exec(sandbox_runtime_source(), namespace)
+        captured = {}
+
+        def capture_table(_pdf, dataframe, *_args, **_kwargs):
+            captured["dataframe"] = dataframe.copy()
+
+        namespace["_render_table_image"] = capture_table
+
+        namespace["render_summary_table"](
+            object(),
+            {"cases.csv": pd.DataFrame({
+                "fatality": ["No", "No", "Yes"],
+                "case_id": ["A", "B", "C"],
+            })},
+            0,
+            0,
+            120,
+            80,
+            dimensions=["fatality"],
+            metrics=["case_id"],
+            source="cases.csv",
+            title="Summary",
+            options={"aggregation": "count"},
+        )
+
+        result = captured["dataframe"]
+        counts = dict(zip(result["Fatality"], result["Case ID"]))
+        self.assertEqual(counts, {"No": 2, "Yes": 1})
+
     def test_library_runtime_uses_translated_display_labels(self):
         namespace = {}
         exec(sandbox_runtime_source(), namespace)
@@ -238,8 +428,10 @@ def render_g_stats(pdf, dataframes, x, y, w, h, df=None):
 
         self.assertIn("\n", wrapped)
         self.assertNotIn("bbox_inches='tight'", source)
-        self.assertEqual(namespace["_table_bbox_for_title"](2), [0.0, 0.04, 1.0, 0.78])
+        self.assertEqual(namespace["_table_bbox_for_title"](2), [0.0, 0.03, 1.0, 0.84])
+        self.assertEqual(namespace["_table_top_margin"](2), 0.98)
         self.assertIn("bbox=table_bbox", source)
+        self.assertIn("_draw_table_title(fig, title, w)", source)
 
 
 if __name__ == "__main__":

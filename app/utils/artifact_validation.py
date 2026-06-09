@@ -113,6 +113,18 @@ def role_accepts_kind(expected: str | None, actual: str) -> bool:
     return True
 
 
+def role_accepts_binding(role: dict, actual: str, aggregation: str | None = None) -> bool:
+    role_name = str(role.get("name") or "")
+    expected = role.get("kind")
+    if (
+        expected == "numeric"
+        and str(aggregation or "").lower() == "count"
+        and role_name in {"value", "metrics"}
+    ):
+        return actual in {"categorical", "numeric", "temporal", "unknown"}
+    return role_accepts_kind(expected, actual)
+
+
 def role_candidate_columns(columns: list[str], role: dict, metadata_items: list) -> list[str]:
     expected = role.get("kind")
     candidates = []
@@ -239,7 +251,7 @@ def normalize_data_binding(artifact: dict, preset: dict, metadata_items: list, i
                 "column": reference,
                 "message": "Data binding role references a column that was not found",
             })
-        elif not role_accepts_kind(role.get("kind"), kind):
+        elif not role_accepts_binding(role, kind, binding.get("aggregation")):
             visual_warnings.append(f"`{reference}` não parece compatível com `{role_name}`")
             issues.append({
                 "severity": "warning",
@@ -298,6 +310,12 @@ def validate_preset_roles(artifact: dict, preset: dict, metadata_items: list, is
     for role in required_roles:
         expected = role.get("kind")
         if expected in {"any", None}:
+            continue
+        if (
+            expected == "numeric"
+            and str((artifact.get("data_binding") or {}).get("aggregation") or "").lower() == "count"
+            and role.get("name") in {"value", "metrics"}
+        ):
             continue
         if expected == "categorical":
             found = any(kind in {"categorical", "temporal", "unknown"} for kind in kinds)

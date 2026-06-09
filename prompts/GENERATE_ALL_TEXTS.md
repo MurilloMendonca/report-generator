@@ -29,6 +29,7 @@ Example:
 
 ## Guidelines
 - **Integration**: Cite specific metrics provided in the 'Calculated Metrics' section.
+- **Document evidence**: When metrics include PDF/document candidates with `source`, `confidence`, or `evidence`, treat them as document-sourced facts. Cite them carefully in prose and mention caveats for low-confidence or partial-text extraction.
 - **Layout-aware length**: When `Layout Slots` are provided, write each component close to its `target_words`, with permission to use up to `soft_max_words` when the insight needs it. Do not make the text artificially short; use the available space.
 - **Length discipline**: Keep each text component concise enough for its report block. Prefer 2-4 short sentences for compact blocks, and 4-6 short sentences for larger narrative blocks.
 - **Consistency**: Ensure font style descriptions are NOT included in the text. The backend will handle styling.

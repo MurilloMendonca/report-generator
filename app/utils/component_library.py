@@ -473,7 +473,11 @@ def normalize_visual_options(preset: dict | None, options: dict | None) -> dict:
     normalized = dict((preset or {}).get("default_options") or {})
     if isinstance(options, dict):
         for key, value in options.items():
-            if key in normalized or key in {"title", "sort_by", "format", "target", "max_value", "labels", "axis_labels", "legend_title"}:
+            if key in normalized or key in {
+                "title", "sort_by", "format", "target", "max_value",
+                "labels", "axis_labels", "legend_title",
+                "color", "line_color", "bar_color",
+            }:
                 normalized[key] = value
     return normalized
 

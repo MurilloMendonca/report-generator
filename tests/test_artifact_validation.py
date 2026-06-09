@@ -10,6 +10,7 @@ class ArtifactValidationTests(unittest.TestCase):
             "columns": [
                 {"name": "region", "type": "object", "unique_values": 4},
                 {"name": "customer", "type": "object", "unique_values": 120},
+                {"name": "case_id", "type": "object", "unique_values": 200},
                 {"name": "revenue", "type": "float64", "unique_values": 50},
                 {"name": "date", "type": "datetime64[ns]", "unique_values": 12},
                 {
@@ -73,6 +74,21 @@ class ArtifactValidationTests(unittest.TestCase):
         self.assertEqual(artifacts[0]["data_binding"]["roles"]["dimensions"], "region")
         self.assertEqual(artifacts[0]["data_binding"]["roles"]["metrics"], "revenue")
         self.assertNotIn("invalid_component_preset", {issue["code"] for issue in issues})
+
+    def test_preserves_visual_color_options(self):
+        artifacts, _issues = validate_report_plan([
+            {
+                "id": "g_trend",
+                "indicator": "Trend",
+                "type": "line",
+                "columns": ["sales.csv:date", "sales.csv:case_id"],
+                "component_preset_id": "line_timeseries",
+                "visual_options": {"line_color": "#dc2626", "color": "#dc2626"},
+            }
+        ], self.metadata())
+
+        self.assertEqual(artifacts[0]["visual_options"]["line_color"], "#dc2626")
+        self.assertEqual(artifacts[0]["visual_options"]["color"], "#dc2626")
 
     def test_reports_invalid_component_preset(self):
         artifacts, issues = validate_report_plan([
@@ -158,6 +174,42 @@ class ArtifactValidationTests(unittest.TestCase):
         self.assertEqual(artifacts[0]["data_binding"]["roles"]["date"], "Year")
         self.assertEqual(artifacts[0]["visual_warnings"], [])
         self.assertNotIn("data_binding_role_mismatch", {issue["code"] for issue in issues})
+
+    def test_count_aggregation_accepts_categorical_measure_bindings(self):
+        artifacts, issues = validate_report_plan([
+            {
+                "id": "g_cases_trend",
+                "indicator": "Cases over time",
+                "type": "graphic",
+                "component_preset_id": "line_timeseries",
+                "columns": ["sales.csv:date", "sales.csv:case_id"],
+                "data_binding": {
+                    "source": "sales.csv",
+                    "roles": {"date": "date", "value": "case_id"},
+                    "aggregation": "count",
+                },
+                "render_mode": "library",
+            },
+            {
+                "id": "g_summary",
+                "indicator": "Cases by region",
+                "type": "table",
+                "component_preset_id": "table_summary",
+                "columns": ["sales.csv:region", "sales.csv:case_id"],
+                "data_binding": {
+                    "source": "sales.csv",
+                    "roles": {"dimensions": "region", "metrics": "case_id"},
+                    "aggregation": "count",
+                },
+                "render_mode": "library",
+            },
+        ], self.metadata())
+
+        self.assertEqual(artifacts[0]["visual_warnings"], [])
+        self.assertEqual(artifacts[1]["visual_warnings"], [])
+        issue_codes = {issue["code"] for issue in issues}
+        self.assertNotIn("data_binding_role_mismatch", issue_codes)
+        self.assertNotIn("preset_role_mismatch", issue_codes)
 
     def test_library_render_mode_is_preserved_for_supported_presets(self):
         artifacts, issues = validate_report_plan([

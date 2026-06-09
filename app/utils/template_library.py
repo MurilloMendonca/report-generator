@@ -39,6 +39,52 @@ BLUEPRINTS = {
             {"type": "graphic", "x": 110, "y": 195, "w": 90, "h": 50},
             {"id": "kpi_conclusao", "x": 10, "y": 250, "w": 190, "h": 35}
         ]
+    },
+    "document_text_only": {
+        "name": "Relatório documental apenas texto",
+        "description": "Template narrativo para entradas compostas só por PDFs ou documentos sem dados tabulares.",
+        "slots": [
+            {
+                "id": "kpi_resumo",
+                "name": "Resumo executivo",
+                "description": "Contexto, objetivo e mensagem principal do documento.",
+                "type": "text",
+                "x": 10,
+                "y": 30,
+                "w": 190,
+                "h": 55,
+            },
+            {
+                "id": "document_key_findings",
+                "name": "Principais achados",
+                "description": "Achados sustentados pelo texto do PDF, citando métricas documentais quando disponíveis.",
+                "type": "text",
+                "x": 10,
+                "y": 95,
+                "w": 190,
+                "h": 75,
+            },
+            {
+                "id": "document_implications",
+                "name": "Implicações e ressalvas",
+                "description": "Interpretação, riscos, limitações de extração e pontos de atenção.",
+                "type": "text",
+                "x": 10,
+                "y": 180,
+                "w": 190,
+                "h": 55,
+            },
+            {
+                "id": "kpi_conclusao",
+                "name": "Conclusão",
+                "description": "Síntese final e recomendações baseadas no documento.",
+                "type": "text",
+                "x": 10,
+                "y": 245,
+                "w": 190,
+                "h": 40,
+            },
+        ],
     }
 }
 
@@ -57,8 +103,8 @@ def _default_templates() -> list:
         for index, slot in enumerate(blueprint["slots"]):
             slots.append({
                 "slot_id": slot.get("id") or f"{template_id}_slot_{index + 1}",
-                "name": slot.get("id") or f"Slot {index + 1}",
-                "description": "",
+                "name": slot.get("name") or slot.get("id") or f"Slot {index + 1}",
+                "description": slot.get("description", ""),
                 "type": _slot_type(slot),
                 "page": slot.get("page", 1),
                 "x": slot["x"],
@@ -79,13 +125,25 @@ def _ensure_library_file():
     os.makedirs(os.path.dirname(TEMPLATE_LIBRARY_PATH), exist_ok=True)
     if not os.path.exists(TEMPLATE_LIBRARY_PATH):
         save_layout_templates(_default_templates())
+        return
+    templates = load_layout_templates_raw()
+    existing_ids = {template.get("id") for template in templates if isinstance(template, dict)}
+    missing_defaults = [template for template in _default_templates() if template.get("id") not in existing_ids]
+    if missing_defaults:
+        save_layout_templates(templates + missing_defaults)
+
+
+def load_layout_templates_raw() -> list:
+    if not os.path.exists(TEMPLATE_LIBRARY_PATH):
+        return []
+    with open(TEMPLATE_LIBRARY_PATH, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data if isinstance(data, list) else []
 
 
 def load_layout_templates() -> list:
     _ensure_library_file()
-    with open(TEMPLATE_LIBRARY_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data if isinstance(data, list) else []
+    return load_layout_templates_raw()
 
 
 def save_layout_templates(templates: list):

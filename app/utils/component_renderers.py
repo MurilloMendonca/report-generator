@@ -47,6 +47,7 @@ def runtime_api_prompt_reference(preset_id: str | None = None) -> str:
     - Preferred path: call library helpers instead of recreating generic chart/table code.
     - Module alias: `render_runtime` exposes the same runtime helpers for advanced customization.
     - Common helper globals: `_chart_colors`, `_apply_chart_theme`, `_format_compact_number`, `_top_n_with_others`, `_save_chart_to_pdf`, `_render_table_image`.
+      Table helper signature: `_render_table_image(pdf, dataframe, x, y, w, h, title=None, theme=None, options=None)`.
     - Advanced base helpers via `render_runtime`: `_library_dataframe`, `_library_resolve_column`, `_library_resolve_columns`, `_library_aggregate`, `_library_limit_top`, `_library_empty_chart`.
 
     Primary signatures:
@@ -105,18 +106,21 @@ def hybrid_component_code(artifact: dict) -> str:
     return dedent(f"""
     def render_{suffix}(pdf, dataframes, x, y, w, h, df=None):
         artifact = json.loads({artifact_payload})
-        try:
-            return render_visual_component(pdf, dataframes, artifact, x, y, w, h)
-        except Exception:
-            import logging
-            logging.getLogger(__name__).exception('Library renderer failed for {suffix}; falling back to generated code')
-            generated = globals().get('render_{suffix}_generated')
-            if generated is None:
-                raise
+        generated = globals().get('render_{suffix}_generated')
+        if generated is not None:
             try:
                 return generated(pdf, dataframes, x, y, w, h, df=df)
             except TypeError:
                 return generated(pdf, dataframes, x, y, w, h)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception('Generated hybrid renderer failed for {suffix}; falling back to library renderer')
+        try:
+            return render_visual_component(pdf, dataframes, artifact, x, y, w, h)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('Library renderer failed for {suffix}')
+            raise
     """).strip()
 
 
@@ -132,6 +136,15 @@ def sandbox_runtime_source() -> str:
     import numpy as np
     import pandas as pd
     import seaborn as sns
+
+    try:
+        import altair as alt
+        import vl_convert as vlc
+        _ALTAIR_AVAILABLE = os.environ.get('PDF_REPORT_USE_ALTAIR') == '1'
+    except Exception:
+        alt = None
+        vlc = None
+        _ALTAIR_AVAILABLE = False
 
 
     CHART_TITLE_FONTSIZE = 9
@@ -278,13 +291,38 @@ def sandbox_runtime_source() -> str:
 
     def _table_bbox_for_title(title_lines):
         if not title_lines:
-            return [0.0, 0.06, 1.0, 0.88]
-        return [0.0, 0.04, 1.0, 0.82 if title_lines <= 1 else 0.78]
+            return [0.0, 0.04, 1.0, 0.92]
+        return [0.0, 0.03, 1.0, 0.88 if title_lines <= 1 else 0.84]
 
 
-    def _render_table_image(pdf, dataframe, x, y, w, h, title=None, theme=None):
+    def _table_top_margin(title_lines):
+        return 0.98
+
+
+    def _draw_table_title(fig, title, w=None):
+        wrapped = _wrapped_chart_title(title, w)
+        if not wrapped:
+            return 0
+        line_count = wrapped.count('\n') + 1
+        fig.text(
+            0.5,
+            0.965,
+            wrapped,
+            ha='center',
+            va='top',
+            fontsize=CHART_TITLE_FONTSIZE,
+            fontweight=CHART_TITLE_FONTWEIGHT,
+            color=CHART_THEME.get('text_color', '#111827'),
+        )
+        return line_count
+
+
+    def _render_table_image(pdf, dataframe, x, y, w, h, title=None, theme=None, options=None):
+        options = options or {}
         theme = theme or CHART_THEME
-        table_theme = theme.get('table', {})
+        table_theme = dict(theme.get('table', {}))
+        if isinstance(options.get('table_theme'), dict):
+            table_theme.update(options.get('table_theme'))
         df = dataframe.copy() if dataframe is not None else pd.DataFrame()
         max_rows = 5 if h < 60 else 8 if h < 95 else 12
         max_cols = 4 if w < 100 else 6 if w < 150 else 8
@@ -298,7 +336,7 @@ def sandbox_runtime_source() -> str:
             )
         fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))
         ax.axis('off')
-        title_lines = _set_axis_chart_title(ax, title, w)
+        title_lines = _draw_table_title(fig, title, w)
         if df.empty:
             ax.text(0.5, 0.5, 'Dados indisponiveis', ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE)
             _save_chart_to_pdf(fig, pdf, x, y, w, h)
@@ -324,7 +362,7 @@ def sandbox_runtime_source() -> str:
             else:
                 cell.set_facecolor(table_theme.get('alt_row_bg', '#f9fafb') if row % 2 == 0 else table_theme.get('row_bg', '#ffffff'))
                 cell.get_text().set_color(theme.get('text_color', '#111827'))
-        fig.subplots_adjust(left=0.02, right=0.98, top=_chart_top_margin(title_lines) if title_lines else 0.98, bottom=0.02)
+        fig.subplots_adjust(left=0.02, right=0.98, top=_table_top_margin(title_lines), bottom=0.02)
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
 
@@ -611,6 +649,18 @@ def library_renderer_source() -> str:
             return pd.concat([top, pd.DataFrame([other_row])], ignore_index=True)
         return result.head(top_n)
 
+    def _line_date_granularity(options=None, title=None, date_label=None):
+        options = options or {}
+        configured = str(options.get('date_granularity') or options.get('granularity') or '').strip().lower()
+        if configured in {'day', 'daily', 'dia', 'diario', 'diaria'}:
+            return 'day'
+        if configured in {'month', 'monthly', 'mes', 'mensal'}:
+            return 'month'
+        context = f"{title or ''} {date_label or ''}".lower()
+        if any(token in context for token in ('mensal', 'mes ', 'mês ', 'month', 'monthly')):
+            return 'month'
+        return 'day'
+
     def render_bar_chart(pdf, dataframes, x, y, w, h, *, category, value, source=None, series=None, title=None, options=None):
         options = options or {}
         binding = {'source': source, 'filters': options.get('filters') or []}
@@ -682,16 +732,34 @@ def library_renderer_source() -> str:
         if df.empty or not date_col or not value_col:
             _library_empty_chart(pdf, x, y, w, h, title)
             return
-        work = df[[date_col, value_col] + ([series_col] if series_col else [])].copy()
-        work[date_col] = pd.to_datetime(work[date_col], errors='coerce')
-        work[value_col] = pd.to_numeric(work[value_col], errors='coerce')
-        work = work.dropna(subset=[date_col, value_col])
-        if work.empty:
-            _library_empty_chart(pdf, x, y, w, h, title)
-            return
         aggregation = str(options.get('aggregation') or 'sum').lower()
         if aggregation not in {'sum', 'mean', 'median', 'min', 'max', 'count'}:
             aggregation = 'sum'
+        date_label = _library_display_label(date_col, options)
+        date_name = _library_column_name(date_col).strip().lower()
+        work = df[[date_col, value_col] + ([series_col] if series_col else [])].copy()
+        numeric_date = pd.to_numeric(work[date_col], errors='coerce')
+        is_year_axis = (
+            date_name in {'year', 'ano', 'año'}
+            and numeric_date.notna().any()
+            and numeric_date.dropna().between(1000, 3000).all()
+            and (numeric_date.dropna() % 1 == 0).all()
+        )
+        if is_year_axis:
+            work[date_col] = numeric_date.astype('Int64')
+        else:
+            work[date_col] = pd.to_datetime(work[date_col], errors='coerce')
+        date_granularity = _line_date_granularity(options, title, date_label)
+        if date_granularity == 'month' and not is_year_axis:
+            work[date_col] = work[date_col].dt.to_period('M').dt.to_timestamp()
+        if aggregation != 'count':
+            work[value_col] = pd.to_numeric(work[value_col], errors='coerce')
+            work = work.dropna(subset=[date_col, value_col])
+        else:
+            work = work.dropna(subset=[date_col, value_col])
+        if work.empty:
+            _library_empty_chart(pdf, x, y, w, h, title)
+            return
         fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
         marker = 'o' if options.get('show_markers', True) else None
         if series_col:
@@ -701,9 +769,15 @@ def library_renderer_source() -> str:
             ax.legend(title=_library_display_label(series_col, options), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
         else:
             grouped = work.groupby(date_col, dropna=False)[value_col].agg(aggregation).reset_index().sort_values(date_col)
-            ax.plot(grouped[date_col], grouped[value_col], marker=marker, linewidth=1.9, color=_chart_colors(1)[0])
+            line_color = options.get('line_color') or options.get('color') or _chart_colors(1)[0]
+            ax.plot(grouped[date_col], grouped[value_col], marker=marker, linewidth=1.9, color=line_color)
         title_lines = _set_axis_chart_title(ax, title, w)
-        ax.set_xlabel('')
+        if is_year_axis:
+            year_ticks = sorted(grouped[date_col].dropna().astype(int).unique().tolist())
+            if len(year_ticks) <= 12:
+                ax.set_xticks(year_ticks)
+            ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda x, _pos: f'{int(x)}' if float(x).is_integer() else ''))
+        ax.set_xlabel(date_label if not options.get('hide_x_label') else '')
         ax.set_ylabel(_library_display_label(value_col, options))
         ax.tick_params(axis='x', rotation=30)
         fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
@@ -761,7 +835,10 @@ def library_renderer_source() -> str:
         if df.empty or not category_col or not value_col:
             _library_empty_chart(pdf, x, y, w, h, title)
             return
-        grouped = _library_aggregate(df, [category_col], value_col, options.get('aggregation') or 'sum')
+        aggregation = options.get('aggregation') or 'sum'
+        grouped = _library_aggregate(df, [category_col], value_col, aggregation)
+        if grouped.empty and str(aggregation or '').lower() != 'count':
+            grouped = _library_aggregate(df, [category_col], value_col, 'count')
         grouped = _library_limit_top(grouped, value_col, options.get('top_n') or 5, bool(options.get('aggregate_others')), category_col)
         grouped = grouped[grouped[value_col] > 0]
         if grouped.empty:
@@ -824,8 +901,9 @@ def library_renderer_source() -> str:
         aggregation = str(options.get('aggregation') or 'sum').lower()
         if aggregation not in {'sum', 'mean', 'median', 'min', 'max', 'count'}:
             aggregation = 'sum'
-        for column in metric_cols:
-            work[column] = pd.to_numeric(work[column], errors='coerce')
+        if aggregation != 'count':
+            for column in metric_cols:
+                work[column] = pd.to_numeric(work[column], errors='coerce')
         grouped = work.groupby(dimension_cols, dropna=False)[metric_cols].agg(aggregation).reset_index()
         first_metric = metric_cols[0]
         if first_metric in grouped.columns:
