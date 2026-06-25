@@ -9,12 +9,15 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 def write_pdf(path: Path, title: str, lines: list[str]):
     pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 14)
     pdf.cell(0, 10, title, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
     pdf.set_font("Helvetica", "", 10)
+    usable_width = pdf.w - pdf.l_margin - pdf.r_margin
     for line in lines:
-        pdf.multi_cell(190, 6, line)
+        pdf.multi_cell(usable_width, 6, line, new_x="LMARGIN", new_y="NEXT")
     pdf.output(path)
 
 

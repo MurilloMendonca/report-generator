@@ -1,0 +1,51 @@
+flowchart TD
+    start([Inicio da pipeline])
+
+    upload[Uploads e sessao criada]
+    metadata[Extrair metadados dos arquivos]
+    pdf{Ha PDFs para analisar?}
+    docInsights[Extrair insights de documentos via LLM]
+    preprocessDecision{Prompt pede filtro ou preparo dos dados?}
+    preprocessPlan[Gerar plano/codigo de preprocessamento via LLM]
+    preprocessRun[Executar preprocessamento no sandbox]
+    artifactPlan[Planejar artefatos do relatorio via LLM]
+    validate[Validar plano e bindings]
+    title[Gerar titulo via LLM se necessario]
+    metrics[Calcular metricas via LLM + sandbox]
+    layout[Selecionar/aplicar layout]
+    graphics[Gerar codigo dos graficos via LLM quando necessario]
+    texts[Gerar textos narrativos via LLM]
+    assemble[Montar script final do PDF]
+    render[Executar script no sandbox]
+    success{Render OK?}
+    done([PDF concluido])
+    fallback{Fallback ou retry disponivel?}
+    fix[Corrigir script via LLM ou trocar modo de renderizacao]
+    failed([Pipeline falhou])
+
+    start --> upload --> metadata --> pdf
+    pdf -- Sim --> docInsights --> preprocessDecision
+    pdf -- Nao --> preprocessDecision
+
+    preprocessDecision -- Sim --> preprocessPlan --> preprocessRun --> artifactPlan
+    preprocessDecision -- Nao --> artifactPlan
+
+    artifactPlan --> validate --> title --> metrics --> layout --> graphics --> texts --> assemble --> render --> success
+    success -- Sim --> done
+    success -- Nao --> fallback
+    fallback -- Sim --> fix --> assemble
+    fallback -- Nao --> failed
+
+    classDef llm fill:#fff3cd,stroke:#b58100,color:#111;
+    classDef sandbox fill:#fde2e2,stroke:#b42318,color:#111;
+    classDef local fill:#e7f0ff,stroke:#175cd3,color:#111;
+    classDef decision fill:#eef4ff,stroke:#444ce7,color:#111;
+    classDef terminal fill:#e8f5e9,stroke:#2e7d32,color:#111;
+    classDef failed fill:#ffe4e6,stroke:#be123c,color:#111;
+
+    class docInsights,preprocessPlan,artifactPlan,title,metrics,graphics,texts,fix llm;
+    class preprocessRun,render sandbox;
+    class upload,metadata,validate,layout,assemble local;
+    class pdf,preprocessDecision,success,fallback decision;
+    class start,done terminal;
+    class failed failed;

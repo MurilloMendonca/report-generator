@@ -1,0 +1,51 @@
+flowchart LR
+    start([Inicio])
+
+    upload[Uploads e sessao]
+    metadata[Metadados]
+    pdf{PDFs?}
+    docInsights[Insights de PDF<br/>LLM]
+    preprocessDecision{Filtro/preparo?}
+    preprocessPlan[Plano de preprocessamento<br/>LLM]
+    preprocessRun[Executar preprocessamento<br/>sandbox]
+    artifactPlan[Plano de artefatos<br/>LLM]
+    validate[Validar plano<br/>e bindings]
+    title[Titulo<br/>LLM se necessario]
+    metrics[Metricas<br/>LLM + sandbox]
+    layout[Layout]
+    graphics[Codigo dos graficos<br/>LLM se necessario]
+    texts[Textos narrativos<br/>LLM]
+    assemble[Montar script PDF]
+    render[Renderizar<br/>sandbox]
+    success{OK?}
+    done([PDF concluido])
+    fallback{Retry/fallback?}
+    fix[Corrigir script ou<br/>trocar render mode]
+    failed([Falhou])
+
+    start --> upload --> metadata --> pdf
+    pdf -- Sim --> docInsights --> preprocessDecision
+    pdf -- Nao --> preprocessDecision
+
+    preprocessDecision -- Sim --> preprocessPlan --> preprocessRun --> artifactPlan
+    preprocessDecision -- Nao --> artifactPlan
+
+    artifactPlan --> validate --> title --> metrics --> layout --> graphics --> texts --> assemble --> render --> success
+    success -- Sim --> done
+    success -- Nao --> fallback
+    fallback -- Sim --> fix --> assemble
+    fallback -- Nao --> failed
+
+    classDef llm fill:#fff3cd,stroke:#b58100,color:#111;
+    classDef sandbox fill:#fde2e2,stroke:#b42318,color:#111;
+    classDef local fill:#e7f0ff,stroke:#175cd3,color:#111;
+    classDef decision fill:#eef4ff,stroke:#444ce7,color:#111;
+    classDef terminal fill:#e8f5e9,stroke:#2e7d32,color:#111;
+    classDef failed fill:#ffe4e6,stroke:#be123c,color:#111;
+
+    class docInsights,preprocessPlan,artifactPlan,title,metrics,graphics,texts,fix llm;
+    class preprocessRun,render sandbox;
+    class upload,metadata,validate,layout,assemble local;
+    class pdf,preprocessDecision,success,fallback decision;
+    class start,done terminal;
+    class failed failed;

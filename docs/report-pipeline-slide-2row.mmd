@@ -1,0 +1,39 @@
+flowchart TB
+    subgraph row1[" "]
+      direction LR
+      input[Entrada<br/>arquivos + objetivo]
+      prepare[Preparar dados<br/>metadados, PDFs, filtros]
+      plan[Planejar relatorio<br/>artefatos, titulo, layout]
+      generate[Gerar conteudo<br/>metricas, graficos, textos]
+      input --> prepare --> plan --> generate
+    end
+
+    subgraph row2[" "]
+      direction LR
+      render[Renderizar PDF<br/>script no sandbox]
+      retry{Resultado}
+      ok([PDF pronto])
+      fix[Retry/fallback<br/>corrige e reexecuta]
+      fail([Erro final])
+      render --> retry
+      retry -- OK --> ok
+      retry -- Recuperavel --> fix
+      retry -- Sem retry --> fail
+    end
+
+    generate --> render
+    fix --> render
+
+    classDef user fill:#e7f0ff,stroke:#175cd3,color:#111;
+    classDef llm fill:#fff3cd,stroke:#b58100,color:#111;
+    classDef sandbox fill:#fde2e2,stroke:#b42318,color:#111;
+    classDef terminal fill:#e8f5e9,stroke:#2e7d32,color:#111;
+    classDef failed fill:#ffe4e6,stroke:#be123c,color:#111;
+    classDef decision fill:#eef4ff,stroke:#444ce7,color:#111;
+
+    class input user;
+    class prepare,plan,generate,fix llm;
+    class render sandbox;
+    class retry decision;
+    class ok terminal;
+    class fail failed;

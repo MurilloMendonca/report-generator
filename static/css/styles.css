@@ -343,6 +343,13 @@ select, input[type="file"], input[type="text"], textarea {
     background: white;
 }
 
+.model-default-notice {
+    margin: 0.45rem 0 0;
+    color: #7a4f00;
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
 textarea {
     resize: vertical;
     font-family: inherit;

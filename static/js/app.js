@@ -20,6 +20,8 @@ const App = {
         default_chart_style_id: 'modern'
     },
     models: {},
+    defaultProvider: 'deepseek',
+    defaultModelName: 'deepseek-v4-flash',
 
     async init() {
         this.setupEventListeners();
@@ -37,6 +39,8 @@ const App = {
         const catalog = await API.getModels();
         if (catalog.providers) {
             this.models = catalog.providers;
+            this.defaultProvider = catalog.default_provider || this.defaultProvider;
+            this.defaultModelName = catalog.default_model || this.defaultModelName;
             const provider = document.getElementById('provider');
             if (provider && catalog.default_provider) provider.value = catalog.default_provider;
         }
@@ -121,10 +125,17 @@ const App = {
     },
 
     updateModels() {
-        const p = document.getElementById('provider').value;
+        const providerEl = document.getElementById('provider');
         const select = document.getElementById('model_name');
+        if (!providerEl || !select) return;
+
+        const models = this.models[providerEl.value] || [];
         UI.clearElement(select);
-        (this.models[p] || []).forEach(m => select.appendChild(UI.buildOption(m.id, m.label)));
+        models.forEach(m => select.appendChild(UI.buildOption(m.id, m.label)));
+        if (providerEl.value === this.defaultProvider && models.some(m => m.id === this.defaultModelName)) {
+            select.value = this.defaultModelName;
+        }
+        this.updateModelDefaultNotice('provider', 'model_name', 'model-default-notice');
     },
 
     updateSettingsModels(selectedModel = null) {
@@ -137,7 +148,27 @@ const App = {
         models.forEach(m => modelEl.appendChild(UI.buildOption(m.id, m.label)));
         if (selectedModel && models.some(m => m.id === selectedModel)) {
             modelEl.value = selectedModel;
+        } else if (providerEl.value === this.defaultProvider && models.some(m => m.id === this.defaultModelName)) {
+            modelEl.value = this.defaultModelName;
         }
+        this.updateModelDefaultNotice('s-provider', 's-model-name', 'settings-model-default-notice');
+    },
+
+    getDefaultModelLabel() {
+        const defaultModels = this.models[this.defaultProvider] || [];
+        const defaultModel = defaultModels.find(m => m.id === this.defaultModelName);
+        return defaultModel ? defaultModel.label : 'DeepSeek V4 Flash';
+    },
+
+    updateModelDefaultNotice(providerId, modelId, noticeId) {
+        const providerEl = document.getElementById(providerId);
+        const modelEl = document.getElementById(modelId);
+        const noticeEl = document.getElementById(noticeId);
+        if (!providerEl || !modelEl || !noticeEl) return;
+
+        const usesDefault = providerEl.value === this.defaultProvider && modelEl.value === this.defaultModelName;
+        noticeEl.textContent = `Recomendado: use o padrão ${this.getDefaultModelLabel()} para melhores resultados.`;
+        noticeEl.hidden = usesDefault;
     },
 
     setupEventListeners() {
@@ -147,9 +178,17 @@ const App = {
         document.getElementById('explore-form').onsubmit = (e) => this.handleExplore(e);
         document.getElementById('modal-form').onsubmit = (e) => this.handleSaveIndicator(e);
         document.getElementById('settings-form').onsubmit = (e) => this.handleSaveSettings(e);
-        document.getElementById('s-provider').addEventListener('change', () => {
+        document.getElementById('provider').addEventListener('change', () => {
             this.updateModels();
+        });
+        document.getElementById('model_name').addEventListener('change', () => {
+            this.updateModelDefaultNotice('provider', 'model_name', 'model-default-notice');
+        });
+        document.getElementById('s-provider').addEventListener('change', () => {
             this.updateSettingsModels();
+        });
+        document.getElementById('s-model-name').addEventListener('change', () => {
+            this.updateModelDefaultNotice('s-provider', 's-model-name', 'settings-model-default-notice');
         });
         document.getElementById('m-type').addEventListener('change', () => {
             this.updateModalPresetOptions();
@@ -385,6 +424,7 @@ const App = {
         if (settingsProvider) settingsProvider.value = session.provider || 'deepseek';
         this.updateSettingsModels(session.model_name);
         UI.updateSettingsForm(session.settings, session);
+        this.updateModelDefaultNotice('s-provider', 's-model-name', 'settings-model-default-notice');
 
         if (session.pdf_version > this.lastPdfVersion) {
             this.refreshPdf(session);

@@ -1,0 +1,33 @@
+flowchart LR
+    input[Entrada<br/>arquivos + objetivo]
+    prepare[Preparar dados<br/>metadados, PDFs, filtros]
+    plan[Planejar relatorio<br/>artefatos, titulo, layout]
+    generate[Gerar conteudo<br/>metricas, graficos, textos]
+    render[Renderizar PDF<br/>script no sandbox]
+    ok([PDF pronto])
+    retry{Falhou?}
+    fix[Retry/fallback<br/>corrige script ou render mode]
+    fail([Erro final])
+
+    input --> prepare --> plan --> generate --> render --> retry
+    retry -- Nao --> ok
+    retry -- Sim, recuperavel --> fix --> render
+    retry -- Sim, sem retry --> fail
+
+    prepare -. usa LLM quando ha PDF ou filtro .-> plan
+    plan -. LLM .-> generate
+    generate -. LLM + sandbox para metricas .-> render
+
+    classDef user fill:#e7f0ff,stroke:#175cd3,color:#111;
+    classDef llm fill:#fff3cd,stroke:#b58100,color:#111;
+    classDef sandbox fill:#fde2e2,stroke:#b42318,color:#111;
+    classDef terminal fill:#e8f5e9,stroke:#2e7d32,color:#111;
+    classDef failed fill:#ffe4e6,stroke:#be123c,color:#111;
+    classDef decision fill:#eef4ff,stroke:#444ce7,color:#111;
+
+    class input user;
+    class prepare,plan,generate,fix llm;
+    class render sandbox;
+    class retry decision;
+    class ok terminal;
+    class fail failed;

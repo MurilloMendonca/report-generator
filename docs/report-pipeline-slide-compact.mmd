@@ -1,0 +1,25 @@
+flowchart LR
+    input[Entrada<br/>arquivos + objetivo]
+    prepare[Preparar dados<br/>metadados, PDFs, filtros]
+    llm[Planejar e gerar<br/>artefatos, metricas, graficos, textos]
+    render[Renderizar<br/>script no sandbox]
+    done([PDF pronto])
+    retry[Retry/fallback<br/>se render falhar]
+    fail([Erro final])
+
+    input --> prepare --> llm --> render
+    render -- OK --> done
+    render -- Erro recuperavel --> retry --> render
+    render -- Sem retry --> fail
+
+    classDef user fill:#e7f0ff,stroke:#175cd3,color:#111;
+    classDef llm fill:#fff3cd,stroke:#b58100,color:#111;
+    classDef sandbox fill:#fde2e2,stroke:#b42318,color:#111;
+    classDef terminal fill:#e8f5e9,stroke:#2e7d32,color:#111;
+    classDef failed fill:#ffe4e6,stroke:#be123c,color:#111;
+
+    class input user;
+    class prepare,llm,retry llm;
+    class render sandbox;
+    class done terminal;
+    class fail failed;

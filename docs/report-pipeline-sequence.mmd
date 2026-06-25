@@ -1,0 +1,210 @@
+sequenceDiagram
+    autonumber
+
+    actor Usuario as Usuário
+    participant Front as Browser static/js
+    participant API as FastAPI app/main.py
+    participant Session as Session Manager / workspace JSON
+    participant Pipeline as pipeline_service.py
+    participant LLM as LLM Service<br/>Gemini/DeepSeek
+    participant Sandbox as SandboxExecutor<br/>bubblewrap ou python-guard
+    participant FS as workspace<br/>uploads, filtered, scripts, reports
+
+    Usuario->>Front: Upload de arquivos + prompt + provider/modelo
+    Front->>API: POST /api/sessions
+    API->>FS: Salva uploads em workspace/uploads
+    API->>Session: Cria sessão com current_goal, files, settings
+    API-->>Front: job_id
+    API->>Pipeline: background run_pipeline(job_id)
+
+    loop Polling de status
+        Front->>API: GET /api/sessions/{job_id}
+        API->>Session: Lê estado da sessão
+        API-->>Front: status, logs, artifacts, template, pdf_version
+    end
+
+    rect rgb(235, 245, 255)
+    Note over Pipeline: Pipeline inicial / regeneração completa
+
+    Pipeline->>FS: Lê uploads
+    Pipeline->>Pipeline: extract_metadata local<br/>CSV/Excel/PDF metadata
+
+    alt PDF precisa de insights
+        alt PDF tem text_excerpt
+            Pipeline->>LLM: generate_document_insights()<br/>operation=document_extraction
+        else PDF sem texto extraído
+            Pipeline->>LLM: call_llm_with_pdf()<br/>Gemini com PDF anexado<br/>operation=document_extraction_pdf
+        end
+        LLM-->>Pipeline: document_insights
+        Pipeline->>Session: Salva document_insights
+    end
+
+    alt Prompt sugere filtro/preprocessamento
+        Pipeline->>LLM: generate_data_filter()<br/>operation=data_preprocessing
+        LLM-->>Pipeline: código preprocess_dataframes/filter_dataframes
+        Pipeline->>Sandbox: execute_script(preprocess_*.py)
+        Note over Sandbox: Código gerado executa isolado.<br/>Lê uploads/filtered/scripts/reports.<br/>Escreve filtered/scripts/reports/tmp.<br/>Rede, subprocess e ctypes bloqueados.
+        Sandbox->>FS: Gera CSV preprocessado em workspace/filtered
+        Sandbox-->>Pipeline: stdout/stderr/manifest
+        Pipeline->>Pipeline: Reextrai metadata dos CSVs preprocessados
+    end
+
+    Pipeline->>LLM: generate_artifacts()<br/>operation=artifact_plan
+    LLM-->>Pipeline: plano de artifacts<br/>metric, graphic, text
+    Pipeline->>Pipeline: validate_report_plan()
+    Pipeline->>Session: Salva artifacts + validações
+
+    alt Título ainda vazio
+        Pipeline->>LLM: generate_report_title()<br/>operation=title_generation
+        LLM-->>Pipeline: título
+        Pipeline->>Session: Salva settings.title
+    end
+
+    loop Para cada artifact type=metric tabular
+        Pipeline->>LLM: calculate_metric_value()<br/>operation=metric_value<br/>gera Python
+        LLM-->>Pipeline: código de cálculo
+        Pipeline->>Sandbox: execute_script(código da métrica)
+        Sandbox-->>Pipeline: JSON/value via stdout
+        Pipeline->>Session: Salva calculated_metrics
+    end
+
+    Pipeline->>Pipeline: generate_template()<br/>layout local por template/fallback
+    Pipeline->>Session: Salva template
+
+    loop Para cada gráfico sem código e não library-only
+        Pipeline->>LLM: generate_component_code()<br/>operation=component_code
+        LLM-->>Pipeline: função Python render_<id>()
+        Pipeline->>Session: Salva components[id]
+    end
+
+    alt Existem text artifacts a atualizar
+        Pipeline->>LLM: generate_all_texts()<br/>operation=text_generation
+        LLM-->>Pipeline: textos por component id
+
+        alt Texto estimado não cabe no bloco
+            Pipeline->>LLM: condense_texts_to_fit()<br/>operation=text_condensation
+            LLM-->>Pipeline: textos condensados
+        end
+
+        Pipeline->>Pipeline: Converte textos em render_text_block()
+        Pipeline->>Session: Salva components de texto
+    end
+
+    Pipeline->>Pipeline: assemble_script()
+    Pipeline->>FS: Escreve workspace/scripts/{job_id}.py
+    Pipeline->>Session: Salva script, script_path, pdf_path
+
+    Pipeline->>Sandbox: execute_script(script final)
+    Sandbox->>FS: Lê dados e escreve workspace/reports/{job_id}.pdf
+    Sandbox->>FS: Escreve manifest de componentes
+    Sandbox-->>Pipeline: success ou stderr
+
+    alt Render OK
+        Pipeline->>Session: current_step=completed, pdf_version++
+    else Render falhou e fallback possível
+        Pipeline->>Pipeline: Troca render_mode<br/>library -> hybrid -> generated_code
+        Pipeline->>Pipeline: Reentra em pipeline/script conforme necessário
+    else Render falhou sem fallback e ainda há retry
+        Pipeline->>LLM: fix_script()<br/>operation=script_fix
+        LLM-->>Pipeline: script corrigido
+        Pipeline->>Sandbox: execute_script(script corrigido)
+    else Excedeu retries
+        Pipeline->>Session: current_step=failed
+    end
+    end
+
+    Usuario->>Front: Abre PDF
+    Front->>API: GET /api/sessions/{job_id}/pdf
+    API->>FS: Lê workspace/reports/{job_id}.pdf
+    API-->>Front: application/pdf
+
+    rect rgb(245, 255, 245)
+    Note over Usuario,Pipeline: Entradas posteriores do usuário
+
+    Usuario->>Front: Adicionar arquivo
+    Front->>API: POST /api/sessions/{job_id}/files
+    API->>FS: Salva novo upload
+    API->>Pipeline: background run_pipeline(job_id)
+
+    Usuario->>Front: Editar artifacts/código manual
+    Front->>API: PUT /api/sessions/{job_id}/artifacts
+    API->>API: validate_component_code() se código manual veio
+    API->>Session: Atualiza artifacts/components
+    API->>Pipeline: run_pipeline(), exceto defer_pipeline=true
+
+    Usuario->>Front: Editar layout visual
+    Front->>API: PUT /api/sessions/{job_id}/template
+    API->>Session: Salva template
+    API->>Pipeline: run_script_generation()
+    Pipeline->>Sandbox: execute_script(script final atualizado)
+
+    Usuario->>Front: Alterar settings/provider/modelo
+    Front->>API: PUT /api/sessions/{job_id}/settings
+    alt Mudou idioma
+        API->>LLM: translate_workspace()<br/>operation=workspace_translation
+        LLM-->>API: artifacts/components traduzidos
+    end
+    alt Mudou template ou estilo visual
+        API->>Pipeline: run_pipeline()
+    else Só settings de render
+        API->>Pipeline: run_script_generation()
+    end
+
+    Usuario->>Front: Regenerar textos/gráficos/componente/tudo
+    Front->>API: POST /api/sessions/{job_id}/regenerate
+    API->>Session: Limpa caches correspondentes
+    API->>Pipeline: run_pipeline()
+    end
+
+    rect rgb(255, 248, 235)
+    Note over Usuario,LLM: Refinamento por chat
+
+    Usuario->>Front: Feedback no chat
+    Front->>API: POST /api/sessions/{job_id}/chat
+    API->>Session: Atualiza refinement_history/current_goal
+    API->>Pipeline: process_chat_refinement()
+
+    Pipeline->>LLM: refine_session_modular()<br/>operation=refinement_routing
+    LLM-->>Pipeline: target = component_id | LAYOUT | SETTINGS | ALL
+
+    alt Target é componente
+        Pipeline->>LLM: operation=refinement_component<br/>gera nova render_<id>()
+        LLM-->>Pipeline: código refinado
+        Pipeline->>Session: Atualiza component
+        Pipeline->>Pipeline: run_script_generation()
+        Pipeline->>Sandbox: Renderiza PDF
+    else Target é LAYOUT
+        Pipeline->>LLM: operation=refinement_layout<br/>gera JSON de layout
+        LLM-->>Pipeline: template JSON
+        Pipeline->>Pipeline: run_script_generation()
+    else Target é SETTINGS
+        Pipeline->>LLM: operation=refinement_settings<br/>gera settings JSON
+        alt Idioma mudou
+            Pipeline->>LLM: translate_workspace()
+        end
+        Pipeline->>Pipeline: run_script_generation()
+    else Target ALL
+        Pipeline->>Session: Marca needs_full_regeneration
+        Pipeline->>Pipeline: run_pipeline()
+    end
+    end
+
+    rect rgb(255, 240, 245)
+    Note over Usuario,Sandbox: Exploração e preview
+
+    Usuario->>Front: Pergunta exploratória sobre os dados
+    Front->>API: POST /api/sessions/{job_id}/explore
+    API->>LLM: generate_exploration_script()<br/>operation=exploration_script
+    LLM-->>API: Python de exploração
+    API->>Sandbox: execute_script(explore_*.py)
+    Sandbox-->>API: stdout ou stderr
+    API->>Session: Salva explore_history
+    API-->>Front: answer
+
+    Usuario->>Front: Preview de componente
+    Front->>API: GET /api/sessions/{job_id}/components/{component_id}/preview
+    API->>API: Monta script de preview<br/>do script existente ou assemble_script()
+    API->>Sandbox: execute_script(preview)
+    Sandbox->>FS: Escreve PDF de preview em workspace/reports
+    API-->>Front: application/pdf
+    end
