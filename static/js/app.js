@@ -683,22 +683,7 @@ const App = {
             .join(' · ');
         UI.clearElement(body);
         if (hasPreprocessed) {
-            const tabs = document.createElement('div');
-            tabs.className = 'file-preview-tabs';
-            [
-                ['original', 'Original'],
-                ['preprocessed', 'Pré-processado'],
-            ].forEach(([tabVariant, label]) => {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = `file-preview-tab ${activeVariant === tabVariant ? 'active' : ''}`;
-                button.dataset.action = 'preview-file-variant';
-                button.dataset.fileIndex = index;
-                button.dataset.variant = tabVariant;
-                button.textContent = label;
-                tabs.appendChild(button);
-            });
-            body.appendChild(tabs);
+            body.appendChild(this.renderFilePreviewTabs(index, variant));
         }
         const previewContent = document.createElement('div');
         previewContent.className = 'preview-content';
