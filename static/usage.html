@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uso · Report Generator</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="account-body" data-operations="usage">
+    <main class="account-page operations-page">
+        <header class="account-header"><h1>Seu uso</h1><nav class="keys-nav"><a href="/account" class="btn btn-outline">Sua conta</a><a href="/" class="btn btn-outline">Estúdio</a></nav></header>
+        <div id="operations-notice" class="auth-message" role="status" hidden></div>
+        <section class="account-section"><h2>Este mês</h2><p id="usage-totals">Carregando...</p><p id="usage-limits"></p><p id="usage-storage"></p>
+            <p class="auth-hint">O mês começa no dia 1, às 00:00 UTC. Os tokens são informados pelo provedor. Chamadas sem contagem ficam sinalizadas e podem ter custo. Consulte a cobrança na sua conta do provedor.</p>
+            <p class="auth-hint">O limite mensal interrompe novas chamadas quando a contagem conhecida chega ao limite. Chamadas já iniciadas podem ultrapassá-lo.</p>
+            <div class="operations-scroll"><table class="operations-table"><thead><tr><th>Provedor</th><th>Chamadas</th><th>Tokens de entrada</th><th>Tokens de saída</th></tr></thead><tbody id="provider-usage"></tbody></table></div>
+        </section>
+        <section class="account-section"><h2>Relatórios recentes</h2><p class="auth-hint">Até 50 relatórios. O uso por relatório inclui todas as chamadas registradas desde a ativação do histórico.</p>
+            <div class="operations-scroll"><table class="operations-table"><thead><tr><th>Relatório</th><th>Chamadas</th><th>Tokens</th><th>Falhas</th></tr></thead><tbody id="report-usage"></tbody></table></div>
+        </section>
+    </main>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/operations.js"></script>
+</body>
+</html>

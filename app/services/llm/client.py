@@ -8,6 +8,7 @@ import os
 import signal
 import threading
 import time
+from dataclasses import replace
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -17,12 +18,13 @@ from dotenv import load_dotenv
 from openai import APIConnectionError, APITimeoutError
 
 from app.services.session_manager import record_llm_usage
-from app.services import credential_service
+from app.services import credential_service, usage_service
 from app.services.redaction import redact
 from app.services.llm.credentials import invalidate_current_credential, operation_preferences, operation_user_id, resolve_api_key
 from app.utils.model_config import DEFAULT_MODEL_BY_PROVIDER, DEFAULT_MODEL_NAME, DEFAULT_PROVIDER, MODEL_CATALOG, current_model_name
-from app.services.llm.errors import InvalidCredentialError, MissingCredentialError, PDFCredentialUnavailableError, LLMBudgetError, LLMContractError, LLMTimeoutError
-from app.services.llm.providers.base import GenerationRequest, GenerationResult
+from app.services.llm.errors import InvalidCredentialError, MissingCredentialError, PDFCredentialUnavailableError, ProviderRequestError, LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.providers.base import GenerationRequest, GenerationResult, retry_after_seconds
+from app.services.llm.parsing import LlmPreprocessingPlan
 from app.services.llm.providers.registry import get_adapter
 
 load_dotenv()
@@ -207,33 +209,43 @@ def resolve_llm_config(provider: str = None, model_name: str = None) -> tuple[st
 
 def _request_llm_content(provider, model_name, system_instruction, user_prompt, timeout_seconds, pdf_bytes=None) -> GenerationResult:
     client = None
+    context = current_llm_context()
+    operation = context.get("operation") or ""
+    prefs = operation_preferences(context) if provider == "anthropic" else {}
     request = GenerationRequest(
         model=model_name,
         system=system_instruction,
         user=user_prompt,
         timeout_seconds=timeout_seconds,
-        operation=current_llm_context().get("operation") or "",
+        operation=operation,
         pdf_bytes=pdf_bytes,
+        output_schema=LlmPreprocessingPlan.model_json_schema() if operation == "data_preprocessing" else None,
+        server_side_fallback=prefs.get("anthropic_server_side_fallback", True),
     )
     try:
         client = get_provider_client(provider)
+        if context.get("user_id"):
+            context["_usage_event_id"] = usage_service.reserve(
+                context["user_id"], context.get("job_id"), provider, model_name, operation or "llm")
         result = get_adapter(provider).generate(client, request)
         if not isinstance(result.text, str) or not result.text.strip():
             raise LLMContractError("llm", "Model returned an empty response")
         keys = [cached["key"] for cached in current_llm_context().get("_credentials", {}).values()]
-        return GenerationResult(redact(result.text, keys), result.input_tokens, result.output_tokens)
-    except MissingCredentialError:
+        return replace(result, text=redact(result.text, keys))
+    except (MissingCredentialError, LLMBudgetError):
         raise
     except Exception as exc:
-        if get_adapter(provider).classify_error(exc) == "auth":
+        category = get_adapter(provider).classify_error(exc)
+        if category == "auth":
             invalidate_current_credential(provider)
             raise InvalidCredentialError(provider) from None
-        if isinstance(exc, (LLMContractError, TimeoutError, httpx.TimeoutException, APITimeoutError)):
+        if isinstance(exc, (LLMContractError, ProviderRequestError)):
             raise
-        safe = RuntimeError(f"Falha ao consultar {provider} ({type(exc).__name__}).")
-        safe.status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
-        safe.retryable = isinstance(exc, (httpx.TransportError, APIConnectionError))
-        raise safe from None
+        if category == "timeout":
+            raise LLMTimeoutError(operation or "llm", timeout_seconds) from None
+        raise ProviderRequestError(provider, category,
+                                   status_code=getattr(exc, "status_code", None) or getattr(exc, "code", None),
+                                   retry_after=retry_after_seconds(exc)) from None
     finally:
         close = getattr(client, "close", None)
         if callable(close):
@@ -244,6 +256,10 @@ def _request_llm_content(provider, model_name, system_instruction, user_prompt, 
 
 
 def _retryable_llm_error(exc):
+    # Contract repair is handled by the generators; transport retries must not
+    # multiply those attempts now that contract errors expose retryable to UI.
+    if isinstance(exc, LLMContractError):
+        return False
     status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
     return (
         isinstance(exc, (LLMTimeoutError, TimeoutError, httpx.TimeoutException, httpx.TransportError, APIConnectionError))
@@ -266,6 +282,7 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
         if budget and int(context.get("call_count", 0) or 0) >= budget:
             raise LLMBudgetError(operation, budget)
         attempt_number = i + 1
+        context.pop("_usage_event_id", None)
         start_time = time.perf_counter()
         try:
             with _alarm_timeout(timeout_seconds):
@@ -275,7 +292,7 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
             text = result.text
 
             duration_ms = (time.perf_counter() - start_time) * 1000
-            if job_id:
+            if job_id or context.get("_usage_event_id"):
                 record_llm_usage(
                     job_id,
                     operation,
@@ -288,14 +305,16 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
                     response_chars=len(text or ""),
                     input_tokens=result.input_tokens,
                     output_tokens=result.output_tokens,
+                    **({"usage_event_id": context["_usage_event_id"]} if context.get("_usage_event_id") else {}),
+                    **({"served_model": result.served_model, "fallback_used": True} if result.fallback_used else {}),
                 )
             context["call_count"] = int(context.get("call_count", 0) or 0) + 1
             context["attempt_count"] = int(context.get("attempt_count", 0) or 0) + 1
             return text
-        except (TimeoutError, APITimeoutError, httpx.TimeoutException) as exc:
+        except (LLMTimeoutError, TimeoutError, APITimeoutError, httpx.TimeoutException) as exc:
             duration_ms = (time.perf_counter() - start_time) * 1000
             last_error = LLMTimeoutError(operation, timeout_seconds)
-            if job_id:
+            if job_id or context.get("_usage_event_id"):
                 record_llm_usage(
                     job_id,
                     operation,
@@ -307,6 +326,7 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
                     prompt_chars=prompt_chars,
                     response_chars=0,
                     error=str(last_error),
+                    **({"usage_event_id": context["_usage_event_id"]} if context.get("_usage_event_id") else {}),
                 )
             context["call_count"] = int(context.get("call_count", 0) or 0) + 1
             context["attempt_count"] = int(context.get("attempt_count", 0) or 0) + 1
@@ -317,11 +337,18 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
             break
         except MissingCredentialError:
             # Missing/invalid keys never retry or switch providers.
+            if context.get("_usage_event_id"):
+                record_llm_usage(job_id, operation, provider, model_name, attempt=attempt_number,
+                                 duration_ms=(time.perf_counter() - start_time) * 1000,
+                                 status="error", error_code="invalid_provider_key",
+                                 usage_event_id=context["_usage_event_id"])
+            raise
+        except LLMBudgetError:
             raise
         except Exception as e:
             duration_ms = (time.perf_counter() - start_time) * 1000
             last_error = e
-            if job_id:
+            if job_id or context.get("_usage_event_id"):
                 record_llm_usage(
                     job_id,
                     operation,
@@ -333,12 +360,15 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
                     prompt_chars=prompt_chars,
                     response_chars=0,
                     error=str(e)[:500],
+                    **({"usage_event_id": context["_usage_event_id"], "error_code": getattr(e, "code", "provider_error")} if context.get("_usage_event_id") else {}),
                 )
             context["call_count"] = int(context.get("call_count", 0) or 0) + 1
             context["attempt_count"] = int(context.get("attempt_count", 0) or 0) + 1
+            if isinstance(e, LLMContractError) and not e.retryable:
+                raise
             if _retryable_llm_error(e):
                 if i < retries - 1:
-                    time.sleep(delay)
+                    time.sleep(max(delay, getattr(e, "retry_after", None) or 0))
                     delay *= 2
                     continue
             break

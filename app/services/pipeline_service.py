@@ -69,9 +69,6 @@ DEFAULT_EXPLORATORY_PROMPT = (
 )
 DOCUMENT_TEXT_ONLY_TEMPLATE_ID = "document_text_only"
 
-for directory in [FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
-    os.makedirs(directory, exist_ok=True)
-
 
 _PIPELINE_LOCKS: dict[str, threading.RLock] = {}
 _PIPELINE_LOCKS_GUARD = threading.Lock()

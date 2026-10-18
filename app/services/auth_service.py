@@ -114,7 +114,8 @@ def _password_matches(stored_hash: str | None, password: str) -> bool:
 # --- Audit --------------------------------------------------------------------
 
 def audit(event: str, user_id=None, ip: str | None = None, tx=None, **details) -> None:
-    row = AuditEvent(user_id=user_id, event=event, ip=_ip(ip), details=details)
+    from app.services.redaction import redact
+    row = AuditEvent(user_id=user_id, event=event, ip=_ip(ip), details=redact(details))
     if tx is not None:
         tx.add(row)
         return
@@ -163,6 +164,7 @@ def set_password(user_id, password: str) -> None:
     with db.transaction() as tx:
         tx.execute(update(User).where(User.id == user_id).values(password_hash=password_hash, updated_at=func.now()))
         _revoke_all(tx, user_id)
+        audit("password_set", user_id, tx=tx, via="cli")
 
 
 def set_role(user_id, role: str) -> None:
@@ -176,6 +178,7 @@ def update_profile(user: User, display_name: str) -> User:
         row = tx.get(User, user.id)
         row.display_name = (display_name or "").strip()[:100]
         row.updated_at = _now()
+        audit("profile_updated", user.id, tx=tx)
         return row
 
 
@@ -260,11 +263,14 @@ def revoke_session(raw: str | None) -> None:
     if not raw:
         return
     with db.transaction() as tx:
+        user_id = tx.execute(select(AuthSession.user_id).where(AuthSession.token_hash == _hash_token(raw))).scalar_one_or_none()
         tx.execute(
             update(AuthSession)
             .where(AuthSession.token_hash == _hash_token(raw), AuthSession.revoked_at.is_(None))
             .values(revoked_at=_now())
         )
+        if user_id is not None:
+            audit("logout", user_id, tx=tx)
 
 
 def revoke_session_by_id(user_id, session_id) -> bool:
@@ -274,6 +280,8 @@ def revoke_session_by_id(user_id, session_id) -> bool:
             .where(AuthSession.id == session_id, AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
             .values(revoked_at=_now())
         )
+        if result.rowcount:
+            audit("session_revoked", user_id, tx=tx, session_id=str(session_id))
         return result.rowcount > 0
 
 
@@ -434,6 +442,8 @@ def delete_account(user: User, password: str, ip: str | None = None) -> int:
     from app.utils.report_paths import TENANTS_DIR
 
     with db.transaction() as tx:
+        from sqlalchemy import text
+        tx.execute(text("SELECT pg_advisory_xact_lock(73482619)"))
         row = tx.get(User, user.id)
         if row is None or not _password_matches(row.password_hash, password):
             raise AuthError("wrong_password", "Senha incorreta.", 403)
@@ -442,6 +452,7 @@ def delete_account(user: User, password: str, ip: str | None = None) -> int:
             if admins <= 1:
                 raise AuthError("last_admin", "Esta é a única conta de administrador. Crie outro administrador antes de excluí-la.", 409)
         _revoke_all(tx, user.id)
+        row.status = "disabled"  # stop queued jobs while files are removed
 
     report_ids = list_report_ids(user.id)
     for job_id in report_ids:

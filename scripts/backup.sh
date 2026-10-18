@@ -8,6 +8,7 @@
 #   BACKUP_SYNC_COMMAND='rclone sync ./backups r2:repgen-backups'
 # Never store the encryption master key (Phase 4) next to these files.
 set -eu
+umask 077
 
 cd "$(dirname "$0")/.."
 DEST="${BACKUP_DIR:-./backups}"

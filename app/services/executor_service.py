@@ -10,6 +10,7 @@ import time
 import uuid
 import json
 import logging
+import stat
 from pathlib import Path
 
 from app.utils.component_renderers import sandbox_runtime_source
@@ -277,7 +278,8 @@ if hasattr(sys, "addaudithook"):
 
 
 def _ensure_runtime_dirs() -> None:
-    for path in (SCRIPT_DIR, FILTERED_DIR, REPORTS_DIR, UPLOADS_DIR, SANDBOX_SUPPORT_DIR):
+    legacy = () if os.getenv("APP_ENV", "development").lower() not in {"development", "dev", "local", "test"} else (SCRIPT_DIR, FILTERED_DIR, REPORTS_DIR, UPLOADS_DIR)
+    for path in (*legacy, SANDBOX_SUPPORT_DIR):
         path.mkdir(parents=True, exist_ok=True)
     sitecustomize_path = SANDBOX_SUPPORT_DIR / "sitecustomize.py"
     if not sitecustomize_path.exists() or sitecustomize_path.read_text(encoding="utf-8") != SANDBOX_GUARD:
@@ -379,7 +381,7 @@ def _sandbox_bind_args(tmp_dir: Path, paths: ReportPaths | None = None) -> list[
 
     _ensure_runtime_dirs()
     paths = (paths or ReportPaths("", None)).ensure()
-    # Only this report's folders (or the shared legacy folders for old sessions).
+    # Production rejects paths without a private report root in paths.ensure().
     read_only_workspace = [path.resolve() for path in paths.sandbox_read_only] + [SANDBOX_SUPPORT_DIR.resolve()]
     writable_workspace = [path.resolve() for path in paths.sandbox_writable]
     runtime_roots = _python_runtime_roots()
@@ -509,6 +511,7 @@ def _probe_once() -> tuple[bool, str]:
             {"PATH": "/usr/bin:/bin", "HOME": "/tmp"},
             30,
             tmp_dir,
+            paths=ReportPaths("probe", tmp_dir / "report"),
         )
         if result.returncode == 0 and result.stdout.strip() == "sandbox-ok":
             return (True, "")
@@ -544,6 +547,27 @@ def sandbox_status() -> dict:
     }
 
 
+def _remove_unsafe_outputs(paths):
+    """Do not let host pipeline readers follow links or block on special files."""
+    removed = False
+    if paths.is_legacy:
+        return removed
+    for directory in paths.sandbox_writable:
+        for root, directories, files in os.walk(directory, followlinks=False):
+            for name in [*directories, *files]:
+                target = Path(root) / name
+                try:
+                    mode = target.lstat().st_mode
+                    if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                        target.unlink()
+                        if name in directories:
+                            directories.remove(name)
+                        removed = True
+                except FileNotFoundError:
+                    continue
+    return removed
+
+
 class SandboxExecutor:
     def __init__(self, timeout: int = 30):
         self.timeout = timeout
@@ -552,6 +576,7 @@ class SandboxExecutor:
         _ensure_runtime_dirs()
         backend = select_sandbox_backend()
         paths = (paths or ReportPaths("", None)).ensure()
+        _remove_unsafe_outputs(paths)
         start_time = time.perf_counter()
         run_id = uuid.uuid4().hex
         tmp_dir = Path(tempfile.mkdtemp(prefix=f"pdf-report-sandbox-{run_id}-"))
@@ -622,12 +647,13 @@ class SandboxExecutor:
                 result = _run_with_bwrap(command, env, self.timeout, tmp_dir, paths)
             else:
                 result = _run_python_guard(command, env, self.timeout)
+            unsafe = _remove_unsafe_outputs(paths)
             return {
                 **base_result,
-                "success": result.returncode == 0,
+                "success": result.returncode == 0 and not unsafe,
                 "stdout": result.stdout,
-                "stderr": result.stderr,
-                "returncode": result.returncode,
+                "stderr": "Sandbox produced a link or special file; output rejected." if unsafe else result.stderr,
+                "returncode": 1 if unsafe else result.returncode,
                 "duration": time.perf_counter() - start_time,
                 "sandbox_script_path": str(wrapper_script_path),
                 "sandbox_user_script_path": str(user_script_path),
@@ -654,6 +680,7 @@ class SandboxExecutor:
                 "sandbox_access_manifest": self._read_access_manifest(manifest_path),
             }
         finally:
+            _remove_unsafe_outputs(paths)
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     @staticmethod
@@ -687,7 +714,7 @@ def execute_script(script_content: str, script_path: str, timeout: int = 30, pat
     it can be bypassed. Raises SandboxUnavailableError otherwise.
 
     Pass the report's ReportPaths so the script sees only that report's
-    folders; without it the shared legacy folders are mounted.
+    folders; production refuses calls without an isolated report root.
     """
     return SandboxExecutor(timeout=timeout).execute(
         textwrap.dedent(script_content),

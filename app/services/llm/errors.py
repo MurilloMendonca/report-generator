@@ -39,6 +39,8 @@ class LLMContractError(ValueError):
         model_name: str | None = None,
         raw_excerpt: str | None = None,
         cause: Exception | None = None,
+        code: str = "llm_contract_error",
+        retryable: bool = True,
     ):
         self.stage = stage
         self.field = field
@@ -46,6 +48,8 @@ class LLMContractError(ValueError):
         self.model_name = model_name
         self.raw_excerpt = raw_excerpt
         self.cause = cause
+        self.code = code
+        self.retryable = retryable
         message = detail
         if field:
             message = f"{message} [field={field}]"
@@ -55,10 +59,10 @@ class LLMContractError(ValueError):
 
     def as_error_dict(self) -> dict[str, Any]:
         error = {
-            "code": "llm_contract_error",
+            "code": self.code,
             "message": str(self),
             "stage": self.stage,
-            "retryable": True,
+            "retryable": self.retryable,
         }
         if self.field:
             error["field"] = self.field
@@ -71,6 +75,21 @@ class LLMContractError(ValueError):
         if self.cause:
             error["details"] = str(self.cause)
         return error
+
+
+class ModelRefusalError(LLMContractError):
+    def __init__(self, provider: str, model_name: str):
+        super().__init__("llm", "O modelo não pôde atender a este pedido. Reformule a solicitação.",
+                         provider=provider, model_name=model_name, code="model_refusal", retryable=False)
+
+
+class ProviderRequestError(RuntimeError):
+    """Provider failures without SDK text, request headers or response bodies."""
+    def __init__(self, provider, category, *, status_code=None, retry_after=None):
+        self.status_code = status_code
+        self.retry_after = retry_after
+        self.retryable = category in {"rate_limit", "retryable", "timeout"}
+        super().__init__(f"Falha ao consultar {provider} ({category}).")
 
 
 class LLMBudgetError(RuntimeError):
@@ -87,6 +106,21 @@ class LLMBudgetError(RuntimeError):
             "retryable": False,
             "budget": self.budget,
         }
+
+
+class LLMUsageLimitError(LLMBudgetError):
+    def __init__(self, operation, code, budget):
+        self.code = code
+        super().__init__(operation, budget)
+        self.args = ({
+            "monthly_token_limit": "Limite mensal de tokens atingido. Consulte Uso ou aguarde o próximo mês (UTC).",
+            "report_call_limit": "Limite de chamadas deste relatório atingido. Consulte Uso.",
+            "account_disabled": "Esta conta está desativada.",
+            "account_unavailable": "Esta conta ou relatório não está disponível.",
+        }[code],)
+
+    def as_error_dict(self):
+        return {**super().as_error_dict(), "code": self.code, "settings_url": "/usage"}
 
 
 class LLMTimeoutError(RuntimeError):

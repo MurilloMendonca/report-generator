@@ -138,6 +138,8 @@ def translate_workspace(session: dict, target_lang: str, job_id: str | None = No
             try:
                 return parse_llm_translation_payload(client.call_llm(provider, model_name, system_instruction, user_prompt), provider, model_name)
             except LLMContractError as exc:
+                if not exc.retryable:
+                    raise
                 last_error = exc
                 time.sleep(2)
         if last_error:

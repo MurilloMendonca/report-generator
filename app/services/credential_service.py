@@ -149,6 +149,7 @@ def rewrap_keys() -> int:
                 setattr(row, name, value)
             row.updated_at = _now()
             count += 1
+        audit("credential_keys_rewrapped", tx=tx, count=count)
     return count
 
 
@@ -214,4 +215,6 @@ def save_preferences(user_id, values: dict) -> dict:
         user = tx.get(User, user_id, with_for_update=True)
         user.preferences = {**(user.preferences or {}), **values}
         user.updated_at = _now()
+        from app.services.auth_service import audit
+        audit("model_preferences_changed", user_id, tx=tx, fields=sorted(values))
         return user.preferences

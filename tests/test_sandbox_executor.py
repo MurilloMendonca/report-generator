@@ -1,6 +1,8 @@
 import os
 import subprocess
 import sys
+import socket
+import tempfile
 import unittest
 import uuid
 from pathlib import Path
@@ -204,6 +206,21 @@ class BubblewrapIsolationTests(unittest.TestCase):
         result = self.run_script("print('ok')")
         self.assertTrue(result["success"], result["stderr"])
         self.assertEqual(result["sandbox_backend"], "bubblewrap")
+
+    def test_network_namespace_blocks_host_database_even_without_python_guard(self):
+        from app.utils.report_paths import ReportPaths
+        import shutil
+        paths = ReportPaths.for_new_report(f"test-network-{uuid.uuid4().hex}").ensure()
+        self.addCleanup(shutil.rmtree, paths.root, True)
+        with socket.socket() as listener, tempfile.TemporaryDirectory() as tmp:
+            listener.bind(("127.0.0.1", 0))
+            listener.listen()
+            port = listener.getsockname()[1]
+            # -S disables sitecustomize and its Python network guard entirely.
+            code = "import socket\nfor host, port in " + repr([("127.0.0.1", port), ("127.0.0.1", 5433), ("198.51.100.1", 5432)]) + ":\n s=socket.socket(); s.settimeout(0.2)\n try:\n  s.connect((host, port)); raise AssertionError('Network escaped')\n except OSError:\n  print('blocked')\n finally:\n  s.close()"
+            result = executor_service._run_with_bwrap([sys.executable, "-S", "-c", code], {"PATH": os.defpath}, 5, Path(tmp), paths=paths)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip().splitlines(), ["blocked"] * 3)
 
     def test_interpreter_and_uploads_are_read_only(self):
         for target in [Path(sys.prefix) / f"probe_{uuid.uuid4().hex}", ROOT_DIR / "workspace" / "uploads" / f"probe_{uuid.uuid4().hex}"]:

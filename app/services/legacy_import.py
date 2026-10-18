@@ -128,10 +128,34 @@ def _legacy_folder(candidate: str, folders: dict[str, Path]) -> tuple[Path, str]
 
 
 def _job_prefixes(job_id: str) -> tuple[str, ...]:
-    return (f"{job_id}.", f"{job_id}_", f"{job_id}-", f"preprocess_{job_id}", f"explore_{job_id}")
+    return (f"{job_id}.", f"{job_id}_", f"{job_id}-", f"preprocess_{job_id}.", f"preprocess_{job_id}_", f"explore_{job_id}.", f"explore_{job_id}_")
+
+
+def migrate_storage(*, dry_run=False):
+    """Copy DB reports to owned storage, preserving locked state. Stop the app first.
+
+    Original folders are retained for operator review, never deleted here.
+    """
+    from app.services.session_manager import migrate_report_storage
+    from app.services.auth_service import audit
+    with db.transaction() as tx:
+        rows = tx.execute(select(Report.id, Report.owner_id)).all()
+    summary = {"migrated": 0, "already_isolated": 0, "missing_files": 0, "dry_run": dry_run}
+    for job_id, owner_id in rows:
+        result = migrate_report_storage(job_id, dry_run=dry_run)
+        if result in summary:
+            summary[result] += 1
+    if not dry_run:
+        audit("storage_migrated", **summary)
+    return summary
 
 
 def _copy(source: Path, target: Path) -> int:
+    entries = [source]
+    if source.is_dir():
+        entries.extend(source.rglob("*"))
+    if any(entry.is_symlink() for entry in entries):
+        raise ValueError("Linked legacy files must be reviewed before import")
     target.parent.mkdir(parents=True, exist_ok=True)
     if source.is_dir():
         shutil.copytree(source, target, dirs_exist_ok=True)
@@ -179,6 +203,8 @@ def _plan_files(job_id: str, state: dict, destination: ReportPaths, folders: dic
             continue
         for entry in folder.iterdir():
             if entry.name.startswith(_job_prefixes(job_id)) and not entry.name.endswith(SKIPPED_SUFFIXES):
+                if entry.is_symlink():
+                    raise ValueError("Linked legacy files must be reviewed before import")
                 copies.setdefault(entry.resolve(), getattr(destination, LEGACY_FOLDERS[name]) / entry.name)
 
     replacements = []

@@ -11,6 +11,7 @@ Accounts made here are already verified. Passwords are generated and printed
 once; nothing stores them in plain text.
 """
 import argparse
+import json
 import logging
 import secrets
 import sys
@@ -35,6 +36,9 @@ def main(argv: list[str] | None = None) -> int:
 
     commands.add_parser("migrate", help="Bring the database schema up to date")
     commands.add_parser("rewrap-keys", help="Re-wrap credential data keys under APP_ENCRYPTION_ACTIVE_KEY")
+    commands.add_parser("launch-check", help="Check local production readiness without printing secrets")
+    storage = commands.add_parser("migrate-storage", help="Copy DB reports into owner folders; stop the app first")
+    storage.add_argument("--dry-run", action="store_true")
 
     admin = commands.add_parser("create-admin", help="Create an admin account, or make an existing account admin")
     admin.add_argument("--email", required=True)
@@ -65,6 +69,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "migrate":
             db.get_engine()  # migrates on first use
             print("Database schema is up to date.")
+
+        elif args.command == "launch-check":
+            from app.services.deployment_service import launch_check
+            result = launch_check()
+            print(json.dumps(result, indent=2))
+            return 0 if result["ready"] else 1
+
+        elif args.command == "migrate-storage":
+            result = legacy_import.migrate_storage(dry_run=args.dry_run)
+            print(json.dumps(result, indent=2))
+            return 1 if result["missing_files"] else 0
 
         elif args.command == "rewrap-keys":
             from app.services.credential_service import rewrap_keys

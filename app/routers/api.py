@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.pages import render_page
-from app.security import current_user, require_admin, require_verified_user
+from app.security import client_key, current_user, require_admin, require_verified_user
 from app.services import quotas
 from app.services.cleanup_service import (
     cleanup_expired_artifacts,
@@ -20,6 +20,7 @@ from app.services.cleanup_service import (
 from app.services.executor_service import execute_script
 from app.services.exploration_service import ExplorationError, complete_exploration_job, start_exploration
 from app.services.job_runner import run_job
+from app.services.report_files import report_file_response
 from app.services.llm.client import model_catalog
 from app.services.llm.script import assemble_script
 from app.utils.model_config import DEFAULT_PROVIDER
@@ -203,13 +204,13 @@ async def add_files_to_session(
 @router.get("/api/sessions/{job_id}/files/{file_index}/download")
 async def download_session_file(request: Request, job_id: str, file_index: int, variant: str = "original"):
     session = require_session(job_id, request)
-    return file_response(get_session_file(session, file_index), variant=variant)
+    return file_response(get_session_file(session, file_index), variant=variant, session=session)
 
 
 @router.get("/api/sessions/{job_id}/files/{file_index}/preview")
 async def preview_session_file(request: Request, job_id: str, file_index: int, variant: str = "original"):
     session = require_session(job_id, request)
-    return file_response(get_session_file(session, file_index), inline=True, variant=variant)
+    return file_response(get_session_file(session, file_index), inline=True, variant=variant, session=session)
 
 
 @router.delete("/api/sessions/{job_id}/files/{file_index}")
@@ -259,13 +260,18 @@ async def delete_session(request: Request, job_id: str):
 
 @router.get("/api/admin/workspace-usage")
 async def workspace_usage(request: Request):
-    require_admin(request)
-    return get_workspace_usage()
+    await run_in_threadpool(require_admin, request)
+    return await run_in_threadpool(get_workspace_usage)
 
 
 @router.post("/api/admin/cleanup")
 async def admin_cleanup(request: Request, background_tasks: BackgroundTasks, policy: dict = Body(None)):
-    require_admin(request)
+    admin = await run_in_threadpool(require_admin, request)
+    if policy is not None and (not isinstance(policy, dict) or set(policy) != {"sessions_days", "reports_days", "scripts_days", "uploads_days", "filtered_days"}
+                               or any(type(value) is not int or value < 1 or value > 36500 for value in policy.values())):
+        raise HTTPException(422, detail="Use períodos de retenção inteiros entre 1 e 36500 dias para todas as categorias.")
+    from app.services.auth_service import audit
+    await run_in_threadpool(audit, "admin_cleanup_requested", admin.id, client_key(request), policy=policy or "default")
     background_tasks.add_task(cleanup_expired_artifacts, policy)
     return {"status": "Cleaning started in background"}
 
@@ -526,7 +532,7 @@ async def get_pdf(request: Request, job_id: str):
     session = require_session(job_id, request)
     if not os.path.exists(session.get('pdf_path') or ''):
         raise HTTPException(status_code=404)
-    return FileResponse(session['pdf_path'], media_type="application/pdf")
+    return report_file_response(session, session['pdf_path'], media_type="application/pdf")
 
 
 @router.get("/api/sessions/{job_id}/components/{component_id}/preview")
@@ -567,7 +573,7 @@ async def preview_component(request: Request, job_id: str, component_id: str):
         raise HTTPException(status_code=500, detail=detail[-1000:])
     if not os.path.exists(output_pdf_path):
         raise HTTPException(status_code=500, detail="Component preview file was not created")
-    return FileResponse(output_pdf_path, media_type="application/pdf", headers={"Cache-Control": "no-store"})
+    return report_file_response(session, output_pdf_path, media_type="application/pdf")
 
 
 @router.post("/api/sessions/{job_id}/explore", status_code=202)
@@ -601,8 +607,8 @@ async def get_exploration_chart(request: Request, job_id: str, turn_id: str, cha
         await run_in_threadpool(validate_chart_image, path)
     except (ValueError, OSError) as exc:
         raise HTTPException(status_code=404, detail="Gráfico indisponível.") from exc
-    return FileResponse(
-        str(path), media_type="image/png", filename=f"grafico-{chart_id}.png",
-        content_disposition_type="attachment" if download else "inline",
+    return report_file_response(
+        session, str(path), media_type="image/png", filename=f"grafico-{chart_id}.png",
+        disposition="attachment" if download else "inline",
         headers={"Cache-Control": "no-store"},
     )

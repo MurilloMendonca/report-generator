@@ -13,6 +13,7 @@ xlrd==2.0.2
 pypdf==6.21.1
 python-dotenv==1.2.4
 openai==3.34.0
+anthropic==1.15.0
 httpx==0.28.1
 pydantic==2.14.1
 SQLAlchemy==2.0.44
@@ -21,3 +22,4 @@ psycopg[binary]==3.2.10
 argon2-cffi==25.1.0
 email-validator==2.3.0
 cryptography==50.0.2
+PyJWT==2.15.1

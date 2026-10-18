@@ -123,7 +123,10 @@ def complete_exploration(job_id: str, turn_id: str, prompt: str) -> dict:
         error = exc
     except (ValueError, OSError, LLMContractError) as exc:
         logger.warning("Invalid exploration output job_id=%s turn_id=%s error=%s", job_id, turn_id, str(exc))
-        error = ExplorationError("A resposta ou o gráfico gerado não é válido. Tente reformular a consulta.", 422)
+        if isinstance(exc, LLMContractError) and not exc.retryable:
+            error = ExplorationError(str(exc), 422, exc.as_error_dict())
+        else:
+            error = ExplorationError("A resposta ou o gráfico gerado não é válido. Tente reformular a consulta.", 422)
     except Exception:
         logger.exception("Exploration failed job_id=%s turn_id=%s", job_id, turn_id)
         error = ExplorationError("Não foi possível concluir a consulta. Tente novamente.", 502)

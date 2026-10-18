@@ -11,6 +11,7 @@ const Account = {
         }
         document.getElementById('app-shell').style.display = 'block';
         this.renderProfile();
+        document.getElementById('admin-link').hidden = this.user.role !== 'admin';
         document.getElementById('profile-form').addEventListener('submit', event => this.saveProfile(event));
         document.getElementById('password-form').addEventListener('submit', event => this.changePassword(event));
         document.getElementById('email-form').addEventListener('submit', event => this.changeEmail(event));

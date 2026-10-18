@@ -50,6 +50,8 @@ async function main() {
     app.updateUI(session);
     app.updateUI(session);
     assert.strictEqual(settingsUpdates, 1, 'unchanged polling must preserve form values');
+    app.updateUI({ ...session, llm_usage: { last_fallback: { provider: 'anthropic', served_model: 'claude-sonnet-5-5' } } });
+    assert(element('workspace-notice').textContent.includes('claude-sonnet-5-5'), 'provider fallback must identify the serving model');
     app.settingsDirty = true;
     app.updateUI({ ...session, settings: { title: 'server title' } });
     assert.strictEqual(settingsUpdates, 1, 'polling must preserve unsaved settings');

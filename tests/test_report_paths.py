@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 import app.routers.api as api
 from app.main import app
 from tests.auth_helpers import signed_in_headers
-from app.services.cleanup_service import delete_entire_session, get_session_generated_paths
+from app.services.cleanup_service import delete_entire_session, get_session_generated_paths, safe_remove_path
 from app.services.executor_service import execute_script, probe_bubblewrap
 from app.services.session_manager import delete_session, get_session
 from app.utils.report_paths import TENANTS_DIR, ReportPaths
@@ -80,6 +80,23 @@ class SandboxPerReportTests(unittest.TestCase):
         self.assertEqual(result["stdout"].strip(), "x\n1")
         self.assertEqual(target.read_text(), "ok")
 
+    def test_generated_symlinks_and_special_files_are_rejected(self):
+        for name, code in [("link", f"import os\nos.symlink({str((self.b.uploads / 'secret.csv').resolve())!r}, {str(self.a.filtered / 'link')!r})"),
+                           ("pipe", f"import os\nos.mkfifo({str(self.a.filtered / 'pipe')!r})")]:
+            result = self.run_in(self.a, code)
+            self.assertFalse(result["success"], result)
+            self.assertIn("output rejected", result["stderr"])
+            self.assertFalse(os.path.lexists(self.a.filtered / name))
+        self.assertEqual((self.b.uploads / "secret.csv").read_text(), "x\n42\n")
+
+    def test_cleanup_cannot_follow_a_linked_parent(self):
+        link = self.a.output / "linked"
+        link.symlink_to(self.b.output.resolve(), target_is_directory=True)
+        self.assertFalse(safe_remove_path(str(link / "report.pdf")))
+        self.assertTrue((self.b.output / "report.pdf").exists())
+        self.assertTrue(safe_remove_path(str(link)))
+        self.assertFalse(link.is_symlink())
+
     @unittest.skipUnless(BWRAP_AVAILABLE, f"bubblewrap unavailable: {BWRAP_ERROR}")
     def test_bubblewrap_hides_other_reports_even_without_the_guard(self):
         # _io.FileIO and os.listdir skip the Python-level guard on purpose.
@@ -105,6 +122,56 @@ class SandboxPerReportTests(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertIn("Read-only file system", result["stderr"])
         self.assertEqual((self.a.uploads / "mine.csv").read_text(), "x\n1\n")
+
+
+class FileServingSecurityTests(unittest.TestCase):
+    def setUp(self):
+        from tests.auth_helpers import make_user
+        from tests.test_isolation import owned_report
+        self.owner = make_user()
+        self.job, self.paths = owned_report(self.owner)
+        self.other_job, self.other_paths = owned_report(make_user())
+        self.addCleanup(delete_entire_session, self.job)
+        self.addCleanup(delete_entire_session, self.other_job)
+
+    def test_pdf_and_preprocessed_download_reject_links_to_other_reports(self):
+        from app.services.session_manager import update_session
+        derived = self.paths.filtered / "derived.csv"
+        derived.write_text("value\n42\n")
+        state = get_session(self.job)
+        state["files"][0]["preprocessed_path"] = str(derived)
+        update_session(self.job, {"files": state["files"]})
+        with TestClient(app) as client:
+            for action, disposition in [("preview", "inline"), ("download", "attachment")]:
+                response = client.get(f"/api/sessions/{self.job}/files/0/{action}?variant=preprocessed", headers=signed_in_headers(self.owner))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.content, b"value\n42\n")
+                self.assertIn(disposition, response.headers["content-disposition"])
+            pdf = self.paths.output / f"{self.job}.pdf"
+            pdf.unlink()
+            pdf.symlink_to((self.other_paths.output / f"{self.other_job}.pdf").resolve())
+            derived.unlink()
+            derived.symlink_to((self.other_paths.uploads / "data.csv").resolve())
+            for url in [f"/api/sessions/{self.job}/pdf", f"/api/sessions/{self.job}/files/0/download?variant=preprocessed"]:
+                self.assertEqual(client.get(url, headers=signed_in_headers(self.owner)).status_code, 404)
+
+    def test_open_descriptor_survives_path_replacement(self):
+        import asyncio
+        from app.services.report_files import report_file_response
+        pdf = self.paths.output / f"{self.job}.pdf"
+        response = report_file_response(get_session(self.job), pdf, media_type="application/pdf")
+        pdf.unlink()
+        pdf.symlink_to((self.other_paths.uploads / "data.csv").resolve())
+        async def consume():
+            return b"".join([chunk async for chunk in response.body_iterator])
+        self.assertEqual(asyncio.run(consume()), b"%PDF-1.4 secret")
+
+    def test_cannot_serve_a_direct_path_from_another_report(self):
+        from fastapi import HTTPException
+        from app.services.report_files import report_file_response
+        with self.assertRaises(HTTPException) as error:
+            report_file_response(get_session(self.job), self.other_paths.uploads / "data.csv", media_type="text/csv")
+        self.assertEqual(error.exception.status_code, 404)
 
 
 class NewSessionStorageTests(unittest.TestCase):

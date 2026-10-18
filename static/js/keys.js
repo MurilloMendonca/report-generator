@@ -35,6 +35,7 @@ const Keys = {
             this.request('GET', '/api/credentials'), API.getModels(), this.request('GET', '/api/model-preferences'),
         ]);
         this.catalog = catalog;
+        document.getElementById('anthropic-server-fallback').checked = preferences.anthropic_server_side_fallback !== false;
         const rows = new Map(data.credentials.map(row => [row.provider, row]));
         document.getElementById('credential-cards').replaceChildren(...Object.entries(catalog.credential_status).map(
             ([provider, status]) => this.card(provider, status, rows.get(provider))
@@ -149,6 +150,7 @@ const Keys = {
                 default_model: document.getElementById('default-model').value || null,
                 llm_fallback_provider: document.getElementById('fallback-provider').value || null,
                 llm_fallback_model_name: document.getElementById('fallback-model').value || null,
+                anthropic_server_side_fallback: document.getElementById('anthropic-server-fallback').checked,
             });
             this.notice('Preferências salvas.');
         } catch (error) { this.notice(error.message, true); }

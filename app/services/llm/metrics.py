@@ -9,7 +9,7 @@ from app.services.executor_service import SandboxUnavailableError
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 from app.services.llm import client
 from app.services.llm.client import llm_operation_context
-from app.services.llm.errors import LLMBudgetError, LLMTimeoutError
+from app.services.llm.errors import MissingCredentialError, ModelRefusalError, LLMBudgetError, LLMTimeoutError
 from app.services.llm.parsing import extract_json_objects, normalize_metric_value, strip_code_fence
 from app.services.llm.prompts import load_prompt
 from app.utils.report_paths import ReportPaths
@@ -78,7 +78,7 @@ def calculate_metric_value(
                         attempt + 1,
                         (result.get("stderr") or "")[:500],
                     )
-            except (LLMBudgetError, LLMTimeoutError, SandboxUnavailableError):
+            except (MissingCredentialError, ModelRefusalError, LLMBudgetError, LLMTimeoutError, SandboxUnavailableError):
                 raise
             except Exception as e:
                 logger.exception("metric execution exception metric_id=%s attempt=%s", artifact.get("id", ""), attempt + 1)

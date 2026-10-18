@@ -44,10 +44,12 @@ app/
   security.py                Session cookie, CSRF, signed-in user and admin checks, client IP, headers
   routers/auth.py            Sign-up, sign-in and account routes, auth pages
   routers/api.py             Report, template and admin routes
+  routers/credentials.py     Owner keys and model preferences
+  routers/operations.py      Usage and admin pages/APIs
   templates/email/           Email texts (Portuguese, with an English summary)
   models/
     session.py               Pydantic session schema and legacy migrations
-    db.py                    Database tables (users, reports, layout_templates, revoked_tokens)
+    db.py                    Accounts, reports, credentials, usage, audit and auth tables
     refinement.py            Schema for chat-refinement routing decisions
   services/
     llm/                     LLM calls, one module per concern (see "LLM Package" below)
@@ -62,6 +64,10 @@ app/
     session_manager.py       Session storage in the `reports` table, and restart recovery
     legacy_import.py         Imports the old JSON sessions and template library
     cleanup_service.py       Session deletion, retention cleanup, disk usage
+    usage_service.py         Durable token usage, per-report/monthly limits
+    admin_service.py         Account metadata, enable/disable, limits and audit
+    cloudflare_access.py     Admin Access JWT signature and identity verification
+    deployment_service.py    Local production readiness checks
     web_helpers.py           Upload validation, file responses, chat refinement handling
   utils/
     report_paths.py          Where a report's files live and what its sandbox may see
@@ -103,7 +109,7 @@ workspace/
   sandbox_support/           Runtime guard and helpers loaded inside the sandbox
 requirements.txt             Python dependencies
 requirements-lock.txt        Frozen dependency set for reproducible installs
-list_models.py               Helper script for listing Gemini models
+list_models.py               List models for any supported provider with an explicit key
 ```
 
 The `workspace/` directories are created automatically when the app starts. Session state, layout templates and revoked logins live in Postgres.
@@ -148,9 +154,9 @@ APP_ENCRYPTION_KEYS=v1:<base64-encoded-32-byte-master-key>
 APP_ENCRYPTION_ACTIVE_KEY=v1
 ```
 
-After signing in, open **Conta → Chaves de API** (`/keys`) and save your Gemini or DeepSeek key. The app validates it using the provider's model listing, encrypts it, and shows only its last four characters. Model choices and fallback preferences belong to your account. Imported demo reports need a key on the demo account before they can use an LLM again.
+After signing in, open **Conta → Chaves de API** (`/keys`) and save your Gemini, DeepSeek, Anthropic, OpenAI or OpenRouter key. The app validates it using the provider's model listing (plus OpenRouter's authenticated key endpoint), encrypts it, and shows only its last four characters. Model choices and fallback preferences belong to your account. Imported demo reports need a key on the demo account before they can use an LLM again.
 
-For local development and canonical sessions only, `PDF_REPORT_DEV_SERVER_KEYS=1` permits `GEMINI_API_KEY` / `DEEPSEEK_API_KEY` as a fallback when the owner has no stored key. It still requires a report owner or user context. Production refuses to start with this flag.
+For local development and canonical sessions only, `PDF_REPORT_DEV_SERVER_KEYS=1` permits the provider's env key as a fallback when the owner has no stored key. It still requires a report owner or user context. Production refuses to start with this flag.
 
 Create your account (sign-up is closed by default) and note the printed password:
 
@@ -171,6 +177,10 @@ All settings are environment variables (`.env` is loaded automatically).
 | `TEST_DATABASE_URL` | `postgresql+psycopg://repgen:repgen@127.0.0.1:5433/repgen_test` | Database used when `APP_ENV=test`. Its name must end in `_test`; it is created if missing and emptied at the start of each test run. |
 | `PDF_REPORT_AUTO_MIGRATE` | `1` | Apply pending database migrations when the app (or CLI) first connects. |
 | `PDF_REPORT_DB_POOL_SIZE` / `PDF_REPORT_DB_MAX_OVERFLOW` | `10` / `10` | Database connection pool size. |
+| `PDF_REPORT_MONTHLY_TOKEN_LIMIT` | `0` | Default known-token cap per account per UTC month; 0 is unlimited. Admin account overrides may inherit, replace or disable it. Already admitted calls can exceed the cap. |
+| `PDF_REPORT_REPORT_CALL_LIMIT` | `0` | Default durable provider-attempt cap per report, across operations and retries; 0 is unlimited. |
+| `CLOUDFLARE_ACCESS_ISSUER` / `CLOUDFLARE_ACCESS_AUD` | unset | Team origin (`https://TEAM.cloudflareaccess.com`) and Access application audience for admin pages/APIs. Required for production admin access; signature and matching account email are verified. |
+| `PDF_REPORT_REQUIRE_CLOUDFLARE_ACCESS` | `0` locally | Require Access verification in development too. Production always requires it for admin routes. |
 | `APP_ENV` | `development` | `development`, `dev`, `local`, or `test` relax the checks below; anything else is production. |
 | `PUBLIC_BASE_URL` | `http://localhost:8000` (compose: `https://repgen.gengardev.com.br`) | Base of the links in emails. |
 | `PDF_REPORT_SIGNUP_MODE` | `closed` | `open` lets anyone create an account; `closed` means accounts only come from `python -m app.cli create-user`. |
@@ -182,7 +192,7 @@ All settings are environment variables (`.env` is loaded automatically).
 | `APP_ENCRYPTION_ACTIVE_KEY` | `v1` | Master-key version used to encrypt new credentials and re-wrap existing ones. |
 | `APP_ENCRYPTION_KEYS_PATH` | `./secrets/provider-encryption-keys` | Host keyring file mounted by production compose. |
 | `PDF_REPORT_DEV_SERVER_KEYS` | `0` | Explicitly permit env provider keys in development/test. Forbidden in production. |
-| `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` | unset | Used only with the dev-server-keys flag; remove them from production `.env`. |
+| `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY` | unset | Used only with the dev-server-keys flag; remove them from production `.env`. |
 | `PDF_REPORT_COOKIE_SECURE` | `1` in production, `0` in development | Send the session cookie over HTTPS only. Set `0` only for plain HTTP on a non-localhost address. |
 | `PDF_REPORT_LOGIN_MAX_FAILURES` / `PDF_REPORT_LOGIN_WINDOW_SECONDS` | `10` / `300` | Failed logins allowed per client address before login returns 429. Failures on one account also add a growing delay (2 s, 4 s, ... up to 15 min) after the fourth, instead of locking it. |
 | `PDF_REPORT_ALLOW_UNSAFE_SANDBOX` | unset | Set `1` to run generated code under the weaker Python-level guard when bubblewrap is unavailable. Trusted environments only. |
@@ -200,7 +210,11 @@ All settings are environment variables (`.env` is loaded automatically).
 | `PDF_REPORT_LLM_TIMEOUT_SECONDS` | `45` | Timeout per LLM call. Report settings can override it. |
 | `PDF_REPORT_LLM_CALL_BUDGET` | `0` (unlimited) | Maximum LLM calls per top-level operation. Report settings can override it. |
 
-Fallback provider/model settings are now account preferences on `/keys`; the old `PDF_REPORT_LLM_FALLBACK_*` variables are ignored. Scanned PDFs use the owner's selected PDF-capable model or another valid PDF-capable key on that account. If none exists, the app skips extraction for that file and records a visible note. PDFs with extracted text work with either provider.
+Fallback provider/model settings are account preferences on `/keys`; the old `PDF_REPORT_LLM_FALLBACK_*` variables are ignored. Scanned PDFs use the owner's selected PDF-capable model or another valid PDF-capable key on that account. Direct PDF input is implemented for Gemini and Anthropic. If none exists, the app skips extraction for that file and records a visible note. PDFs with extracted text work with any provider.
+
+Anthropic's server-side fallback on `claude-opus-5-5` is enabled by default and can be disabled on `/keys`. Requests use the user's same key. A successful fallback records the model that served the answer and displays it in the workspace. A final model refusal surfaces as `model_refusal` without transport retries, contract retries or cross-provider fallback. The adapter enforces the PDF page limit and the 32 MB request limit, including base64 and prompt overhead. See [Anthropic fallback](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback) and [PDF limits](https://platform.claude.com/docs/en/build-with-claude/pdf-support).
+
+The new curated defaults are `claude-opus-5-5`, `gpt-6.1-sol`, and `openai/gpt-6.1-sol` on OpenRouter. They were checked against the [Anthropic catalog](https://platform.claude.com/docs/en/models/overview), [official OpenAI documentation](https://developers.openai.com/api/docs/models/gpt-6.1-sol), and [OpenRouter catalog](https://openrouter.ai/api/v1/models); each key's live model listing supplies additional choices. Non-chat OpenAI models and non-text OpenRouter models are excluded. OpenRouter sends optional attribution headers when `PUBLIC_BASE_URL` is set and validates keys with [GET /key](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-api-key), since its model catalog is public.
 
 ## Run
 
@@ -230,7 +244,7 @@ Create `.env` as shown above, without `DATABASE_URL` and with a database passwor
 POSTGRES_PASSWORD=$(openssl rand -hex 24)   # put the value in .env
 ```
 
-Create the Docker secret before starting the app. Its contents are the versioned master keyring; the app container's user must be able to read it. Keep its backup in a password manager, separately from database and workspace backups. Remove `GEMINI_API_KEY` and `DEEPSEEK_API_KEY` from the production `.env`.
+Create the Docker secret before starting the app. Its contents are the versioned master keyring; the app container's user must be able to read it. Keep its backup in a password manager, separately from database and workspace backups. Remove provider `*_API_KEY` variables from the production `.env`.
 
 ```bash
 mkdir -p secrets
@@ -325,6 +339,8 @@ docker compose up -d
 
 ### Cloudflare Tunnel
 
+Follow the [production launch and recovery checklist](docs/launch-checklist.md) before opening registration. It includes Cloudflare Access, cache/WAF/Turnstile settings, SMTP permissions, Mac settings, capacity measurement, a safe restore drill and legacy storage retirement. `python -m app.cli launch-check` reports local readiness without printing secrets.
+
 Run `cloudflared` on the host as usual, pointing at `http://localhost:8000` (or your `HOST_PORT`). Compose doesn't start a tunnel.
 
 Cloudflare's real client address arrives in `CF-Connecting-IP`, and compose tells the app to trust it from Docker's gateway networks, which is where a host `cloudflared` connects from (`PDF_REPORT_TRUSTED_PROXIES`). Login rate limits are then per visitor, not per tunnel. Authenticated responses send `Cache-Control: private, no-store`; also add a Cloudflare cache rule that bypasses the cache for `/api/*` and `/session/*`.
@@ -341,7 +357,7 @@ The container runs as a non-root user (UID/GID 1000 by default, configurable wit
 
 The pipeline starts from `POST /api/sessions` and runs in a FastAPI background task, through `job_runner.run_job` so at most `PDF_REPORT_MAX_CONCURRENT_JOBS` jobs run at once.
 
-1. `start_session` (`app/routers/api.py`) creates the report's folder under `workspace/tenants/`, saves the uploads into its `uploads/`, and creates a session JSON file that records the folder as `storage_dir`.
+1. `start_session` (`app/routers/api.py`) creates the report's folder under `workspace/tenants/`, saves the uploads into its `uploads/`, and stores its session document in Postgres with the folder recorded as `storage_dir`.
 2. `run_pipeline` (`pipeline_service.py`) enriches missing file artifacts through `extract_metadata`.
 3. If the goal asks to transform data first, `generate_data_filter` asks the LLM for a `preprocess_dataframes(dataframes)` function. The app executes it once and writes CSV outputs under `workspace/filtered`.
 4. `generate_artifacts` asks the LLM for report component definitions using the raw or preprocessed metadata.
@@ -364,7 +380,7 @@ If the server restarts mid-job, the job is lost; on the next startup that sessio
 | Module | Contents |
 |---|---|
 | `client.py` | `call_llm`, retries, timeouts, call budgets, provider fallback, PDF calls |
-| `providers/` | One adapter per provider (`gemini.py`, `openai_compatible.py` for DeepSeek), registered in `registry.py`. Adapters build the SDK client, send the request, and report token counts. |
+| `providers/` | `gemini.py`, `anthropic.py`, and `openai_compatible.py` for DeepSeek/OpenAI/OpenRouter, registered in `registry.py`. Adapters build clients with retries disabled, send requests, classify SDK errors, and return token counts and fallback metadata. |
 | `planning.py` | Report plan (`generate_artifacts`), document insights, layout template, data preprocessing, title |
 | `metrics.py` | `calculate_metric_value` and the shared dataframe loader line |
 | `components.py` | Generated render code for visual components |
@@ -401,14 +417,15 @@ Reports:
 - `GET /api/models`: lists the caller's credential status and available models; providers without valid keys are disabled.
 - `GET /api/credentials`, `PUT /api/credentials/{provider}`, `POST /api/credentials/{provider}/test`, `DELETE /api/credentials/{provider}`: list masked credential metadata, validate and save, re-test, or delete the caller's key. Adding/testing requires a verified email.
 - `GET /api/model-preferences`, `PUT /api/model-preferences`: account defaults and fallback, restricted to the caller's keys.
-- `GET /api/usage`: your storage use, reports in the last 24 hours, and the limits.
+- `GET /api/usage`: your storage, report quotas, monthly provider tokens/calls and account limits. The `/usage` page links from your account.
+- `GET /api/usage/reports`: usage for up to 50 of your recent reports. Summaries derive from durable events; historical reports without events retain their older summaries in session state.
 - `GET /api/component-library`: lists visual presets, themes, and chart styles.
 - `GET /api/component-library/previews`: preview images for presets, given a `theme` and `style`.
 - `GET /api/component-library/presets/{preset_id}/preview`: one preset's preview image.
 - `POST /api/sessions`: starts a report job. Form fields:
   - `files`: one or more CSV/Excel/PDF files.
   - `prompt`: report objective. Blank means exploratory report.
-  - `provider`: `gemini` or `deepseek`; default `deepseek`.
+  - `provider`: `gemini`, `deepseek`, `anthropic`, `openai` or `openrouter`; default `deepseek`.
   - `model_name`: provider model name.
 - `GET /api/sessions`: returns recent sessions.
 - `GET /api/sessions/{job_id}`: returns the full session state.
@@ -431,7 +448,13 @@ Reports:
 - `PUT /api/layout-templates/{template_id}`: updates one of your templates. Built-ins answer `403 builtin_template`; the editor saves a copy instead.
 - `DELETE /api/layout-templates/{template_id}`: deletes one of your templates.
 - `GET /api/admin/workspace-usage`: returns disk usage statistics for each workspace directory. Requires the admin role.
+- `GET /api/admin/users`: paginated account metadata, status, storage and monthly usage; no report contents or keys.
+- `PATCH /api/admin/users/{user_id}`: enable/disable an account or set `monthly_token_limit` and `report_call_limit` (null inherits the environment default, 0 is unlimited). Disable revokes sessions and stops queued jobs/new LLM calls. Already running requests may finish. Self-disabling and disabling the last admin are refused.
+- `GET /api/admin/usage`: monthly totals across accounts.
+- `GET /api/admin/audit`: paginated security events with a `before` cursor.
 - `POST /api/admin/cleanup`: manually triggers the cleanup of expired artifacts based on the retention policy, plus ended sessions, used email links and week-old unverified accounts. Requires the admin role.
+
+The `/admin` page and all `/api/admin/*` endpoints require signed Cloudflare Access assertions in production in addition to the app admin role. The assertion email must match the app account. Audit records cover credential lifecycle, account/session security and administrative mutations. Monthly usage survives deleting a report; deleting an account removes its usage rows. Provider token counts may be unavailable, and in-flight calls can exceed monthly caps. Usage is an accounting aid; the provider invoice is authoritative.
 
 Every `/api/*` endpoint except the public auth ones above needs a signed-in session cookie. Every request that changes state (anything but GET, HEAD, OPTIONS) also needs an `X-CSRF-Token` header equal to the `csrf_token` cookie; `static/js/api.js` adds it. Creating a report (`POST /api/sessions`) needs a verified email (`403 email_not_verified`). Reports belong to the account that created them: any other account gets `404` for every report route (never `403`, so report ids can't be probed), and `GET /api/sessions` lists only your own. Session IDs must match `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`; anything else returns 404.
 
@@ -539,21 +562,21 @@ The Content-Security-Policy allows scripts only from the app's own origin, so in
 - Creates one A4-ish FPDF page.
 - Draws the configured title.
 - Calls each component function with `pdf`, `dataframes`, `x`, `y`, `w`, `h`, and a backward-compatible `df` keyword when possible.
-- Writes the PDF to `workspace/reports/{job_id}.pdf`.
+- Writes the PDF to the owner's report folder at `workspace/tenants/{owner_id}/reports/{job_id}/output/`.
 
 Visual components are expected to render themselves as temporary matplotlib images and insert them into the PDF.
 
 ## Security Notes
 
 - The app executes LLM-generated Python for preprocessing, metrics, exploration, and PDF rendering. Uploaded data reaches the model, so a crafted file could steer what code is generated; the sandbox is the boundary that contains it.
-- Generated scripts run under bubblewrap with no network and a private `/tmp`. They see the interpreter and system libraries read-only, **their own report's** `uploads/` read-only, and its `filtered/`, `scripts/` and `output/` writable. Other reports, session files, the source tree, `.env`, and the server's environment variables are not visible. (Sessions created before the per-report layout still use the shared `workspace/uploads`, `filtered`, `scripts` and `reports` folders until they are moved.) Scripts are also limited to 20 s of CPU time, 2 GB of memory, 30 s of wall time, and `PDF_REPORT_SANDBOX_MAX_FILE_BYTES` per file.
+- Generated scripts run under bubblewrap with no network and a private `/tmp`. They see the interpreter and system libraries read-only, **their own report's** `uploads/` read-only, and its `filtered/`, `scripts/` and `output/` writable. Other reports, session files, the source tree, `.env`, and the server's environment variables are not visible. Production refuses shared legacy folders; run `python -m app.cli migrate-storage` with workers stopped before using old reports. Scripts are limited to 20 s of CPU time, 2 GB of memory, 30 s of wall time, and `PDF_REPORT_SANDBOX_MAX_FILE_BYTES` per file. Generated links and special files are rejected; report downloads open files beneath the report root without following links, including when paths change during a response.
 - Some Docker hosts (Docker Desktop on macOS, for example) refuse to mount a fresh `/proc` inside the container (`bwrap: Can't mount proc on /proc`). The app detects this at startup and runs the sandbox without `/proc`; the rest of the isolation is unchanged. The startup log says when this happens.
 - A Python-level guard runs inside the sandbox as a second layer and records file access in a manifest. On its own it can be bypassed, so the app refuses to run generated code without bubblewrap unless `PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1` is set.
 - Accounts sign in with email and password. Passwords are hashed with argon2id (12 to 256 characters). The session cookie holds a random token; the database stores only its SHA-256, so a database leak doesn't hand out sessions. Changing the password ends every other session, and a reset ends all of them.
 - Login, sign-up, forgot-password and email links are rate-limited per client address (the real one from `CF-Connecting-IP` behind the tunnel), and per account or email where it matters. Repeated failures on one account slow it down rather than lock it, so nobody can lock out a known user.
 - Sign-up, forgot-password, and logins after a failure require Cloudflare Turnstile when its keys are set.
 - Sign-up and forgot-password never reveal whether an email has an account.
-- Admin endpoints need `users.role = 'admin'` (`python -m app.cli create-admin`).
+- Admin endpoints need `users.role = 'admin'` (`python -m app.cli create-admin`) and, in production, a verified Cloudflare Access identity matching the account email.
 - Data metadata samples redact values from columns with sensitive names such as email, token, password, document, phone, and address before prompt context is sent to an LLM provider. Sample rows are omitted from prompt payloads by default; enable "Incluir amostras de dados nos prompts" in report settings only when extra context is necessary.
 - Do not commit provider keys, SMTP credentials or Turnstile secrets. Use `.env`.
 
@@ -598,10 +621,10 @@ venv/bin/python -m compileall app
 Run canonical end-to-end sessions when provider keys are available:
 
 ```bash
-venv/bin/python tests/canonical/run_canonical_sessions.py
+venv/bin/python tests/canonical/run_canonical_sessions.py --provider anthropic --owner-email you@example.com --case sales_ops
 ```
 
-Canonical PDFs are copied to `tests/canonical/generated_pdfs/` for manual review.
+Use `--provider openai` or `--provider openrouter` to test the other adapters, and `--model` to override that provider's default. The owner must have the corresponding stored key. A dedicated canonical account is used when `--owner-email` is omitted. Dev-only env keys require `APP_ENV=development PDF_REPORT_DEV_SERVER_KEYS=1`; `--env-file /private/path/to/keys.env` can load a separate private configuration. `--dry-run` prints the selected cases without creating accounts, reports or fixtures. Canonical uploads and outputs stay in the owner's per-report folder; review PDFs are copied to `tests/canonical/generated_pdfs/`.
 
 `list_models.py` lists models using an explicit provider and a hidden key prompt (or `--api-key`):
 

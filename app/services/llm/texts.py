@@ -9,7 +9,7 @@ from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 from app.services.llm import client
 from app.services.llm.client import llm_operation_context
 from app.services.llm.components import slot_by_artifact_id
-from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.errors import MissingCredentialError, ModelRefusalError, LLMBudgetError, LLMContractError, LLMTimeoutError
 from app.services.llm.parsing import parse_llm_text_map
 from app.services.llm.prompts import load_prompt
 logger = logging.getLogger(__name__)
@@ -63,6 +63,8 @@ def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metri
                     raise LLMContractError("text_generation", f"Missing text for components: {', '.join(sorted(missing))}")
                 return texts
             except LLMContractError as exc:
+                if not exc.retryable:
+                    raise
                 last_error = exc
                 user_prompt += f"\n\nCorrect the previous response: {exc}. Include every requested component ID."
         if last_error:
@@ -167,7 +169,7 @@ def condense_texts_to_fit(texts_map: dict, text_artifacts: list, template: list,
                     if key in texts_map and isinstance(value, str) and value.strip():
                         texts_map[key] = value.strip()
                 return texts_map
-            except (LLMBudgetError, LLMTimeoutError):
+            except (MissingCredentialError, ModelRefusalError, LLMBudgetError, LLMTimeoutError):
                 raise
             except Exception as e:
                 logger.warning("text condensation failed attempt=%s error=%s", attempt + 1, str(e))

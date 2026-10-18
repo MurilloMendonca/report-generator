@@ -1,5 +1,7 @@
 import os
 import shutil
+import stat
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import TypedDict
 
@@ -52,15 +54,27 @@ def safe_remove_path(path: str):
     if not _is_workspace_path(target):
         return False
 
+    directory_fd = None
     try:
-        if os.path.isfile(target) or os.path.islink(target):
-            os.remove(target)
-            return True
-        if os.path.isdir(target):
-            shutil.rmtree(target)
-            return True
+        parts = Path(target).relative_to(Path(_workspace_root())).parts
+        if not parts:
+            return False
+        directory_fd = os.open(_workspace_root(), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        for segment in parts[:-1]:
+            child = os.open(segment, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child
+        mode = os.stat(parts[-1], dir_fd=directory_fd, follow_symlinks=False).st_mode
+        if stat.S_ISDIR(mode):
+            shutil.rmtree(parts[-1], dir_fd=directory_fd)
+        else:
+            os.unlink(parts[-1], dir_fd=directory_fd)
+        return True
     except OSError:
         return False
+    finally:
+        if directory_fd is not None:
+            os.close(directory_fd)
     return False
 
 
@@ -69,8 +83,10 @@ def _session_prefixes(job_id: str) -> tuple[str, ...]:
         f"{job_id}.",
         f"{job_id}_",
         f"{job_id}-",
-        f"preprocess_{job_id}",
-        f"explore_{job_id}",
+        f"preprocess_{job_id}.",
+        f"preprocess_{job_id}_",
+        f"explore_{job_id}.",
+        f"explore_{job_id}_",
     )
 
 

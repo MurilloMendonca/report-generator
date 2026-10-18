@@ -22,6 +22,7 @@ class PreferencesBody(BaseModel):
     default_model: str | None = None
     llm_fallback_provider: str | None = None
     llm_fallback_model_name: str | None = None
+    anthropic_server_side_fallback: bool = True
 
 
 def _provider(provider):
@@ -73,7 +74,7 @@ def delete_credential(provider: str, request: Request):
 @router.get("/api/model-preferences")
 def model_preferences(request: Request):
     prefs = service.preferences(current_user(request).id)
-    return {key: prefs.get(key) for key in PreferencesBody.model_fields}
+    return {key: prefs.get(key, field.default) for key, field in PreferencesBody.model_fields.items()}
 
 
 @router.put("/api/model-preferences")

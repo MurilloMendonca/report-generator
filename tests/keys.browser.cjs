@@ -32,6 +32,8 @@ const path = require('path');
         let preferences = {};
         let validated = 0;
         let rejectTest = false;
+        const models = { deepseek: 'deepseek-flash', gemini: 'gemini-3.8-flash', anthropic: 'claude-opus-5-5', openai: 'gpt-6.1-sol', openrouter: 'openai/gpt-6.1-sol' };
+        const labels = { deepseek: 'DeepSeek', gemini: 'Google Gemini', anthropic: 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter' };
         const secret = 'sk-planted-browser-key-abcdefghijklmnop';
         await page.route('**/api/**', async route => {
             const request = route.request();
@@ -47,13 +49,15 @@ const path = require('path');
                 data = preferences;
             } else if (url === '/api/models') {
                 data = { providers: {}, credential_status: {}, defaults: {} };
-                for (const provider of ['deepseek', 'gemini']) {
+                for (const provider of Object.keys(models)) {
                     const enabled = rows[provider]?.status === 'valid';
-                    const model = provider === 'deepseek' ? 'deepseek-flash' : 'gemini-3.8-flash';
+                    const model = models[provider];
                     data.providers[provider] = enabled ? [{ id: model, label: model }] : [];
                     data.defaults[provider] = model;
-                    data.credential_status[provider] = { label: provider === 'deepseek' ? 'DeepSeek' : 'Google Gemini', enabled, status: rows[provider]?.status || 'missing' };
+                    data.credential_status[provider] = { label: labels[provider], enabled, status: rows[provider]?.status || 'missing' };
                 }
+                data.default_provider = Object.keys(models).find(provider => data.credential_status[provider].enabled) || 'deepseek';
+                data.default_model = models[data.default_provider];
             } else if (url.startsWith('/api/credentials/')) {
                 const provider = url.split('/')[3];
                 if (method === 'DELETE') delete rows[provider];
@@ -75,6 +79,7 @@ const path = require('path');
         await page.goto(`${origin}/keys`);
         const card = page.locator('[data-provider="deepseek"]');
         await card.getByText('Sem chave', { exact: true }).waitFor();
+        assert.equal(await page.locator('.credential-card').count(), 5);
         await card.locator('input').fill(secret);
         await card.getByRole('button', { name: 'Salvar chave', exact: true }).click();
         await card.getByText('Válida', { exact: true }).waitFor();
@@ -89,10 +94,10 @@ const path = require('path');
         await page.getByText('Preferências salvas.', { exact: true }).waitFor();
         assert.equal(preferences.default_model, 'deepseek-flash');
         assert.equal(preferences.llm_fallback_provider, 'deepseek');
-        await page.screenshot({ path: '/tmp/phase4-keys-desktop.png', fullPage: true });
+        await page.screenshot({ path: '/tmp/phase5-keys-desktop.png', fullPage: true });
         await page.setViewportSize({ width: 390, height: 844 });
         await page.getByRole('button', { name: 'Salvar preferências' }).scrollIntoViewIfNeeded();
-        await page.screenshot({ path: '/tmp/phase4-keys-mobile.png', fullPage: true });
+        await page.screenshot({ path: '/tmp/phase5-keys-mobile.png', fullPage: true });
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
         rejectTest = true;
         await card.getByRole('button', { name: 'Testar', exact: true }).click();
@@ -101,8 +106,41 @@ const path = require('path');
         await card.getByRole('button', { name: 'Excluir', exact: true }).click();
         await card.getByText('Sem chave', { exact: true }).waitFor();
         assert.deepEqual(rows, {});
+        await page.addScriptTag({ path: path.join(root, 'static/js/ui.js') });
+        await page.addScriptTag({ path: path.join(root, 'static/js/app.js') });
+        await page.evaluate(() => {
+            for (const id of ['provider', 's-provider', 'model_name', 's-model-name']) {
+                const select = document.createElement('select');
+                select.id = id;
+                document.body.append(select);
+            }
+        });
+        for (const provider of ['anthropic', 'openai', 'openrouter']) {
+            const providerCard = page.locator(`[data-provider="${provider}"]`);
+            await providerCard.locator('input').fill(secret);
+            await providerCard.getByRole('button', { name: 'Salvar chave', exact: true }).click();
+            await providerCard.getByText('Válida', { exact: true }).waitFor();
+            await page.selectOption('#default-provider', provider);
+            await page.locator('#anthropic-server-fallback').uncheck();
+            await page.getByRole('button', { name: 'Salvar preferências' }).click();
+            await page.getByText('Preferências salvas.', { exact: true }).waitFor();
+            assert.equal(preferences.default_provider, provider);
+            assert.equal(preferences.anthropic_server_side_fallback, false);
+            await page.evaluate(async provider => {
+                await App.loadModels();
+                App.updateModels();
+                document.getElementById('s-provider').value = provider;
+                App.updateSettingsModels();
+            }, provider);
+            assert.equal(await page.locator('#provider').inputValue(), provider);
+            assert.equal(await page.locator('#model_name').inputValue(), models[provider]);
+            assert.equal(await page.locator('#s-model-name').inputValue(), models[provider]);
+            assert.equal(await page.locator('#provider option:not([disabled])').count(), 1);
+            await providerCard.getByRole('button', { name: 'Excluir', exact: true }).click();
+            await providerCard.getByText('Sem chave', { exact: true }).waitFor();
+        }
         assert.deepEqual(errors, []);
-        console.log('Keys browser flow passed (save, test, preferences, invalidation, delete, responsive layout).');
+        console.log('Five-provider browser flow passed (keys, preferences, Anthropic opt-out, model pickers, invalidation, responsive layout).');
     } finally {
         if (browser) await browser.close();
         await new Promise(resolve => server.close(resolve));

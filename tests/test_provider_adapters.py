@@ -43,7 +43,7 @@ def request(operation="", model="m", pdf_bytes=None):
 
 class RegistryTests(unittest.TestCase):
     def test_known_providers_and_unknown_error(self):
-        self.assertEqual(set(ADAPTERS), {"gemini", "deepseek"})
+        self.assertEqual(set(ADAPTERS), {"gemini", "deepseek", "anthropic", "openai", "openrouter"})
         with self.assertRaises(ValueError):
             get_adapter("nope")
 

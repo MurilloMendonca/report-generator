@@ -39,6 +39,13 @@ def run_job(func, job_id: str, *args, **kwargs):
             add_log(job_id, "Aguardando outros relatórios terminarem...")
             _job_slots.acquire()
         try:
+            if owner_id is not None:
+                from app.services.auth_service import get_user
+                from app.services.session_manager import fail_disabled_account_job
+                user = get_user(owner_id)
+                if user is None or user.status != "active":
+                    fail_disabled_account_job(job_id)
+                    return
             return func(job_id, *args, **kwargs)
         except Exception:
             logger.exception("Background job failed job_id=%s func=%s", job_id, getattr(func, "__name__", func))

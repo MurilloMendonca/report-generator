@@ -2,10 +2,29 @@ DEFAULT_PROVIDER = "deepseek"
 DEFAULT_MODEL_BY_PROVIDER = {
     "deepseek": "deepseek-flash",
     "gemini": "gemini-3.8-flash",
+    "anthropic": "claude-opus-5-5",
+    "openai": "gpt-6.1-sol",
+    "openrouter": "openai/gpt-6.1-sol",
 }
 DEFAULT_MODEL_NAME = DEFAULT_MODEL_BY_PROVIDER[DEFAULT_PROVIDER]
 
 MODEL_CATALOG = {
+    # Verified against the providers' official model catalogs for Phase 5.
+    "anthropic": [
+        {"id": "claude-opus-5-5", "label": "Claude Opus 5.5"},
+        {"id": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5"},
+        {"id": "claude-haiku-5-5", "label": "Claude Haiku 5.5"},
+    ],
+    "openai": [
+        {"id": "gpt-6.1-sol", "label": "GPT-6.1 Sol"},
+        {"id": "gpt-6-astra", "label": "GPT-6 Astra"},
+        {"id": "gpt-6-luna", "label": "GPT-6 Luna"},
+    ],
+    "openrouter": [
+        {"id": "openai/gpt-6.1-sol", "label": "OpenAI: GPT-6.1 Sol"},
+        {"id": "anthropic/claude-sonnet-5.5", "label": "Anthropic: Claude Sonnet 5.5"},
+        {"id": "anthropic/claude-opus-5.5", "label": "Anthropic: Claude Opus 5.5"},
+    ],
     "deepseek": [
         {"id": "deepseek-flash", "label": "DeepSeek Flash"},
         {"id": "deepseek-v4-pro", "label": "DeepSeek V4 Pro"},

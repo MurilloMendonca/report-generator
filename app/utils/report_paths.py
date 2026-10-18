@@ -8,10 +8,11 @@ New reports get a private folder, recorded in the session as `storage_dir`:
         scripts/    generated scripts    (sandbox: writable)
         output/     PDFs, previews, manifests, explorer charts (sandbox: writable)
 
-Sessions created before this layout have no `storage_dir` and keep using the
-shared workspace folders ("legacy"), where the sandbox sees every report's
-files. The Phase 1 import moves them into their own folders.
+Production rejects shared folders. The import and migrate-storage CLI copy old
+files into owner folders. Shared folders remain accessible only in development
+and tests for legacy fixtures and migration rehearsals.
 """
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,14 @@ LEGACY_DIRS = {
     "output": WORKSPACE_DIR / "reports",
 }
 _SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
+
+
+class LegacyStorageError(ValueError):
+    def __init__(self):
+        super().__init__("Migre os arquivos deste relatório com python -m app.cli migrate-storage antes de continuar.")
+
+    def as_error_dict(self):
+        return {"code": "legacy_storage", "message": str(self), "retryable": False}
 
 
 @dataclass(frozen=True)
@@ -47,7 +56,8 @@ class ReportPaths:
             return cls(job_id, None)
         root = Path(storage_dir)
         # Only accept folders inside workspace/tenants; anything else is treated as tampering.
-        if not root.resolve().is_relative_to(TENANTS_DIR.resolve()) or root.name != job_id:
+        if (not root.resolve().is_relative_to(TENANTS_DIR.resolve()) or root.name != job_id
+                or root.resolve() != root.absolute()):
             raise ValueError("Report storage folder is outside the workspace")
         return cls(job_id, root)
 
@@ -56,6 +66,8 @@ class ReportPaths:
         return self.root is None
 
     def _dir(self, name: str) -> Path:
+        if self.root is None and os.getenv("APP_ENV", "development").lower() not in {"development", "dev", "local", "test"}:
+            raise LegacyStorageError()
         return LEGACY_DIRS[name] if self.root is None else self.root / name
 
     @property
@@ -84,6 +96,8 @@ class ReportPaths:
 
     def ensure(self) -> "ReportPaths":
         for directory in (self.uploads, self.filtered, self.scripts, self.output):
+            if directory.is_symlink():
+                raise ValueError("Report folders cannot be symbolic links")
             directory.mkdir(parents=True, exist_ok=True)
         return self
 

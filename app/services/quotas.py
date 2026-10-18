@@ -67,6 +67,7 @@ def upload_size(files) -> int:
 
 
 def usage_summary(owner_id) -> dict:
+    from app.services.usage_service import account_summary
     since = datetime.now(timezone.utc) - timedelta(days=1)
     return {
         "storage_bytes": session_manager.storage_used(owner_id),
@@ -74,4 +75,5 @@ def usage_summary(owner_id) -> dict:
         "reports_last_24h": session_manager.reports_created_since(owner_id, since),
         "reports_per_day_limit": REPORTS_PER_DAY,
         "jobs_per_user": JOBS_PER_USER,
+        "llm": account_summary(owner_id),
     }

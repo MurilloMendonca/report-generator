@@ -1,6 +1,7 @@
 import unittest
 
 from tests.canonical.run_canonical_sessions import (
+    select_cases,
     title_in_pdf_text,
     validate_chart_layout_safety,
     validate_expected_filter,
@@ -9,6 +10,18 @@ from tests.canonical.run_canonical_sessions import (
 
 
 class CanonicalRunnerTests(unittest.TestCase):
+    def test_provider_overrides_use_its_default_model_and_leave_playbook_unchanged(self):
+        playbook = [{'id': 'sales', 'provider': 'deepseek', 'model_name': 'deepseek-flash'}, {'id': 'hr', 'provider': 'gemini'}]
+        result = select_cases(playbook, 'anthropic', case_ids=['sales'])
+        self.assertEqual(result, [{'id': 'sales', 'provider': 'anthropic', 'model_name': 'claude-opus-5-5'}])
+        self.assertEqual(playbook[0]['provider'], 'deepseek')
+        self.assertEqual(select_cases(playbook, 'openai', 'gpt-6-luna')[0]['model_name'], 'gpt-6-luna')
+        self.assertEqual(select_cases(playbook, 'openrouter')[0]['model_name'], 'openai/gpt-6.1-sol')
+        with self.assertRaises(ValueError):
+            select_cases(playbook, model_name='gpt-6-luna')
+        with self.assertRaises(ValueError):
+            select_cases(playbook, case_ids=['missing'])
+
     def test_title_in_pdf_text_matches_meaningful_title_words(self):
         self.assertTrue(title_in_pdf_text(
             "Resumo Executivo de Vendas Regionais",
@@ -34,6 +47,13 @@ class CanonicalRunnerTests(unittest.TestCase):
         checks = validate_expected_filter(session)
 
         self.assertTrue(all(item["passed"] for item in checks))
+
+    def test_preprocessing_validator_accepts_private_report_paths(self):
+        path = 'workspace/tenants/test-owner/reports/test-report/filtered/data.csv'
+        session = {'data_preprocessing': {'needs_preprocessing': True, 'code': 'def preprocess_dataframes(dataframes): pass'},
+                   'script': f"dataframes['sales.csv'] = pd.read_csv({path!r})",
+                   'files': [{'preprocessed_path': path, 'raw_artifact': {'shape': {'rows': 8}}, 'artifact': {'shape': {'rows': 4}}}]}
+        self.assertTrue(all(item['passed'] for item in validate_expected_preprocessing(session)))
 
     def test_validate_expected_filter_fails_when_filter_was_only_component_level(self):
         session = {

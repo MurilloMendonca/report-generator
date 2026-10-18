@@ -20,6 +20,9 @@ services:
       PDF_REPORT_SIGNUP_MODE: ${PDF_REPORT_SIGNUP_MODE:-closed}
       # Set to 0 only when serving over plain HTTP on a non-localhost address.
       PDF_REPORT_COOKIE_SECURE: ${PDF_REPORT_COOKIE_SECURE:-1}
+      # Admin pages/APIs verify Access JWTs as well as the local admin role.
+      CLOUDFLARE_ACCESS_ISSUER: ${CLOUDFLARE_ACCESS_ISSUER:-}
+      CLOUDFLARE_ACCESS_AUD: ${CLOUDFLARE_ACCESS_AUD:-}
       PORT: 8000
       # POSTGRES_PASSWORD must be URL-safe (for example `openssl rand -hex 24`).
       DATABASE_URL: postgresql+psycopg://repgen:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be configured}@postgres:5432/repgen

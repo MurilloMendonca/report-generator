@@ -6,7 +6,6 @@ import zipfile
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, UploadFile
-from fastapi.responses import FileResponse
 
 from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT
 from app.services.llm.client import llm_operation_context, resolve_llm_config
@@ -367,16 +366,17 @@ def session_file_variant(file_info: dict, variant: str = "original") -> dict:
     }
 
 
-def file_response(file_info: dict, inline: bool = False, variant: str = "original") -> FileResponse:
+def file_response(file_info: dict, inline: bool = False, variant: str = "original", *, session: dict):
     variant_info = session_file_variant(file_info, variant)
     filename = variant_info["filename"]
     file_path = variant_info["path"]
     media_type = variant_info.get("mime_type") or mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    return FileResponse(
-        file_path,
+    from app.services.report_files import report_file_response
+    return report_file_response(
+        session, file_path,
         media_type=media_type,
         filename=filename,
-        content_disposition_type="inline" if inline else "attachment"
+        disposition="inline" if inline else "attachment"
     )
 
 

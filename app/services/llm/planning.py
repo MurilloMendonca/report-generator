@@ -10,7 +10,7 @@ from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 from app.utils.template_library import build_layout_from_template
 from app.services.llm import client
 from app.services.llm.client import call_llm_with_pdf, llm_operation_context
-from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.errors import MissingCredentialError, ModelRefusalError, LLMBudgetError, LLMContractError, LLMTimeoutError
 from app.services.llm.parsing import parse_llm_artifacts, parse_llm_document_insights, parse_llm_preprocessing_plan, strip_code_fence
 from app.services.llm.prompts import load_prompt
 logger = logging.getLogger(__name__)
@@ -53,6 +53,8 @@ def generate_artifacts(
                     return artifacts
                 raise LLMContractError("artifact_plan", "The artifact plan must not be empty")
             except LLMContractError as exc:
+                if not exc.retryable:
+                    raise
                 last_error = exc
                 user_prompt += f"\n\nCorrect the previous response: {exc}. Return only the required JSON list."
         if last_error:
@@ -99,6 +101,8 @@ def generate_document_insights(
             try:
                 return parse_llm_document_insights(client.call_llm(provider, model_name, system_instruction, user_prompt), provider, model_name)
             except LLMContractError as exc:
+                if not exc.retryable:
+                    raise
                 last_error = exc
                 time.sleep(2)
         if last_error:
@@ -158,6 +162,8 @@ def generate_document_insights_from_pdf_file(
                 payload["extraction_source"] = "pdf_file"
                 return payload
             except LLMContractError as exc:
+                if not exc.retryable:
+                    raise
                 last_error = exc
                 time.sleep(2)
         if last_error:
@@ -236,6 +242,8 @@ def generate_data_filter(
                 payload = parse_llm_preprocessing_plan(client.call_llm(provider, model_name, system_instruction, user_prompt), provider, model_name)
                 return normalize_preprocessing_payload(payload)
             except LLMContractError as e:
+                if not e.retryable:
+                    raise
                 last_error = e
                 time.sleep(2)
 
@@ -278,7 +286,7 @@ def generate_report_title(all_metadata: str, prompt: str, artifacts: list, provi
             title = " ".join(title.split())
             if title:
                 return title
-        except (LLMBudgetError, LLMTimeoutError):
+        except (MissingCredentialError, ModelRefusalError, LLMBudgetError, LLMTimeoutError):
             raise
         except Exception as e:
             logger.warning("title generation failed error=%s", str(e))

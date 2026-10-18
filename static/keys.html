@@ -14,6 +14,18 @@
         </header>
         <p>Adicione uma chave para gerar relatórios. O uso dos modelos é cobrado pelo provedor na sua conta.</p>
         <p class="auth-hint">As chaves ficam criptografadas e não são exibidas novamente depois de salvas.</p>
+        <details class="account-section">
+            <summary>Como obter uma chave de API</summary>
+            <p>Entre no painel do provedor, configure o acesso à API e crie uma chave. Copie-a e salve no cartão correspondente abaixo.</p>
+            <ul>
+                <li><a href="https://aistudio.google.com/api-keys" target="_blank" rel="noopener noreferrer">Google Gemini: Google AI Studio → API keys</a></li>
+                <li><a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">DeepSeek: Platform → API keys</a></li>
+                <li><a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic: Claude Console → API keys</a></li>
+                <li><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI: Platform → API keys</a></li>
+                <li><a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter: Settings → API keys</a></li>
+            </ul>
+            <p>O uso é cobrado na sua conta do provedor. Configure os limites de gasto disponíveis no painel dele. Depois de salvar, escolha o modelo em Preferências de modelos. Acompanhe as chamadas em <a href="/usage">Seu uso</a>.</p>
+        </details>
         <div id="keys-notice" class="auth-message" role="status" hidden></div>
         <p id="keys-unverified" class="auth-message" hidden>Confirme seu email antes de adicionar uma chave. <a href="/account">Abrir sua conta</a></p>
         <div id="credential-cards"></div>
@@ -25,6 +37,7 @@
                 <div class="form-group"><label for="default-model">Modelo padrão</label><select id="default-model"></select></div>
                 <div class="form-group"><label for="fallback-provider">Provedor alternativo</label><select id="fallback-provider"></select></div>
                 <div class="form-group"><label for="fallback-model">Modelo alternativo</label><select id="fallback-model"></select></div>
+                <label class="account-confirm"><input type="checkbox" id="anthropic-server-fallback" checked> Permitir que a Anthropic use um modelo alternativo quando o Opus 5.5 não atender ao pedido. O uso é cobrado na mesma chave.</label>
                 <button type="submit" class="btn">Salvar preferências</button>
             </form>
         </section>

@@ -28,6 +28,8 @@ class User(Base):
     is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     preferences: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    monthly_token_limit: Mapped[int | None] = mapped_column(BigInteger)
+    report_call_limit: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _created()
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -138,3 +140,29 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = _created()
 
     __table_args__ = (Index("ix_audit_events_user_created", "user_id", "created_at"),)
+
+
+class LLMUsageEvent(Base):
+    """One provider attempt, reserved before dispatch. Never stores prompts or keys."""
+    __tablename__ = "llm_usage_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    report_id: Mapped[str | None] = mapped_column(Text, ForeignKey("reports.id", ondelete="SET NULL"))
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    served_model: Mapped[str | None] = mapped_column(Text)
+    operation: Mapped[str] = mapped_column(Text, nullable=False)
+    input_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    output_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    error_code: Mapped[str | None] = mapped_column(Text)
+    cache_hit: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    fallback_used: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (
+        Index("ix_llm_usage_events_user_created", "user_id", "created_at"),
+        Index("ix_llm_usage_events_report", "report_id"),
+    )

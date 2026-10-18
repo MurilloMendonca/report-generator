@@ -19,6 +19,7 @@ from app.db import get_engine
 from app.routers.api import router as api_router
 from app.routers.auth import router as auth_router
 from app.routers.credentials import router as credentials_router
+from app.routers.operations import router as operations_router
 from app.security import (
     PUBLIC_API_PATHS, SESSION_COOKIE, add_cache_headers, add_security_headers, clear_session_cookie,
     csrf_ok, ensure_csrf_cookie, signup_open,
@@ -27,21 +28,17 @@ from app.services import auth_service, email_service, turnstile
 from app.services.crypto import validate_configuration
 from app.services.redaction import install_log_redaction, redact
 from app.services.executor_service import sandbox_status
-from app.services.pipeline_service import FILTERED_DIR, REPORT_DIR, SCRIPT_DIR
 from app.services.session_manager import recover_interrupted_sessions
-from app.services.web_helpers import UPLOAD_DIR
 
 load_dotenv()
 install_log_redaction()
 logger = logging.getLogger(__name__)
 
-for directory in [UPLOAD_DIR, FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
-    os.makedirs(directory, exist_ok=True)
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     validate_configuration()
+    from app.services.deployment_service import validate_runtime_configuration
+    validate_runtime_configuration()
     get_engine()  # connect and migrate now, so a database problem stops startup
     logger.info("Auth housekeeping: %s", auth_service.purge_expired())
     if email_service.backend() == "console":
@@ -51,6 +48,8 @@ async def lifespan(_app: FastAPI):
     # Skipped under tests: they share workspace/ with a possibly running dev server.
     if os.getenv("PDF_REPORT_RECOVER_SESSIONS_ON_START", "0" if os.getenv("APP_ENV") == "test" else "1") == "1":
         recover_interrupted_sessions()
+        from app.services.usage_service import recover_pending
+        recover_pending()
     status = sandbox_status()
     if not status["bubblewrap_available"]:
         if status["unsafe_fallback_allowed"]:
@@ -64,12 +63,13 @@ app = FastAPI(title="Report Generator v0.3.6", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(auth_router)
 app.include_router(credentials_router)
+app.include_router(operations_router)
 app.include_router(api_router)
 
 
 # Pages that need a signed-in user (signed-out visitors go to /login), and
 # pages only for signed-out visitors (signed-in users go to the studio).
-SIGNED_IN_PAGES = {"/", "/templates", "/account", "/keys"}
+SIGNED_IN_PAGES = {"/", "/templates", "/account", "/keys", "/usage", "/admin"}
 SIGNED_OUT_PAGES = {"/login", "/signup", "/forgot-password"}
 
 
@@ -132,6 +132,8 @@ async def require_api_access(request: Request, call_next):
     ensure_csrf_cookie(request, response)
     add_security_headers(response)
     add_cache_headers(path, response, request.url.query)
+    if request.state.user is not None:
+        response.headers["Cache-Control"] = "private, no-store"
     return response
 
 

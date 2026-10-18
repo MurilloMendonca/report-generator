@@ -121,7 +121,16 @@ def get_session(job_id: str) -> dict:
         return None
     with db.transaction() as tx:
         state = tx.execute(select(Report.state).where(Report.id == job_id)).scalar_one_or_none()
-    return None if state is None else _normalize(state, job_id)
+    return None if state is None else _with_usage(_normalize(state, job_id), job_id)
+
+
+def _with_usage(session, job_id):
+    from app.services.usage_service import report_summary
+    if session is not None:
+        summary = report_summary(job_id)
+        if summary is not None:
+            session["llm_usage"] = summary
+    return session
 
 
 def get_owned_session(job_id: str, owner_id) -> dict | None:
@@ -132,7 +141,7 @@ def get_owned_session(job_id: str, owner_id) -> dict | None:
         state = tx.execute(
             select(Report.state).where(Report.id == job_id, Report.owner_id == owner_id)
         ).scalar_one_or_none()
-    return None if state is None else _normalize(state, job_id)
+    return None if state is None else _with_usage(_normalize(state, job_id), job_id)
 
 
 def get_report_owner(job_id: str) -> uuid.UUID | None:
@@ -150,6 +159,42 @@ def list_report_ids(owner_id) -> list[str]:
 def set_storage_bytes(job_id: str, size: int) -> None:
     with db.transaction() as tx:
         tx.execute(update(Report).where(Report.id == job_id).values(storage_bytes=max(0, int(size))))
+
+
+def migrate_report_storage(job_id: str, *, dry_run=False):
+    """Copy/rewrite the latest state under its row lock. Stop workers before use."""
+    from pathlib import Path
+    from app.services.legacy_import import LEGACY_FOLDERS, _copy, _folder_size, _plan_files, _rewrite
+    from app.utils.report_paths import ReportPaths
+    owner_id = get_report_owner(job_id)
+    if owner_id is None:
+        return None
+    destination = ReportPaths.for_new_report(job_id, str(owner_id))
+    result = None
+    def change(state):
+        nonlocal result
+        if state.get("storage_dir") and Path(state["storage_dir"]).resolve() == destination.root.resolve():
+            result = "already_isolated"
+            return _NO_WRITE
+        folders = {name: (Path("workspace") / name).resolve() for name in LEGACY_FOLDERS}
+        copies, replacements, missing = _plan_files(job_id, state, destination, folders)
+        if missing:
+            result = "missing_files"
+            return _NO_WRITE
+        result = "migrated"
+        if dry_run:
+            return _NO_WRITE
+        destination.ensure()
+        for source, target in copies.items():
+            _copy(source, target)
+        rewritten = _rewrite(state, replacements)
+        state.clear()
+        state.update(rewritten)
+        state.update(destination.session_fields())
+    _mutate(job_id, change)
+    if result == "migrated" and not dry_run:
+        set_storage_bytes(job_id, _folder_size(destination.root))
+    return result
 
 
 def storage_used(owner_id) -> int:
@@ -221,6 +266,20 @@ def has_pending_exploration(session: dict) -> bool:
         for message in (session or {}).get("explore_history", [])
         if isinstance(message, dict)
     )
+
+
+def fail_disabled_account_job(job_id):
+    message = "Esta conta está desativada."
+
+    def change(session):
+        session.update(current_step="failed", progress=100, status=message,
+                       error={"code": "account_disabled", "message": message, "retryable": False})
+        session["explore_history"] = [
+            {**item, "status": "error", "content": message, "error_status": 403}
+            if isinstance(item, dict) and item.get("role") == "assistant" and item.get("status") == "pending" else item
+            for item in session.get("explore_history", [])
+        ]
+    _mutate(job_id, change)
 
 
 def begin_exploration_turn(job_id: str, user_message: dict, turn_id: str):
@@ -363,7 +422,16 @@ def record_llm_usage(
     cache_hit: bool = False,
     input_tokens: int | None = None,
     output_tokens: int | None = None,
+    served_model: str | None = None,
+    fallback_used: bool = False,
+    usage_event_id: int | None = None,
+    error_code: str | None = None,
 ):
+    from app.services.usage_service import record
+    record(job_id, operation, provider, model_name, event_id=usage_event_id,
+           status=status, duration_ms=duration_ms, input_tokens=input_tokens,
+           output_tokens=output_tokens, cache_hit=cache_hit, served_model=served_model,
+           fallback_used=fallback_used, error_code=error_code or ("timeout" if status == "timeout" else "provider_error" if error else None))
     def change(session):
         usage = session.get("llm_usage", {})
         for key, default in (
@@ -387,6 +455,8 @@ def record_llm_usage(
         usage["last_status"] = status
         usage["last_duration_ms"] = round(duration_ms, 1)
         usage["last_error"] = error or ""
+        if fallback_used:
+            usage["last_fallback"] = {"provider": provider, "requested_model": model_name, "served_model": served_model}
         usage["history"] = [*usage["history"], {
             "operation": operation,
             "provider": provider,
@@ -398,6 +468,8 @@ def record_llm_usage(
             "response_chars": int(response_chars),
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "served_model": served_model,
+            "fallback_used": fallback_used,
             "cache_hit": bool(cache_hit),
             "error": error or "",
             "timestamp": _now_iso(),

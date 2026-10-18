@@ -1,5 +1,10 @@
 """The interface every LLM provider adapter implements."""
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+
+import httpx
+from openai import APIConnectionError, APITimeoutError
 
 # Operations whose prompt contracts expect a JSON object back.
 JSON_OBJECT_OPERATIONS = frozenset({
@@ -16,6 +21,8 @@ class GenerationRequest:
     timeout_seconds: int
     operation: str = ""
     pdf_bytes: bytes | None = None
+    output_schema: dict | None = None
+    server_side_fallback: bool = True
 
     @property
     def wants_json_object(self) -> bool:
@@ -27,6 +34,9 @@ class GenerationResult:
     text: str
     input_tokens: int | None = None
     output_tokens: int | None = None
+    stop_reason: str | None = None
+    served_model: str | None = None
+    fallback_used: bool = False
 
 
 class ProviderAdapter:
@@ -52,12 +62,16 @@ class ProviderAdapter:
         return False
 
     def classify_error(self, exc) -> str:
+        if isinstance(exc, (TimeoutError, APITimeoutError, httpx.TimeoutException)):
+            return "timeout"
+        if isinstance(exc, (APIConnectionError, httpx.TransportError)):
+            return "retryable"
         status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
         if status in {401, 403}:
             return "auth"
         if status == 429:
             return "rate_limit"
-        if status in {408, 500, 502, 503, 504}:
+        if status == 408 or (isinstance(status, int) and 500 <= status <= 599):
             return "retryable"
         return "fatal"
 
@@ -71,3 +85,17 @@ class ProviderAdapter:
 
 def token_count(value) -> int | None:
     return value if isinstance(value, int) and value >= 0 else None
+
+
+def retry_after_seconds(exc) -> float | None:
+    headers = getattr(getattr(exc, "response", None), "headers", {})
+    value = headers.get("retry-after")
+    if value is None:
+        return None
+    try:
+        return max(0, float(value))
+    except (TypeError, ValueError):
+        try:
+            return max(0, (parsedate_to_datetime(value) - datetime.now(timezone.utc)).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            return None

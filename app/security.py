@@ -114,6 +114,8 @@ def require_admin(request: Request):
     user = current_user(request)
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
+    from app.services.cloudflare_access import require_access
+    require_access(request, user)
     return user
 
 

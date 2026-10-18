@@ -56,10 +56,15 @@ const App = {
             for (const id of ['provider', 's-provider']) {
                 const select = document.getElementById(id);
                 if (!select) continue;
-                for (const option of select.options) {
-                    const status = catalog.credential_status?.[option.value];
+                const selected = select.value;
+                UI.clearElement(select);
+                for (const [providerId, models] of Object.entries(catalog.providers)) {
+                    const status = catalog.credential_status?.[providerId];
+                    const option = UI.buildOption(providerId, status?.label || providerId);
                     option.disabled = status ? !status.enabled : false;
+                    select.appendChild(option);
                 }
+                select.value = selected || this.defaultProvider;
             }
             if (provider && catalog.default_provider) provider.value = catalog.default_provider;
             if (catalog.credential_status && !Object.values(catalog.credential_status).some(status => status.enabled)) {
@@ -511,7 +516,9 @@ const App = {
             this.settingsSignature = signature;
             this.updateModelDefaultNotice('s-provider', 's-model-name', 'settings-model-default-notice');
         }
-        this.showNotice(session.error && session.error.message ? session.error.message : '', session.error);
+        const fallback = session.llm_usage?.last_fallback;
+        const fallbackNotice = fallback?.served_model ? `Modelo alternativo utilizado: ${fallback.provider} · ${fallback.served_model}.` : '';
+        this.showNotice(session.error?.message || fallbackNotice, session.error);
 
         if (session.pdf_version > this.lastPdfVersion && !this.pdfLoading) {
             this.refreshPdf(session);
