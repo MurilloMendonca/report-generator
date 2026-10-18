@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
+from app.pages import render_page
 from app.security import (
     clear_session_cookie,
     client_key,
@@ -283,11 +284,6 @@ def change_email(request: Request, body: ChangeEmailBody):
 
 # --- Pages ------------------------------------------------------------------------------
 
-def _page(name: str) -> str:
-    with open(f"static/{name}", encoding="utf-8") as handle:
-        return handle.read()
-
-
 for _path in ("/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/confirm-email"):
-    router.add_api_route(_path, lambda: _page("auth.html"), methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
-router.add_api_route("/account", lambda: _page("account.html"), methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
+    router.add_api_route(_path, lambda: render_page("auth.html"), methods=["GET"], response_class=HTMLResponse, include_in_schema=False)
+router.add_api_route("/account", lambda: render_page("account.html"), methods=["GET"], response_class=HTMLResponse, include_in_schema=False)

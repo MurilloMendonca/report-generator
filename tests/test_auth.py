@@ -17,7 +17,7 @@ from app.main import app
 from app.models.db import AuditEvent, AuthSession, EmailToken, User
 from app.services import auth_service, email_service, turnstile
 from app.services.rate_limit import LIMITS, limiter
-from tests.auth_helpers import TEST_PASSWORD, make_user
+from tests.auth_helpers import TEST_PASSWORD, make_user, signed_in_headers
 
 NEW_PASSWORD = "another long passphrase"
 
@@ -438,13 +438,42 @@ class HousekeepingAndCliTests(AuthTestCase):
 
 
 class PageTests(unittest.TestCase):
+    def test_signed_out_visitors_are_sent_to_login_by_the_server(self):
+        with TestClient(app, follow_redirects=False) as client:
+            for path, target in (("/", "/login?next=%2F"), ("/templates", "/login?next=%2Ftemplates"),
+                                 ("/account", "/login?next=%2Faccount"), ("/session/abc?x=1", "/login?next=%2Fsession%2Fabc%3Fx%3D1")):
+                response = client.get(path)
+                self.assertEqual((response.status_code, response.headers["location"]), (303, target), path)
+            stale = client.get("/", headers={"Cookie": "pdf_report_session=old-hmac-token"})
+            self.assertEqual(stale.status_code, 303)
+            self.assertTrue(any("pdf_report_session=" in value for value in stale.headers.get_list("set-cookie")))
+
+    def test_signed_in_users_skip_the_login_page(self):
+        with TestClient(app, follow_redirects=False) as client:
+            headers = signed_in_headers()
+            self.assertEqual(client.get("/", headers=headers).status_code, 200)
+            response = client.get("/login", headers=headers)
+            self.assertEqual((response.status_code, response.headers["location"]), (303, "/"))
+            # Email links work whether or not you're signed in.
+            self.assertEqual(client.get("/verify-email", headers=headers).status_code, 200)
+
+    def test_assets_are_versioned_so_old_copies_are_never_used(self):
+        with TestClient(app) as client:
+            page = client.get("/login")
+            self.assertEqual(page.headers["cache-control"], "no-cache")
+            scripts = re.findall(r'src="(/static/js/[\w.]+\?v=[0-9a-f]{12})"', page.text)
+            self.assertEqual(len(scripts), 2, page.text)
+            self.assertRegex(page.text, r'href="/static/css/styles\.css\?v=[0-9a-f]{12}"')
+            self.assertIn("immutable", client.get(scripts[0]).headers["cache-control"])
+            self.assertEqual(client.get("/static/js/api.js").headers["cache-control"], "no-cache")
+
     def test_auth_pages_are_served(self):
         with TestClient(app) as client:
             for path in ("/login", "/signup", "/forgot-password", "/reset-password", "/verify-email", "/confirm-email"):
                 response = client.get(path)
                 self.assertEqual(response.status_code, 200, path)
-                self.assertIn('src="/static/js/auth.js"', response.text)
-            self.assertIn('src="/static/js/account.js"', client.get("/account").text)
+                self.assertIn('src="/static/js/auth.js?v=', response.text)
+            self.assertIn('src="/static/js/account.js?v=', client.get("/account", headers=signed_in_headers()).text)
 
     def test_turnstile_is_allowed_by_the_csp_but_inline_scripts_are_not(self):
         with TestClient(app) as client:

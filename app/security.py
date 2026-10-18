@@ -174,10 +174,15 @@ def client_key(request: Request | None) -> str:
 PRIVATE_PATH_PREFIXES = ("/api/", "/session/")
 
 
-def add_cache_headers(path: str, response: Response):
-    """Keep authenticated responses out of shared caches such as Cloudflare's edge."""
+def add_cache_headers(path: str, response: Response, query: str = ""):
+    """Keep authenticated responses out of shared caches such as Cloudflare's edge.
+    Static files referenced with ?v=<hash> (app/pages.py) never change, so they
+    are cached for a year; unversioned ones must be revalidated."""
     if path.startswith(PRIVATE_PATH_PREFIXES):
         response.headers.setdefault("Cache-Control", "private, no-store")
+    elif path.startswith("/static/"):
+        versioned = query.startswith("v=") or "&v=" in query
+        response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable" if versioned else "no-cache")
 
 
 def add_security_headers(response: Response):

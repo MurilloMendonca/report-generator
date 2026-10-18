@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, File, Form, HTTPException,
 from fastapi.responses import FileResponse, HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
+from app.pages import render_page
 from app.security import require_admin, require_verified_user
 from app.services.cleanup_service import (
     cleanup_expired_artifacts,
@@ -96,21 +97,18 @@ async def visual_component_preset_preview(preset_id: str, theme: str | None = No
 
 @router.get("/", response_class=HTMLResponse)
 async def read_index():
-    with open("static/index.html", "r", encoding="utf-8") as f:
-        return f.read()
+    return render_page("index.html")
 
 
 @router.get("/templates", response_class=HTMLResponse)
 async def read_template_editor():
-    with open("static/templates.html", "r", encoding="utf-8") as f:
-        return f.read()
+    return render_page("templates.html")
 
 
 @router.get("/session/{job_id}", response_class=HTMLResponse)
 async def read_session_workspace(job_id: str):
     require_session(job_id)
-    with open("static/index.html", "r", encoding="utf-8") as f:
-        return f.read()
+    return render_page("index.html")
 
 
 @router.post("/api/sessions")

@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from urllib.parse import quote
 from contextlib import asynccontextmanager
 
 if __package__ in (None, ""):
@@ -9,7 +10,7 @@ if __package__ in (None, ""):
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
@@ -59,6 +60,12 @@ app.include_router(auth_router)
 app.include_router(api_router)
 
 
+# Pages that need a signed-in user (signed-out visitors go to /login), and
+# pages only for signed-out visitors (signed-in users go to the studio).
+SIGNED_IN_PAGES = {"/", "/templates", "/account"}
+SIGNED_OUT_PAGES = {"/login", "/signup", "/forgot-password"}
+
+
 def _reject(status_code: int, detail) -> JSONResponse:
     response = JSONResponse({"detail": detail}, status_code=status_code)
     add_security_headers(response)
@@ -74,7 +81,18 @@ async def require_api_access(request: Request, call_next):
     request.state.auth_session = None
     path = request.url.path
     stale_cookie = False
-    if path.startswith("/api/"):
+    if request.method == "GET" and (path in SIGNED_IN_PAGES or path.startswith("/session/") or path in SIGNED_OUT_PAGES):
+        token = request.cookies.get(SESSION_COOKIE)
+        signed_in = await run_in_threadpool(auth_service.resolve_session, token) if token else None
+        if signed_in is None and path not in SIGNED_OUT_PAGES:
+            target = path + (f"?{request.url.query}" if request.url.query else "")
+            response = RedirectResponse(f"/login?next={quote(target, safe='')}", status_code=303)
+            if token:
+                clear_session_cookie(response)
+            return response
+        if signed_in is not None and path in SIGNED_OUT_PAGES:
+            return RedirectResponse("/", status_code=303)
+    elif path.startswith("/api/"):
         if not csrf_ok(request):
             return _reject(403, {"code": "csrf_failed", "message": "Sessão do navegador inválida. Recarregue a página e tente novamente."})
         token = request.cookies.get(SESSION_COOKIE)
@@ -94,7 +112,7 @@ async def require_api_access(request: Request, call_next):
         clear_session_cookie(response)
     ensure_csrf_cookie(request, response)
     add_security_headers(response)
-    add_cache_headers(path, response)
+    add_cache_headers(path, response, request.url.query)
     return response
 
 

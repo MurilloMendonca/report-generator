@@ -200,23 +200,26 @@ const Auth = {
     },
 
     async confirmLink(url, successText) {
+        const view = document.querySelector('[data-view]:not([hidden])');
+        const finish = (title, text) => {
+            view.querySelector('h2').textContent = title;
+            view.querySelector('.auth-lead').textContent = text;
+        };
         if (!this.linkToken) {
-            this.error('Link inválido ou incompleto.');
+            finish('Link inválido', 'Este link está incompleto. Abra novamente o link do email.');
             return;
         }
         try {
             await this.post(url, { token: this.linkToken });
             this.linkToken = '';
-            document.querySelectorAll('[data-view]').forEach(el => { el.hidden = true; });
-            this.message(successText);
+            finish('Pronto!', successText);
             const link = document.createElement('a');
             link.href = '/';
             link.className = 'btn auth-submit';
             link.textContent = 'Ir para o estúdio';
-            document.getElementById('auth-message').appendChild(document.createElement('br'));
-            document.getElementById('auth-message').appendChild(link);
+            view.appendChild(link);
         } catch (error) {
-            this.error(error.message);
+            finish('Link inválido', error.message);
         }
     },
 };
