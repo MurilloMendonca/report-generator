@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 import app.routers.api as api
 from app.main import app
-from app.security import create_session_token
+from tests.auth_helpers import signed_in_headers
 from app.services.cleanup_service import delete_entire_session, get_session_generated_paths
 from app.services.executor_service import execute_script, probe_bubblewrap
 from app.services.session_manager import create_session, delete_session, get_session
@@ -108,7 +108,7 @@ class SandboxPerReportTests(unittest.TestCase):
 
 class NewSessionStorageTests(unittest.TestCase):
     def setUp(self):
-        self.headers = {"x-access-token": create_session_token()}
+        self.headers = signed_in_headers()
 
     def test_new_session_stores_uploads_in_its_own_folder_and_delete_removes_it(self):
         with patch.object(api, "run_pipeline"), TestClient(app) as client:
@@ -201,7 +201,7 @@ class PerReportRenderTests(unittest.TestCase):
         self.assertFalse(Path(f"workspace/reports/{job_id}.pdf").exists())
 
         with TestClient(app) as client:
-            preview = client.get(f"/api/sessions/{job_id}/components/g_sales/preview", headers={"x-access-token": create_session_token()})
+            preview = client.get(f"/api/sessions/{job_id}/components/g_sales/preview", headers=signed_in_headers())
         self.assertEqual(preview.status_code, 200, preview.text)
         self.assertTrue(preview.content.startswith(b"%PDF"))
         self.assertTrue(any(paths.output.glob(f"{job_id}_g_sales_preview.pdf")))

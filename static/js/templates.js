@@ -21,20 +21,19 @@ const TemplateEditor = {
     get dirty() { return this.metadataDirty || Boolean(this.editor?.dirty); },
 
     async ensureAuthenticated() {
+        let user;
         try {
-            await API.checkLogin();
-            document.getElementById('login-gate').style.display = 'none';
-            document.getElementById('app-shell').style.display = 'flex';
-            return true;
+            user = await API.me();
         } catch (error) {
-            document.getElementById('app-shell').style.display = 'none';
-            document.getElementById('login-gate').style.display = 'flex';
+            API.redirectToLogin();
             return false;
         }
+        document.getElementById('app-shell').style.display = 'flex';
+        Utils.setupAccountBar(user);
+        return true;
     },
 
     bindEvents() {
-        document.getElementById('login-form').onsubmit = event => this.handleLogin(event);
         document.getElementById('template-form').onsubmit = event => this.saveTemplate(event);
         document.getElementById('template-select').addEventListener('change', event => this.selectTemplate(event.target.value));
         document.getElementById('new-template-btn').addEventListener('click', () => this.newTemplate());
@@ -55,21 +54,6 @@ const TemplateEditor = {
                 if (document.getElementById('template-form').reportValidity()) this.saveTemplate(event);
             }
         });
-    },
-
-    async handleLogin(event) {
-        event.preventDefault();
-        const input = document.getElementById('access-secret');
-        const errorEl = document.getElementById('login-error');
-        errorEl.textContent = '';
-        try {
-            await API.login(input.value);
-            input.value = '';
-            if (await this.ensureAuthenticated()) await this.loadTemplates();
-        } catch (error) {
-            errorEl.textContent = error.message;
-            this.setStatus(error.message, true);
-        }
     },
 
     async loadTemplates(selectedId = null) {

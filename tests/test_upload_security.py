@@ -88,16 +88,6 @@ class UploadSecurityTests(unittest.TestCase):
         finally:
             web_helpers.MAX_UPLOAD_BYTES = old_limit
 
-    def test_default_secret_is_allowed_only_in_development_mode(self):
-        self.assertTrue(security.ALLOW_DEFAULT_SECRET)
-
-    def test_session_token_is_not_raw_access_secret(self):
-        token = security.create_session_token()
-
-        self.assertNotEqual(token, security.APP_ACCESS_SECRET)
-        self.assertTrue(security.is_valid_session_token(token))
-        self.assertFalse(security.is_valid_session_token(security.APP_ACCESS_SECRET))
-
     def test_total_upload_size_per_request_is_limited(self):
         old_limit = web_helpers.MAX_REQUEST_UPLOAD_BYTES
         web_helpers.MAX_REQUEST_UPLOAD_BYTES = 12
@@ -109,26 +99,6 @@ class UploadSecurityTests(unittest.TestCase):
             self.assertEqual(set(os.listdir(web_helpers.UPLOAD_DIR)), before, "partial uploads are removed")
         finally:
             web_helpers.MAX_REQUEST_UPLOAD_BYTES = old_limit
-
-    def test_login_sets_http_only_session_cookie(self):
-        import asyncio
-
-        response = Response()
-
-        payload = asyncio.run(api.login(DummyRequest(), response, {"secret": security.APP_ACCESS_SECRET}))
-
-        self.assertEqual(payload["status"], "OK")
-        cookie_header = response.headers.get("set-cookie", "")
-        self.assertIn(security.AUTH_COOKIE_NAME, cookie_header)
-        self.assertIn("HttpOnly", cookie_header)
-        self.assertNotIn(security.APP_ACCESS_SECRET, cookie_header)
-
-    def test_request_auth_accepts_cookie_or_header_session_token(self):
-        token = security.create_session_token()
-
-        self.assertTrue(security.request_has_valid_auth(DummyRequest(cookies={security.AUTH_COOKIE_NAME: token})))
-        self.assertTrue(security.request_has_valid_auth(DummyRequest(headers={"x-access-token": token})))
-        self.assertFalse(security.request_has_valid_auth(DummyRequest()))
 
     def test_delete_session_removes_runtime_artifacts(self):
         import asyncio

@@ -15,12 +15,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app import db
 from app.models.db import LayoutTemplate, Report, User
 from app.models.session import normalize_session
+from app.services.auth_service import get_user_by_email, normalize_email
 from app.services.session_manager import report_columns, is_valid_job_id
 from app.utils.report_paths import ReportPaths
 from app.utils.template_library import _default_templates
@@ -64,20 +65,9 @@ def _timestamp(value) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def normalize_email(email: str) -> str:
-    return (email or "").strip().lower()
-
-
-def get_user_by_email(email: str) -> User | None:
-    with db.transaction() as tx:
-        return tx.execute(select(User).where(User.email == normalize_email(email))).scalar_one_or_none()
-
-
 def ensure_demo_user(email: str) -> tuple[User, bool]:
-    """Return the demo account, creating it if needed. Its password is set in Phase 2."""
+    """Return the demo account, creating it (verified, no password yet) if needed."""
     email = normalize_email(email)
-    if "@" not in email:
-        raise ValueError(f"Not an email address: {email!r}")
     with db.transaction() as tx:
         user = tx.execute(select(User).where(User.email == email)).scalar_one_or_none()
         if user is not None:
@@ -240,7 +230,7 @@ def _import_templates(owner: User, workspace: Path, dry_run: bool) -> int:
 def import_legacy(owner_email: str, *, workspace: Path = Path("workspace"), dry_run: bool = False) -> ImportSummary:
     owner = get_user_by_email(owner_email)
     if owner is None:
-        raise LookupError(f"No account for {normalize_email(owner_email)!r}. Run `python -m app.cli create-demo-user` first.")
+        raise LookupError(f"No account for {owner_email.strip().lower()!r}. Run `python -m app.cli create-demo-user` first.")
 
     summary = ImportSummary(dry_run=dry_run)
     folders = {name: (workspace / name).resolve() for name in LEGACY_FOLDERS}
@@ -290,3 +280,9 @@ def import_legacy(owner_email: str, *, workspace: Path = Path("workspace"), dry_
 
     summary.templates_imported = _import_templates(owner, workspace, dry_run)
     return summary
+
+
+def assign_unowned(owner_id) -> int:
+    """Give every report without an owner to `owner_id`. Its files stay where they are."""
+    with db.transaction() as tx:
+        return tx.execute(update(Report).where(Report.owner_id.is_(None)).values(owner_id=owner_id)).rowcount

@@ -9,22 +9,19 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
-    <div id="login-gate" class="login-gate">
-        <form id="login-form" class="login-panel">
-            <h1>Report Generator</h1>
-            <p>Informe o segredo de acesso para continuar.</p>
-            <div class="form-group">
-                <label>Segredo:</label>
-                <input type="password" id="access-secret" autocomplete="current-password" required>
-            </div>
-            <button type="submit" class="btn" style="width: 100%;">Entrar</button>
-            <div id="login-error" class="login-error"></div>
-        </form>
-    </div>
-
     <div id="app-shell" class="app-shell" style="display:none">
     <div class="sidebar">
         <h2>Report Generator</h2>
+        <div class="account-bar">
+            <span id="account-name" class="account-name"></span>
+            <a href="/account" class="account-link">Conta</a>
+            <button type="button" id="logout-btn" class="account-link account-logout">Sair</button>
+        </div>
+        <div id="verify-banner" class="verify-banner" hidden>
+            Confirme seu email para criar relatórios. Enviamos um link para <b id="verify-email-address"></b>.
+            <button type="button" id="resend-verification-btn" class="account-link">Reenviar link</button>
+            <span id="verify-banner-status"></span>
+        </div>
         <a id="new-session-link" href="/" class="btn btn-secondary new-session-link" style="display:none">+ Criar nova sessão</a>
         <a href="/templates" class="btn btn-outline" style="margin-bottom: 1rem; text-align: center; text-decoration: none;">Editar Templates</a>
         

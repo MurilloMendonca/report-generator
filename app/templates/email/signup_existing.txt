@@ -1,0 +1,12 @@
+Subject: Tentativa de cadastro no $app_name
+Olá,
+
+Alguém tentou criar uma conta com este email, mas ele já está cadastrado.
+Se foi você, entre normalmente ou redefina sua senha:
+
+$link
+
+Se não foi você, ignore esta mensagem; sua conta continua segura.
+
+---
+Someone tried to sign up with this email, which already has an account. If it was you, sign in or reset your password at the link above.

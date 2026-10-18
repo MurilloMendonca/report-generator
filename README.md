@@ -41,14 +41,20 @@ app/
   main.py                    App setup: auth middleware, startup checks, router wiring
   db.py                      Postgres engine, transactions, automatic migrations
   cli.py                     Operator commands (migrate, create-demo-user, import-legacy)
-  security.py                Login secret, signed session tokens, revocation, rate limit, headers
-  routers/api.py             All HTTP routes
+  security.py                Session cookie, CSRF, signed-in user and admin checks, client IP, headers
+  routers/auth.py            Sign-up, sign-in and account routes, auth pages
+  routers/api.py             Report, template and admin routes
+  templates/email/           Email texts (Portuguese, with an English summary)
   models/
     session.py               Pydantic session schema and legacy migrations
     db.py                    Database tables (users, reports, layout_templates, revoked_tokens)
     refinement.py            Schema for chat-refinement routing decisions
   services/
     llm/                     LLM calls, one module per concern (see "LLM Package" below)
+    auth_service.py          Accounts, sessions, email-link flows, password hashing
+    email_service.py         SMTP sending (or the log / a test outbox)
+    rate_limit.py            In-memory rate limits for the auth routes
+    turnstile.py             Cloudflare Turnstile verification
     pipeline_service.py      Report-generation pipeline stages
     executor_service.py      Sandboxed generated-script execution
     exploration_service.py   Ad-hoc data explorer (questions and charts)
@@ -74,9 +80,11 @@ scripts/backup.sh            Database and workspace backup
 prompts/                     System prompts used for each LLM task
 static/
   index.html                 Main browser workspace
+  auth.html, account.html    Sign-in pages and account settings
   templates.html             Layout-template editor
   css/styles.css             Visual styling
-  js/api.js                  HTTP client wrapper
+  js/api.js                  HTTP client wrapper (adds the CSRF header, redirects to /login on 401)
+  js/auth.js, js/account.js  Sign-in pages and account settings
   js/app.js                  Frontend state and event handling
   js/ui.js                   UI render helpers
   js/layout_editor.js        Shared drag/resize layout editor
@@ -137,11 +145,18 @@ Create a `.env` file with at least one provider key:
 ```bash
 GEMINI_API_KEY=your_google_gemini_key
 DEEPSEEK_API_KEY=your_deepseek_key
-APP_ACCESS_SECRET=your_long_random_login_secret
 DATABASE_URL=postgresql+psycopg://repgen:repgen@127.0.0.1:5433/repgen
 ```
 
-The default provider is `deepseek`, so `DEEPSEEK_API_KEY` is required for the default path. `GEMINI_API_KEY` is required when selecting Gemini. `APP_ACCESS_SECRET` is the login secret used by the browser UI. After login, the app issues a signed HttpOnly session cookie; the browser does not store the raw secret.
+The default provider is `deepseek`, so `DEEPSEEK_API_KEY` is required for the default path. `GEMINI_API_KEY` is required when selecting Gemini.
+
+Create your account (sign-up is closed by default) and note the printed password:
+
+```bash
+python -m app.cli create-admin --email you@example.com
+```
+
+Without `SMTP_HOST`, emails (verification and password-reset links) are written to the app log instead of being sent.
 
 ## Configuration
 
@@ -154,13 +169,15 @@ All settings are environment variables (`.env` is loaded automatically).
 | `TEST_DATABASE_URL` | `postgresql+psycopg://repgen:repgen@127.0.0.1:5433/repgen_test` | Database used when `APP_ENV=test`. Its name must end in `_test`; it is created if missing and emptied at the start of each test run. |
 | `PDF_REPORT_AUTO_MIGRATE` | `1` | Apply pending database migrations when the app (or CLI) first connects. |
 | `PDF_REPORT_DB_POOL_SIZE` / `PDF_REPORT_DB_MAX_OVERFLOW` | `10` / `10` | Database connection pool size. |
-| `APP_ACCESS_SECRET` | `change-me` (dev only) | Login secret. Required outside development; `PDF_REPORT_ACCESS_SECRET` is an alias. |
 | `APP_ENV` | `development` | `development`, `dev`, `local`, or `test` relax the checks below; anything else is production. |
-| `APP_ADMIN_SECRET` | unset | Required in the `X-Admin-Secret` header for `/api/admin/*`. Without it, admin endpoints only work in development. |
+| `PUBLIC_BASE_URL` | `http://localhost:8000` (compose: `https://repgen.gengardev.com.br`) | Base of the links in emails. |
+| `PDF_REPORT_SIGNUP_MODE` | `closed` | `open` lets anyone create an account; `closed` means accounts only come from `python -m app.cli create-user`. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | unset, `587` | Outgoing email. Port 465 uses implicit TLS; other ports use STARTTLS (`SMTP_STARTTLS=0` turns it off). Without `SMTP_HOST`, emails go to the log. |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile on sign-up, forgot-password and login after a failure. Without both keys the check is skipped. |
+| `PDF_REPORT_SESSION_IDLE_DAYS` / `PDF_REPORT_SESSION_MAX_DAYS` | `7` / `30` | A sign-in ends after this many days unused, or this many days after it started. |
 | `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` | unset | Provider keys. |
 | `PDF_REPORT_COOKIE_SECURE` | `1` in production, `0` in development | Send the session cookie over HTTPS only. Set `0` only for plain HTTP on a non-localhost address. |
-| `PDF_REPORT_SESSION_TTL_SECONDS` | `28800` (8 h) | Login session lifetime. |
-| `PDF_REPORT_LOGIN_MAX_FAILURES` / `PDF_REPORT_LOGIN_WINDOW_SECONDS` | `10` / `300` | Failed logins allowed per client address before login returns 429. |
+| `PDF_REPORT_LOGIN_MAX_FAILURES` / `PDF_REPORT_LOGIN_WINDOW_SECONDS` | `10` / `300` | Failed logins allowed per client address before login returns 429. Failures on one account also add a growing delay (2 s, 4 s, ... up to 15 min) after the fourth, instead of locking it. |
 | `PDF_REPORT_ALLOW_UNSAFE_SANDBOX` | unset | Set `1` to run generated code under the weaker Python-level guard when bubblewrap is unavailable. Trusted environments only. |
 | `PDF_REPORT_SANDBOX_MAX_FILE_BYTES` | `209715200` (200 MB) | Largest file a generated script may write. |
 | `PDF_REPORT_MAX_CONCURRENT_JOBS` | `2` | Report jobs (pipeline, refinement, render) that run at once; others wait. |
@@ -249,6 +266,23 @@ docker compose exec report-generator python -m app.cli import-legacy --owner dem
 
 Each report keeps its ID. Its files are copied to `workspace/tenants/{account id}/reports/{id}/`, and paths inside the session (including generated scripts) are rewritten. User layout templates from `workspace/layout_templates.json` are imported too. Running it again skips what was already imported. The old files are left in place; delete `workspace/sessions`, `uploads`, `filtered`, `scripts`, `reports` and `layout_templates.json` by hand once you've checked the imported reports.
 
+### Accounts
+
+Sign-up is closed until you open it (`PDF_REPORT_SIGNUP_MODE=open`). Keep it closed until reports are private to their owner (plan Phase 3) and users bring their own provider keys (Phase 4); until then every account sees every report and uses the server's keys.
+
+```bash
+docker compose exec report-generator python -m app.cli create-admin --email you@example.com
+docker compose exec report-generator python -m app.cli create-user --email friend@example.com
+docker compose exec report-generator python -m app.cli set-password --email demo@gengardev.com.br
+docker compose exec report-generator python -m app.cli assign-unowned --owner demo@gengardev.com.br
+```
+
+Passwords are generated and printed once. `assign-unowned` gives reports that have no owner (created before accounts existed) to an account.
+
+**Email.** Pick a transactional provider with SMTP (Resend, Postmark, Amazon SES, ...), add its SPF, DKIM and DMARC records to the `gengardev.com.br` zone in Cloudflare DNS, and set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` and `SMTP_FROM` (for example `no-reply@gengardev.com.br`) in `.env`.
+
+**Turnstile.** In the Cloudflare dashboard, add a Turnstile widget for `repgen.gengardev.com.br` and put its keys in `.env` as `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`.
+
 ### Backups
 
 `scripts/backup.sh` writes a `pg_dump` of the database and a tarball of `workspace/` to `./backups` (or `BACKUP_DIR`), and deletes copies older than `BACKUP_KEEP_DAYS` (14). Set `BACKUP_SYNC_COMMAND` to copy them off the machine, for example `rclone sync ./backups r2:repgen-backups`. Run it nightly from the host, for example with cron:
@@ -261,7 +295,8 @@ To restore:
 
 ```bash
 docker compose down
-docker volume rm pdf-report-generator_postgres-data      # only if replacing the database
+docker volume ls | grep postgres-data                   # <folder name>_postgres-data
+docker volume rm <folder name>_postgres-data             # only if replacing the database
 docker compose up -d --wait postgres
 docker compose exec -T postgres pg_restore -U repgen -d repgen --clean --if-exists --no-owner < backups/db-YYYYMMDD-HHMMSS.dump
 tar -xzf backups/workspace-YYYYMMDD-HHMMSS.tar.gz         # from the project folder, replaces workspace/
@@ -324,9 +359,21 @@ Import from the submodules directly; the package deliberately has no re-exports.
 
 ## API Endpoints
 
-- `POST /api/auth/login`: validates the access secret and sets the session cookie. Returns 429 with `Retry-After` after too many failures.
-- `POST /api/auth/logout`: revokes the current session token and clears the cookie.
-- `GET /api/auth/check`: validates the current session token.
+Accounts (`app/routers/auth.py`). Errors return `{"detail": {"code": ..., "message": ...}}`.
+
+- `GET /api/auth/config`: whether sign-up is open, the Turnstile site key, the minimum password length. Public.
+- `POST /api/auth/signup`: `{email, password, display_name?, turnstile_token?}`. Creates an unverified account and emails a link. Answers the same way when the email is taken. Public, `403 signup_closed` unless sign-up is open.
+- `POST /api/auth/login`: `{email, password, turnstile_token?}`. Sets the `pdf_report_session` cookie (HttpOnly, SameSite=Lax). Public. 429 with `Retry-After` after too many failures.
+- `POST /api/auth/verify-email`, `POST /api/auth/reset-password`, `POST /api/auth/confirm-email`: consume a link token (`{token}`, plus `password` for reset). Public.
+- `POST /api/auth/forgot-password`: `{email, turnstile_token?}`. Always answers the same. Public.
+- `GET /api/auth/me`, `PATCH /api/auth/me` (`{display_name}`): the signed-in account.
+- `POST /api/auth/logout`, `POST /api/auth/logout-all`: end this session, or every session of the account.
+- `GET /api/auth/sessions`, `DELETE /api/auth/sessions/{id}`: signed-in devices.
+- `POST /api/auth/resend-verification`, `POST /api/auth/change-password`, `POST /api/auth/change-email`.
+- Pages: `/login`, `/signup`, `/forgot-password`, `/reset-password`, `/verify-email`, `/confirm-email` (`static/auth.html`) and `/account` (`static/account.html`). Email links put the token in the URL fragment (`#token=...`), so it never reaches server logs.
+
+Reports:
+
 - `GET /`: serves the static workspace UI.
 - `GET /session/{job_id}`: serves the workspace already pointed at a session.
 - `GET /templates`: serves the layout-template editor.
@@ -359,10 +406,10 @@ Import from the submodules directly; the package deliberately has no re-exports.
 - `POST /api/layout-templates`: creates a layout template.
 - `PUT /api/layout-templates/{template_id}`: updates a layout template.
 - `DELETE /api/layout-templates/{template_id}`: deletes a layout template.
-- `GET /api/admin/workspace-usage`: returns disk usage statistics for each workspace directory. Requires `X-Admin-Secret`.
-- `POST /api/admin/cleanup`: manually triggers the cleanup of expired artifacts based on the retention policy. Requires `X-Admin-Secret`.
+- `GET /api/admin/workspace-usage`: returns disk usage statistics for each workspace directory. Requires the admin role.
+- `POST /api/admin/cleanup`: manually triggers the cleanup of expired artifacts based on the retention policy, plus ended sessions, used email links and week-old unverified accounts. Requires the admin role.
 
-All `/api/*` endpoints except `/api/auth/login` require a valid signed session cookie. `X-Access-Token` is still accepted for non-browser clients, but it must contain a signed session token returned by the app, not the raw access secret. Session IDs must match `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`; anything else returns 404.
+Every `/api/*` endpoint except the public auth ones above needs a signed-in session cookie. Every request that changes state (anything but GET, HEAD, OPTIONS) also needs an `X-CSRF-Token` header equal to the `csrf_token` cookie; `static/js/api.js` adds it. Creating a report (`POST /api/sessions`) needs a verified email (`403 email_not_verified`). Until Phase 3, every signed-in user can still see every report. Session IDs must match `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`; anything else returns 404.
 
 ## Workspace Maintenance
 
@@ -477,10 +524,13 @@ Visual components are expected to render themselves as temporary matplotlib imag
 - The app executes LLM-generated Python for preprocessing, metrics, exploration, and PDF rendering. Uploaded data reaches the model, so a crafted file could steer what code is generated; the sandbox is the boundary that contains it.
 - Generated scripts run under bubblewrap with no network and a private `/tmp`. They see the interpreter and system libraries read-only, **their own report's** `uploads/` read-only, and its `filtered/`, `scripts/` and `output/` writable. Other reports, session files, the source tree, `.env`, and the server's environment variables are not visible. (Sessions created before the per-report layout still use the shared `workspace/uploads`, `filtered`, `scripts` and `reports` folders until they are moved.) Scripts are also limited to 20 s of CPU time, 2 GB of memory, 30 s of wall time, and `PDF_REPORT_SANDBOX_MAX_FILE_BYTES` per file.
 - A Python-level guard runs inside the sandbox as a second layer and records file access in a manifest. On its own it can be bypassed, so the app refuses to run generated code without bubblewrap unless `PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1` is set.
-- Login is a single shared secret. Failed attempts are rate-limited per client address (behind a reverse proxy that address is the proxy's), and logout revokes the token server-side (revoked tokens are kept in Postgres). Tokens are HMAC-signed with `APP_ACCESS_SECRET`; changing the secret invalidates all sessions.
-- Admin endpoints need a separate `APP_ADMIN_SECRET`.
+- Accounts sign in with email and password. Passwords are hashed with argon2id (12 to 256 characters). The session cookie holds a random token; the database stores only its SHA-256, so a database leak doesn't hand out sessions. Changing the password ends every other session, and a reset ends all of them.
+- Login, sign-up, forgot-password and email links are rate-limited per client address (the real one from `CF-Connecting-IP` behind the tunnel), and per account or email where it matters. Repeated failures on one account slow it down rather than lock it, so nobody can lock out a known user.
+- Sign-up, forgot-password, and logins after a failure require Cloudflare Turnstile when its keys are set.
+- Sign-up and forgot-password never reveal whether an email has an account.
+- Admin endpoints need `users.role = 'admin'` (`python -m app.cli create-admin`).
 - Data metadata samples redact values from columns with sensitive names such as email, token, password, document, phone, and address before prompt context is sent to an LLM provider. Sample rows are omitted from prompt payloads by default; enable "Incluir amostras de dados nos prompts" in report settings only when extra context is necessary.
-- Do not commit provider keys or access secrets. Use `.env`.
+- Do not commit provider keys, SMTP credentials or Turnstile secrets. Use `.env`.
 
 ## Important Maintenance Notes
 

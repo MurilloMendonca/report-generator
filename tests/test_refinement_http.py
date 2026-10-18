@@ -9,7 +9,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.security import create_session_token
+from tests.auth_helpers import signed_in_headers
 from app.services.pipeline_service import run_script_generation, text_component_code
 from app.services.session_manager import (
     create_session, delete_session, get_session,
@@ -63,7 +63,7 @@ class RefinementHttpTests(unittest.TestCase):
     def test_chat_routes_through_model_clarifies_safely_and_renders_real_pdf(self):
         before = get_session(self.job_id)
         endpoint = f"/api/sessions/{self.job_id}"
-        headers = {"x-access-token": create_session_token()}
+        headers = signed_in_headers()
         with TestClient(app) as client, \
              patch("app.services.llm.client.call_llm") as llm, \
              patch("app.services.pipeline_service.generate_artifacts", side_effect=AssertionError("Styling must not replan")):

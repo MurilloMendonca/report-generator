@@ -11,10 +11,16 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from app.db import get_engine
 from app.routers.api import router as api_router
-from app.security import PUBLIC_API_PATHS, add_cache_headers, add_security_headers, request_has_valid_auth
+from app.routers.auth import router as auth_router
+from app.security import (
+    PUBLIC_API_PATHS, SESSION_COOKIE, add_cache_headers, add_security_headers, clear_session_cookie,
+    csrf_ok, ensure_csrf_cookie, signup_open,
+)
+from app.services import auth_service, email_service, turnstile
 from app.services.executor_service import sandbox_status
 from app.services.pipeline_service import FILTERED_DIR, REPORT_DIR, SCRIPT_DIR
 from app.services.session_manager import recover_interrupted_sessions
@@ -30,6 +36,11 @@ for directory in [UPLOAD_DIR, FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     get_engine()  # connect and migrate now, so a database problem stops startup
+    logger.info("Auth housekeeping: %s", auth_service.purge_expired())
+    if email_service.backend() == "console":
+        logger.warning("SMTP_HOST is not set: emails (verification, password reset) are only written to the log.")
+    if signup_open() and not turnstile.enabled():
+        logger.warning("Sign-up is open without Turnstile (TURNSTILE_SITE_KEY / TURNSTILE_SECRET_KEY).")
     # Skipped under tests: they share workspace/ with a possibly running dev server.
     if os.getenv("PDF_REPORT_RECOVER_SESSIONS_ON_START", "0" if os.getenv("APP_ENV") == "test" else "1") == "1":
         recover_interrupted_sessions()
@@ -44,19 +55,46 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Report Generator v0.3.6", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+app.include_router(auth_router)
 app.include_router(api_router)
+
+
+def _reject(status_code: int, detail) -> JSONResponse:
+    response = JSONResponse({"detail": detail}, status_code=status_code)
+    add_security_headers(response)
+    add_cache_headers("/api/", response)
+    return response
 
 
 @app.middleware("http")
 async def require_api_access(request: Request, call_next):
-    if request.url.path.startswith("/api/") and request.url.path not in PUBLIC_API_PATHS:
-        if not request_has_valid_auth(request):
-            response = JSONResponse({"detail": "Unauthorized"}, status_code=401)
-            add_security_headers(response)
+    """CSRF on every state-changing API call, then the session cookie on every
+    non-public API path. The signed-in user ends up in request.state.user."""
+    request.state.user = None
+    request.state.auth_session = None
+    path = request.url.path
+    stale_cookie = False
+    if path.startswith("/api/"):
+        if not csrf_ok(request):
+            return _reject(403, {"code": "csrf_failed", "message": "Sessão do navegador inválida. Recarregue a página e tente novamente."})
+        token = request.cookies.get(SESSION_COOKIE)
+        signed_in = await run_in_threadpool(auth_service.resolve_session, token) if token else None
+        if signed_in is not None:
+            request.state.user = signed_in.user
+            request.state.auth_session = signed_in.session
+        elif path not in PUBLIC_API_PATHS:
+            response = _reject(401, "Unauthorized")
+            if token:
+                clear_session_cookie(response)
             return response
+        else:
+            stale_cookie = bool(token)
     response = await call_next(request)
+    if stale_cookie:
+        clear_session_cookie(response)
+    ensure_csrf_cookie(request, response)
     add_security_headers(response)
-    add_cache_headers(request.url.path, response)
+    add_cache_headers(path, response)
     return response
 
 

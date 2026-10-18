@@ -49,9 +49,9 @@ async function loadEditor(templates, failure = null) {
     const context = vm.createContext({
         document, window: {}, structuredClone, confirm: () => true,
         fetch: async url => ({
-            ok: !failure || url === '/api/auth/check',
-            status: failure && url !== '/api/auth/check' ? 500 : 200,
-            json: async () => url === '/api/auth/check' ? { status: 'OK' } : failure ? { detail: failure } : { templates },
+            ok: !failure || url === '/api/auth/me',
+            status: failure && url !== '/api/auth/me' ? 500 : 200,
+            json: async () => url === '/api/auth/me' ? { user: { email: 'a@example.com' } } : failure ? { detail: failure } : { templates },
         }),
     });
     // Load only the dependencies declared by the real page; no injected UI helper.

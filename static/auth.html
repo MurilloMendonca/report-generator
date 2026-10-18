@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report Generator</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="auth-body">
+    <main class="auth-page">
+        <section class="login-panel auth-panel">
+            <h1>Report Generator</h1>
+
+            <form id="login-form" class="auth-form" data-view="login" hidden>
+                <p>Entre na sua conta para continuar.</p>
+                <div class="form-group">
+                    <label for="login-email">Email</label>
+                    <input type="email" id="login-email" autocomplete="username" required maxlength="320">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Senha</label>
+                    <input type="password" id="login-password" autocomplete="current-password" required maxlength="256">
+                </div>
+                <div class="turnstile-slot"></div>
+                <button type="submit" class="btn auth-submit">Entrar</button>
+                <p class="auth-links">
+                    <a href="/forgot-password">Esqueci minha senha</a>
+                    <span class="signup-only" hidden> · <a href="/signup">Criar conta</a></span>
+                </p>
+            </form>
+
+            <form id="signup-form" class="auth-form" data-view="signup" hidden>
+                <p>Crie sua conta. Você usará suas próprias chaves de API dos provedores.</p>
+                <div class="form-group">
+                    <label for="signup-name">Nome (opcional)</label>
+                    <input type="text" id="signup-name" autocomplete="name" maxlength="100">
+                </div>
+                <div class="form-group">
+                    <label for="signup-email">Email</label>
+                    <input type="email" id="signup-email" autocomplete="email" required maxlength="320">
+                </div>
+                <div class="form-group">
+                    <label for="signup-password">Senha</label>
+                    <input type="password" id="signup-password" autocomplete="new-password" required minlength="12" maxlength="256">
+                    <small class="auth-hint">Pelo menos <span class="password-min">12</span> caracteres.</small>
+                </div>
+                <div class="turnstile-slot"></div>
+                <button type="submit" class="btn auth-submit">Criar conta</button>
+                <p class="auth-links"><a href="/login">Já tenho conta</a></p>
+            </form>
+
+            <form id="forgot-form" class="auth-form" data-view="forgot-password" hidden>
+                <p>Informe seu email e enviaremos um link para redefinir a senha.</p>
+                <div class="form-group">
+                    <label for="forgot-email">Email</label>
+                    <input type="email" id="forgot-email" autocomplete="email" required maxlength="320">
+                </div>
+                <div class="turnstile-slot"></div>
+                <button type="submit" class="btn auth-submit">Enviar link</button>
+                <p class="auth-links"><a href="/login">Voltar para o login</a></p>
+            </form>
+
+            <form id="reset-form" class="auth-form" data-view="reset-password" hidden>
+                <p>Escolha uma nova senha.</p>
+                <div class="form-group">
+                    <label for="reset-password">Nova senha</label>
+                    <input type="password" id="reset-password" autocomplete="new-password" required minlength="12" maxlength="256">
+                    <small class="auth-hint">Pelo menos <span class="password-min">12</span> caracteres. Todas as suas sessões serão encerradas.</small>
+                </div>
+                <div class="form-group">
+                    <label for="reset-confirm">Repita a nova senha</label>
+                    <input type="password" id="reset-confirm" autocomplete="new-password" required maxlength="256">
+                </div>
+                <button type="submit" class="btn auth-submit">Redefinir senha</button>
+            </form>
+
+            <div class="auth-form" data-view="verify-email" hidden>
+                <p>Confirmando seu email...</p>
+            </div>
+
+            <div class="auth-form" data-view="confirm-email" hidden>
+                <p>Confirmando seu novo email...</p>
+            </div>
+
+            <div id="auth-message" class="auth-message" role="status" hidden></div>
+            <div id="auth-error" class="login-error" role="alert"></div>
+        </section>
+    </main>
+
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+</body>
+</html>

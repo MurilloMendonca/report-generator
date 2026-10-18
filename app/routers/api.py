@@ -8,18 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, File, Form, HTTPException,
 from fastapi.responses import FileResponse, HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
-from app.security import (
-    AUTH_COOKIE_NAME,
-    AUTH_COOKIE_SECURE,
-    AUTH_SESSION_TTL_SECONDS,
-    client_key,
-    create_session_token,
-    is_valid_access_token,
-    login_rate_limiter,
-    request_session_token,
-    require_admin,
-    revoke_session_token,
-)
+from app.security import require_admin, require_verified_user
 from app.services.cleanup_service import (
     cleanup_expired_artifacts,
     delete_entire_session,
@@ -81,44 +70,6 @@ from app.utils.template_library import (
 router = APIRouter()
 
 
-@router.post("/api/auth/login")
-async def login(request: Request, response: Response, payload: dict = Body(...)):
-    key = client_key(request)
-    retry_after = login_rate_limiter.retry_after(key)
-    if retry_after:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many failed login attempts. Try again later.",
-            headers={"Retry-After": str(retry_after)},
-        )
-    if not is_valid_access_token(payload.get("secret", "")):
-        login_rate_limiter.record_failure(key)
-        raise HTTPException(status_code=401, detail="Invalid access secret")
-    login_rate_limiter.reset(key)
-    token = create_session_token()
-    response.set_cookie(
-        AUTH_COOKIE_NAME,
-        token,
-        max_age=AUTH_SESSION_TTL_SECONDS,
-        httponly=True,
-        secure=AUTH_COOKIE_SECURE,
-        samesite="lax",
-    )
-    return {"status": "OK", "expires_in": AUTH_SESSION_TTL_SECONDS}
-
-
-@router.post("/api/auth/logout")
-async def logout(request: Request, response: Response):
-    revoke_session_token(request_session_token(request))
-    response.delete_cookie(AUTH_COOKIE_NAME, httponly=True, secure=AUTH_COOKIE_SECURE, samesite="lax")
-    return {"status": "OK"}
-
-
-@router.get("/api/auth/check")
-async def check_login():
-    return {"status": "OK"}
-
-
 @router.get("/api/models")
 async def available_models():
     return model_catalog()
@@ -164,15 +115,18 @@ async def read_session_workspace(job_id: str):
 
 @router.post("/api/sessions")
 async def start_session(
+    request: Request,
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     prompt: str = Form(""),
     provider: str = Form(DEFAULT_PROVIDER),
     model_name: str | None = Form(None)
 ):
+    user = require_verified_user(request)
     provider, model_name = validate_provider_model(provider, model_name)
     job_id = str(uuid.uuid4())
-    report_paths = ReportPaths.for_new_report(job_id).ensure()
+    # Files go under the owner's folder; Phase 3 restricts access to the owner.
+    report_paths = ReportPaths.for_new_report(job_id, str(user.id)).ensure()
     session_files = await run_in_threadpool(save_uploaded_files, files, report_paths.uploads)
     now = datetime.now(timezone.utc).isoformat()
     user_prompt = (prompt or "").strip()
@@ -205,8 +159,8 @@ async def start_session(
         "retry_count": 0,
         "explore_history": [],
         **report_paths.session_fields(),
-    })
-    
+    }, owner_id=user.id)
+
     background_tasks.add_task(run_job, run_pipeline, job_id)
     return {"job_id": job_id}
 

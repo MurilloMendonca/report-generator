@@ -64,19 +64,31 @@ const App = {
     },
 
     async ensureAuthenticated() {
-        const loginGate = document.getElementById('login-gate');
-        const appShell = document.getElementById('app-shell');
-
         try {
-            await API.checkLogin();
-            loginGate.style.display = 'none';
-            appShell.style.display = 'flex';
-            return true;
+            this.user = await API.me();
         } catch (error) {
-            appShell.style.display = 'none';
-            loginGate.style.display = 'flex';
+            API.redirectToLogin();
             return false;
         }
+        document.getElementById('app-shell').style.display = 'flex';
+        Utils.setupAccountBar(this.user);
+        this.renderVerifyBanner();
+        return true;
+    },
+
+    renderVerifyBanner() {
+        const banner = document.getElementById('verify-banner');
+        if (!banner) return;
+        banner.hidden = Boolean(this.user?.email_verified);
+        document.getElementById('verify-email-address').textContent = this.user?.email || '';
+        document.getElementById('resend-verification-btn').onclick = async () => {
+            const status = document.getElementById('verify-banner-status');
+            try {
+                status.textContent = (await API.resendVerification()).message || 'Link enviado.';
+            } catch (error) {
+                status.textContent = error.message;
+            }
+        };
     },
 
     getSessionIdFromUrl() {
@@ -191,7 +203,6 @@ const App = {
     },
 
     setupEventListeners() {
-        document.getElementById('login-form').onsubmit = (e) => this.handleLogin(e);
         document.getElementById('upload-form').onsubmit = (e) => this.handleStartSession(e);
         document.getElementById('chat-form').onsubmit = (e) => this.handleChat(e);
         document.getElementById('explore-form').onsubmit = (e) => this.handleExplore(e);
@@ -392,27 +403,6 @@ const App = {
             const files = event.dataTransfer.files;
             if (files && files.length) this.uploadFiles(files).catch(error => this.showNotice(error.message));
         });
-    },
-
-    async handleLogin(e) {
-        e.preventDefault();
-        const input = document.getElementById('access-secret');
-        const errorEl = document.getElementById('login-error');
-        errorEl.textContent = '';
-
-        try {
-            await API.login(input.value);
-            input.value = '';
-            await this.ensureAuthenticated();
-            await this.loadModels();
-            this.updateModels();
-            await this.loadComponentLibrary();
-            await this.loadLayoutTemplates();
-            await this.loadRecentSessions();
-            await this.loadSessionFromUrl();
-        } catch (error) {
-            errorEl.textContent = error.message || 'Não foi possível entrar.';
-        }
     },
 
     async handleStartSession(e) {

@@ -1,6 +1,6 @@
 # Plan: User Accounts and Bring-Your-Own-Key
 
-Status: Phases 0 and 1 done · Date: 2026-10-18
+Status: Phases 0–2 done · Date: 2026-10-18
 
 This plan moves the app from a single shared access secret with server-owned provider keys to:
 
@@ -517,6 +517,18 @@ Goal: get the risky refactors in while there's still one user.
 **Done when:** the app runs on Postgres with the same features and all tests pass, and an imported legacy workspace renders its old reports.
 
 ### Phase 2 — Accounts and sign-in (L)
+
+**Status (2026-10-18): done.** Notes and differences:
+- **Sign-up ships closed** (`PDF_REPORT_SIGNUP_MODE=closed`). Until Phase 3, every account sees every report, and until Phase 4 they use the server's provider keys, so open it only after both. Accounts come from `python -m app.cli create-admin` / `create-user` meanwhile.
+- **Email links carry the token in the URL fragment** (`/verify-email#token=...`) and the page POSTs it. Mail scanners that prefetch links can't use them up, and tokens never reach server or Cloudflare logs.
+- **Sign-up doesn't sign you in.** Doing so would reveal whether the email was new. The page says to check the inbox, then sign in (unverified accounts can sign in but not create reports).
+- **Repeated failed logins on one account add a growing delay** (2 s doubling to 15 min after the fourth failure), not a lock. Turnstile is required from the first failure on.
+- A new email link cancels older unused links of the same kind.
+- `/api/admin/*` needs `role = 'admin'`; there is no admin page yet (Phase 6).
+- **New reports already get `owner_id` and live in `tenants/{user_id}/`** (part of Phase 3 step 2). The access checks are still Phase 3. `python -m app.cli assign-unowned --owner ...` assigns reports created before accounts existed.
+- `X-Access-Token` is gone; API clients will get personal access tokens later (Section 11).
+- The demo account gets a password from `create-demo-user` (when it has none) or `set-password`.
+- Email texts are plain text in Portuguese with a short English summary (`app/templates/email/`).
 
 1. Tables `users`, `auth_sessions`, `email_tokens`, `audit_events`.
 2. `app/services/auth_service.py`:

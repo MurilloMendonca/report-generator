@@ -37,5 +37,18 @@ const Utils = {
 
     formatJson(obj) {
         return JSON.stringify(obj, null, 2);
+    },
+
+    // Fills the sidebar account bar (name, "Sair") shared by the workspace pages.
+    setupAccountBar(user) {
+        const name = document.getElementById('account-name');
+        if (name) name.textContent = user?.display_name || user?.email || '';
+        const logout = document.getElementById('logout-btn');
+        if (logout) {
+            logout.onclick = async () => {
+                try { await API.logout(); } catch (error) { /* already signed out */ }
+                window.location.assign('/login');
+            };
+        }
     }
 };

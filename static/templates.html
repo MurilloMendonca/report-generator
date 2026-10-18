@@ -7,24 +7,16 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body class="template-editor-body">
-    <div id="login-gate" class="login-gate">
-        <form id="login-form" class="login-panel">
-            <h1>Templates de Layout</h1>
-            <p>Informe o segredo de acesso para continuar.</p>
-            <div class="form-group">
-                <label>Segredo:</label>
-                <input type="password" id="access-secret" autocomplete="current-password" required>
-            </div>
-            <button type="submit" class="btn" style="width: 100%;">Entrar</button>
-            <div id="login-error" class="login-error"></div>
-        </form>
-    </div>
-
     <div id="app-shell" class="app-shell" style="display:none">
     <aside class="template-panel">
         <div class="template-panel-header">
             <h2>Templates de layout</h2>
             <a href="/" class="btn btn-outline">Estúdio de Relatórios</a>
+        </div>
+        <div class="account-bar">
+            <span id="account-name" class="account-name"></span>
+            <a href="/account" class="account-link">Conta</a>
+            <button type="button" id="logout-btn" class="account-link account-logout">Sair</button>
         </div>
 
         <div class="form-group">

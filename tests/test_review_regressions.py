@@ -219,26 +219,26 @@ class LlmReliabilityRegressionTests(unittest.TestCase):
 class ApiRegressionTests(unittest.TestCase):
     def test_http_authentication_and_provider_default_model(self):
         from fastapi.testclient import TestClient
+        from tests.auth_helpers import TEST_PASSWORD, csrf_headers, make_user
+        user = make_user()
         with TestClient(main.app) as client:
             self.assertEqual(client.get("/api/models").status_code, 401)
-            self.assertEqual(client.post("/api/auth/login", json={"secret": []}).status_code, 401)
-            self.assertEqual(client.post("/api/auth/login", json={"secret": security.APP_ACCESS_SECRET}).status_code, 200)
-            catalog = client.get("/api/models").json()
+            anonymous = csrf_headers()
+            self.assertEqual(client.post("/api/auth/login", json={"email": user.email, "password": []}, headers=anonymous).status_code, 422)
+            login = client.post("/api/auth/login", json={"email": user.email, "password": TEST_PASSWORD}, headers=anonymous)
+            self.assertEqual(login.status_code, 200, login.text)
+            token = login.cookies.get("pdf_report_session")
+            headers = {"Cookie": f"pdf_report_session={token}; {anonymous['Cookie']}", "X-CSRF-Token": anonymous["X-CSRF-Token"]}
+            catalog = client.get("/api/models", headers=headers).json()
             self.assertEqual(catalog["default_model"], "deepseek-flash")
             with patch.object(api, "save_uploaded_files", return_value=[]), \
                  patch.object(api, "create_session") as create, patch.object(api, "run_pipeline"):
-                response = client.post("/api/sessions", data={"provider": "gemini"}, files={"files": ("data.csv", b"a\n1\n", "text/csv")})
+                response = client.post("/api/sessions", data={"provider": "gemini"}, files={"files": ("data.csv", b"a\n1\n", "text/csv")}, headers=headers)
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(create.call_args.args[1]["model_name"], "gemini-3.8-flash")
-            self.assertEqual(client.post("/api/auth/logout").status_code, 200)
-            self.assertEqual(client.get("/api/models").status_code, 401)
-
-    def test_bad_login_types_and_future_tokens_are_rejected(self):
-        for value in (1, {}, [], None, "não é a senha"):
-            self.assertFalse(security.is_valid_access_token(value))
-        payload = f"{int(time.time()) + 3600}.nonce"
-        token = base64.urlsafe_b64encode(f"{payload}.{security._sign_session_payload(payload)}".encode()).decode()
-        self.assertFalse(security.is_valid_session_token(token))
+            self.assertEqual(create.call_args.kwargs["owner_id"], user.id)
+            self.assertEqual(client.post("/api/auth/logout", headers=headers).status_code, 200)
+            self.assertEqual(client.get("/api/models", headers=headers).status_code, 401)
 
     def test_upload_batch_failure_cleans_all_new_files(self):
         import io

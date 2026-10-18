@@ -11,7 +11,11 @@ services:
       - .env
     environment:
       APP_ENV: ${APP_ENV:-production}
-      APP_ACCESS_SECRET: ${APP_ACCESS_SECRET:?APP_ACCESS_SECRET must be configured}
+      # Links in emails point here.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://repgen.gengardev.com.br}
+      # `closed`: accounts only via `python -m app.cli create-user`. Switch to
+      # `open` once report ownership (Phase 3) and user keys (Phase 4) are in.
+      PDF_REPORT_SIGNUP_MODE: ${PDF_REPORT_SIGNUP_MODE:-closed}
       # Set to 0 only when serving over plain HTTP on a non-localhost address.
       PDF_REPORT_COOKIE_SECURE: ${PDF_REPORT_COOKIE_SECURE:-1}
       PORT: 8000

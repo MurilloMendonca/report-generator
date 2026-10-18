@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conta · Report Generator</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="account-body">
+    <main id="app-shell" class="account-page" style="display:none">
+        <header class="account-header">
+            <h1>Sua conta</h1>
+            <a href="/" class="btn btn-outline">Estúdio de Relatórios</a>
+        </header>
+        <div id="account-notice" class="auth-message" role="status" hidden></div>
+
+        <section class="account-section">
+            <h2>Perfil</h2>
+            <p>Email: <b id="profile-email"></b> <span id="profile-verified" class="badge"></span></p>
+            <p id="profile-unverified" hidden>
+                Confirme seu email para criar relatórios.
+                <button type="button" id="resend-btn" class="btn btn-outline btn-small">Reenviar link</button>
+            </p>
+            <form id="profile-form" class="account-form">
+                <div class="form-group">
+                    <label for="profile-name">Nome</label>
+                    <input type="text" id="profile-name" maxlength="100" autocomplete="name">
+                </div>
+                <button type="submit" class="btn">Salvar</button>
+            </form>
+        </section>
+
+        <section class="account-section">
+            <h2>Senha</h2>
+            <form id="password-form" class="account-form">
+                <div class="form-group">
+                    <label for="current-password">Senha atual</label>
+                    <input type="password" id="current-password" autocomplete="current-password" required maxlength="256">
+                </div>
+                <div class="form-group">
+                    <label for="new-password">Nova senha (pelo menos 12 caracteres)</label>
+                    <input type="password" id="new-password" autocomplete="new-password" required minlength="12" maxlength="256">
+                </div>
+                <div class="form-group">
+                    <label for="confirm-password">Repita a nova senha</label>
+                    <input type="password" id="confirm-password" autocomplete="new-password" required maxlength="256">
+                </div>
+                <button type="submit" class="btn">Alterar senha</button>
+            </form>
+        </section>
+
+        <section class="account-section">
+            <h2>Email</h2>
+            <form id="email-form" class="account-form">
+                <div class="form-group">
+                    <label for="new-email">Novo email</label>
+                    <input type="email" id="new-email" autocomplete="email" required maxlength="320">
+                </div>
+                <div class="form-group">
+                    <label for="email-password">Senha atual</label>
+                    <input type="password" id="email-password" autocomplete="current-password" required maxlength="256">
+                </div>
+                <button type="submit" class="btn">Enviar link de confirmação</button>
+            </form>
+        </section>
+
+        <section class="account-section">
+            <h2>Dispositivos conectados</h2>
+            <ul id="session-list" class="session-list"></ul>
+            <button type="button" id="logout-all-btn" class="btn btn-outline">Sair de todos os dispositivos</button>
+            <button type="button" id="logout-btn" class="btn btn-outline">Sair</button>
+        </section>
+    </main>
+
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/account.js"></script>
+</body>
+</html>

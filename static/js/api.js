@@ -20,6 +20,7 @@ const API = {
             const error = new Error(res.status === 401 ? 'Sua sessão expirou. Entre novamente para continuar.' : detail);
             error.status = res.status;
             error.details = details;
+            if (res.status === 401) this.redirectToLogin();
             throw error;
         }
         return res;
@@ -30,19 +31,33 @@ const API = {
         return await res.json();
     },
 
-    authHeaders(extra = {}) {
-        return extra;
+    // Double-submit CSRF: the server sets a readable csrf_token cookie, and every
+    // request echoes it in X-CSRF-Token.
+    csrfToken() {
+        const cookies = (typeof document !== 'undefined' && typeof document.cookie === 'string') ? document.cookie : '';
+        const match = cookies.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
     },
 
-    async login(secret) {
-        const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ secret })
-        });
-        if (res.status === 429) throw new Error('Muitas tentativas de acesso. Aguarde alguns minutos e tente novamente.');
-        if (!res.ok) throw new Error('Segredo de acesso inválido');
-        return await res.json();
+    authHeaders(extra = {}) {
+        const token = this.csrfToken();
+        return token ? { ...extra, 'X-CSRF-Token': token } : extra;
+    },
+
+    redirectToLogin() {
+        const location = typeof window !== 'undefined' ? window.location : null;
+        if (!location || typeof location.assign !== 'function' || location.pathname === '/login') return;
+        location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
+    },
+
+    async me() {
+        const res = await fetch('/api/auth/me', { headers: this.authHeaders() });
+        if (!res.ok) {
+            const error = new Error('Não autorizado');
+            error.status = res.status;
+            throw error;
+        }
+        return (await res.json()).user;
     },
 
     async logout() {
@@ -53,10 +68,9 @@ const API = {
         return await this.parseResponse(res, 'Não foi possível sair');
     },
 
-    async checkLogin() {
-        const res = await fetch('/api/auth/check', { headers: this.authHeaders() });
-        if (!res.ok) throw new Error('Não autorizado');
-        return await res.json();
+    async resendVerification() {
+        const res = await fetch('/api/auth/resend-verification', { method: 'POST', headers: this.authHeaders() });
+        return await this.parseResponse(res, 'Não foi possível reenviar o link');
     },
 
     async startSession(formData) {

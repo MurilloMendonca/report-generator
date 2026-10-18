@@ -169,6 +169,8 @@ def cleanup_expired_artifacts(policy: RetentionPolicy = None) -> dict:
                 if safe_remove_path(path):
                     stats["files_removed"] += 1
 
+    from app.services.auth_service import purge_expired
+    stats["auth"] = purge_expired()
     return stats
 
 def get_workspace_usage() -> dict:

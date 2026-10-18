@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app import main
-from app.security import create_session_token
+from tests.auth_helpers import signed_in_headers
 from app.services import exploration_service as explorer
 from app.services.cleanup_service import delete_entire_session, get_session_generated_paths
 from app.services.llm.errors import LLMBudgetError, LLMTimeoutError
@@ -57,7 +57,7 @@ class ExplorerChartTests(unittest.TestCase):
         self.job_ids = []
         self.client = TestClient(main.app)
         self.addCleanup(self.client.close)
-        self.headers = {"x-access-token": create_session_token()}
+        self.headers = signed_in_headers()
         guard = patch("app.services.llm.client.call_llm", side_effect=AssertionError("No live providers in tests"))
         guard.start()
         self.addCleanup(guard.stop)

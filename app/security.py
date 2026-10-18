@@ -1,188 +1,123 @@
-"""Access control: shared-secret login, signed session tokens, revocation and headers."""
-import base64
-import hashlib
+"""Request security: session cookies, CSRF, the signed-in user, client IPs and headers.
+
+Accounts and sessions themselves live in app/services/auth_service.py.
+"""
 import hmac
 import ipaddress
-import logging
 import os
+import secrets
 import socket
-import threading
 import time
-import uuid
-from collections import defaultdict, deque
-from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from fastapi import HTTPException, Request, Response
-from sqlalchemy import delete, func, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app import db
-from app.models.db import RevokedToken
-
-# Load .env before reading secrets; this module is imported before the LLM client.
 load_dotenv()
 
-logger = logging.getLogger(__name__)
-
-APP_ACCESS_SECRET = os.getenv("APP_ACCESS_SECRET") or os.getenv("PDF_REPORT_ACCESS_SECRET") or "change-me"
-APP_ADMIN_SECRET = os.getenv("APP_ADMIN_SECRET", "")
 APP_ENV = os.getenv("APP_ENV", "development").lower()
-DEV_ENVIRONMENTS = {"development", "dev", "local", "test"}
-IS_DEV_ENV = APP_ENV in DEV_ENVIRONMENTS
-ALLOW_DEFAULT_SECRET = IS_DEV_ENV or os.getenv("PDF_REPORT_ALLOW_DEFAULT_SECRET") == "1"
-AUTH_COOKIE_NAME = "pdf_report_session"
-AUTH_SESSION_TTL_SECONDS = int(os.getenv("PDF_REPORT_SESSION_TTL_SECONDS", str(8 * 60 * 60)))
-AUTH_COOKIE_SECURE = os.getenv("PDF_REPORT_COOKIE_SECURE", "0" if IS_DEV_ENV else "1") == "1"
-LOGIN_MAX_FAILURES = int(os.getenv("PDF_REPORT_LOGIN_MAX_FAILURES", "10"))
-LOGIN_WINDOW_SECONDS = int(os.getenv("PDF_REPORT_LOGIN_WINDOW_SECONDS", "300"))
-PUBLIC_API_PATHS = {"/api/auth/login"}
+IS_DEV_ENV = APP_ENV in {"development", "dev", "local", "test"}
+SESSION_COOKIE = "pdf_report_session"
+CSRF_COOKIE = "csrf_token"
+CSRF_HEADER = "x-csrf-token"
+COOKIE_SECURE = os.getenv("PDF_REPORT_COOKIE_SECURE", "0" if IS_DEV_ENV else "1") == "1"
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
-if APP_ACCESS_SECRET == "change-me" and not ALLOW_DEFAULT_SECRET:
-    raise RuntimeError("APP_ACCESS_SECRET or PDF_REPORT_ACCESS_SECRET must be configured outside development mode.")
+# Reachable without signing in. Every other /api/ path needs a session.
+PUBLIC_API_PATHS = {
+    "/api/auth/config",
+    "/api/auth/login",
+    "/api/auth/signup",
+    "/api/auth/verify-email",
+    "/api/auth/forgot-password",
+    "/api/auth/reset-password",
+    "/api/auth/confirm-email",
+}
 
+TURNSTILE_ORIGIN = "https://challenges.cloudflare.com"
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
     "base-uri 'self'; "
     "object-src 'none'; "
     "frame-ancestors 'self'; "
     "form-action 'self'; "
-    "script-src 'self'; "
+    f"script-src 'self' {TURNSTILE_ORIGIN}; "
     "style-src 'self' 'unsafe-inline'; "
     "font-src 'self' data:; "
     "img-src 'self' blob: data:; "
-    "frame-src 'self' blob:; "
+    f"frame-src 'self' blob: {TURNSTILE_ORIGIN}; "
     "connect-src 'self'"
 )
 
 
-def is_valid_access_token(token: str) -> bool:
-    return isinstance(token, str) and bool(token) and hmac.compare_digest(token.encode("utf-8"), APP_ACCESS_SECRET.encode("utf-8"))
+def signup_open() -> bool:
+    """PDF_REPORT_SIGNUP_MODE=open lets anyone create an account; `closed` (default)
+    means accounts only come from `python -m app.cli create-user`."""
+    return os.getenv("PDF_REPORT_SIGNUP_MODE", "closed").strip().lower() == "open"
 
 
-def _sign_session_payload(payload: str) -> str:
-    return hmac.new(APP_ACCESS_SECRET.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+# --- Cookies and CSRF ------------------------------------------------------------
+
+def set_session_cookie(response: Response, token: str, max_age_seconds: int) -> None:
+    response.set_cookie(
+        SESSION_COOKIE, token, max_age=max_age_seconds, httponly=True,
+        secure=COOKIE_SECURE, samesite="lax", path="/",
+    )
 
 
-def create_session_token() -> str:
-    issued_at = str(int(time.time()))
-    nonce = uuid.uuid4().hex
-    payload = f"{issued_at}.{nonce}"
-    signature = _sign_session_payload(payload)
-    raw_token = f"{payload}.{signature}".encode("utf-8")
-    return base64.urlsafe_b64encode(raw_token).decode("ascii")
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(SESSION_COOKIE, httponly=True, secure=COOKIE_SECURE, samesite="lax", path="/")
 
 
-def _decode_session_token(token: str) -> tuple[int, str] | None:
-    """Return (issued_at, nonce) for a correctly signed, unexpired token."""
-    if not token:
-        return None
-    try:
-        decoded = base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8")
-        issued_at, nonce, signature = decoded.split(".", 2)
-        if not issued_at.isdigit() or not nonce:
-            return None
-        age = int(time.time()) - int(issued_at)
-        if age < 0 or age > AUTH_SESSION_TTL_SECONDS:
-            return None
-        expected = _sign_session_payload(f"{issued_at}.{nonce}")
-        if not hmac.compare_digest(signature, expected):
-            return None
-        return int(issued_at), nonce
-    except Exception:
-        return None
+def ensure_csrf_cookie(request: Request, response: Response) -> None:
+    """Double-submit CSRF: a readable cookie that scripts echo in X-CSRF-Token."""
+    already_set = any(value.startswith(f"{CSRF_COOKIE}=") for value in response.headers.getlist("set-cookie"))
+    if not request.cookies.get(CSRF_COOKIE) and not already_set:
+        response.set_cookie(
+            CSRF_COOKIE, secrets.token_urlsafe(32), max_age=60 * 60 * 24 * 365,
+            httponly=False, secure=COOKIE_SECURE, samesite="lax", path="/",
+        )
 
 
-class RevokedTokenStore:
-    """Nonces of logged-out tokens, kept until the token would have expired anyway.
-    Stored in Postgres so every process and restart sees them. Phase 2 replaces
-    the signed tokens with server-side sessions and drops this table."""
-
-    def revoke(self, nonce: str, expires_at: float) -> None:
-        expires = datetime.fromtimestamp(expires_at, timezone.utc)
-        try:
-            with db.transaction() as tx:
-                tx.execute(delete(RevokedToken).where(RevokedToken.expires_at <= func.now()))
-                statement = pg_insert(RevokedToken).values(nonce=nonce, expires_at=expires)
-                tx.execute(statement.on_conflict_do_update(index_elements=[RevokedToken.nonce], set_={"expires_at": expires}))
-        except Exception:
-            logger.exception("Could not persist revoked session token")
-
-    def is_revoked(self, nonce: str) -> bool:
-        with db.transaction() as tx:
-            return tx.execute(
-                select(RevokedToken.nonce).where(RevokedToken.nonce == nonce, RevokedToken.expires_at > func.now())
-            ).first() is not None
-
-    def reset(self) -> None:
-        """Nothing is cached in memory; kept so callers can simulate a restart."""
+def csrf_ok(request: Request) -> bool:
+    if request.method in SAFE_METHODS:
+        return True
+    cookie = request.cookies.get(CSRF_COOKIE, "")
+    header = request.headers.get(CSRF_HEADER, "")
+    return bool(cookie) and len(cookie) <= 200 and hmac.compare_digest(cookie.encode(), header.encode())
 
 
-revoked_tokens = RevokedTokenStore()
+# --- The signed-in user ------------------------------------------------------------
+
+def current_user(request: Request):
+    """The signed-in user (set by the middleware in app/main.py). 401 when absent."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return user
 
 
-def is_valid_session_token(token: str) -> bool:
-    decoded = _decode_session_token(token)
-    return decoded is not None and not revoked_tokens.is_revoked(decoded[1])
+def current_auth_session(request: Request):
+    return getattr(request.state, "auth_session", None)
 
 
-def revoke_session_token(token: str) -> bool:
-    decoded = _decode_session_token(token)
-    if decoded is None:
-        return False
-    issued_at, nonce = decoded
-    revoked_tokens.revoke(nonce, issued_at + AUTH_SESSION_TTL_SECONDS)
-    return True
+def require_verified_user(request: Request):
+    user = current_user(request)
+    if user.email_verified_at is None:
+        raise HTTPException(status_code=403, detail={
+            "code": "email_not_verified",
+            "message": "Confirme seu email antes de criar relatórios. Verifique sua caixa de entrada.",
+        })
+    return user
 
 
-def request_session_token(request: Request) -> str:
-    return request.cookies.get(AUTH_COOKIE_NAME, "") or request.headers.get("x-access-token", "")
+def require_admin(request: Request):
+    user = current_user(request)
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return user
 
 
-def request_has_valid_auth(request: Request) -> bool:
-    cookie_token = request.cookies.get(AUTH_COOKIE_NAME, "")
-    header_token = request.headers.get("x-access-token", "")
-    return is_valid_session_token(cookie_token) or is_valid_session_token(header_token)
-
-
-class LoginRateLimiter:
-    """Sliding-window limit on failed logins per client address."""
-
-    def __init__(self, max_failures: int, window_seconds: int):
-        self.max_failures = max_failures
-        self.window_seconds = window_seconds
-        self._failures: dict[str, deque] = defaultdict(deque)
-        self._lock = threading.Lock()
-
-    def _recent(self, key: str, now: float) -> deque:
-        failures = self._failures[key]
-        while failures and failures[0] <= now - self.window_seconds:
-            failures.popleft()
-        return failures
-
-    def retry_after(self, key: str) -> int:
-        """Seconds until the client may try again, or 0 when not blocked."""
-        now = time.time()
-        with self._lock:
-            failures = self._recent(key, now)
-            if len(failures) < self.max_failures:
-                return 0
-            return max(1, int(failures[0] + self.window_seconds - now) + 1)
-
-    def record_failure(self, key: str) -> None:
-        with self._lock:
-            self._failures[key].append(time.time())
-
-    def reset(self, key: str | None = None) -> None:
-        with self._lock:
-            if key is None:
-                self._failures.clear()
-            else:
-                self._failures.pop(key, None)
-
-
-login_rate_limiter = LoginRateLimiter(LOGIN_MAX_FAILURES, LOGIN_WINDOW_SECONDS)
-
+# --- Client IP ------------------------------------------------------------------------
 
 CLIENT_IP_HEADER = os.getenv("PDF_REPORT_CLIENT_IP_HEADER", "").strip()
 TRUSTED_PROXIES = [entry.strip() for entry in os.getenv("PDF_REPORT_TRUSTED_PROXIES", "").split(",") if entry.strip()]
@@ -234,17 +169,6 @@ def client_key(request: Request | None) -> str:
         except ValueError:
             pass
     return peer or "unknown"
-
-
-def require_admin(request: Request) -> None:
-    """Admin endpoints need APP_ADMIN_SECRET; without it they only work in development."""
-    if APP_ADMIN_SECRET:
-        supplied = request.headers.get("x-admin-secret", "")
-        if not supplied or not hmac.compare_digest(supplied.encode("utf-8"), APP_ADMIN_SECRET.encode("utf-8")):
-            raise HTTPException(status_code=403, detail="Admin secret required")
-        return
-    if not IS_DEV_ENV:
-        raise HTTPException(status_code=403, detail="Admin endpoints are disabled; configure APP_ADMIN_SECRET")
 
 
 PRIVATE_PATH_PREFIXES = ("/api/", "/session/")

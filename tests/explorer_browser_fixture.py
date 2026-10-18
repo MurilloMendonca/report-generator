@@ -8,7 +8,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.security import create_session_token
+from app.services import auth_service
 from app.services.cleanup_service import delete_entire_session
 from app.services.exploration_service import ExplorationError, run_exploration
 from app.services.session_manager import create_session
@@ -44,7 +44,8 @@ def main():
                 "columns": [{"name": "region", "type": "object"}, {"name": "revenue", "type": "int64"}],
             }}],
         })
-        print(json.dumps({"job_id": job_id, "token": create_session_token()}))
+        user = auth_service.create_user(f"{job_id}@example.com", uuid.uuid4().hex * 2, verified=True)
+        print(json.dumps({"job_id": job_id, "token": auth_service.start_session(user)}))
         return
     job_id = sys.argv[2]
     if not re.fullmatch(r"browser-explorer-[0-9a-f]{32}", job_id):

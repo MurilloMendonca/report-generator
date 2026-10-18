@@ -1,9 +1,9 @@
-"""Database tables (plan section 4). Phase 2 adds the auth tables."""
+"""Database tables (plan section 4)."""
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, Text, func, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Identity, Index, Integer, LargeBinary, Text, func, text
+from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -21,7 +21,7 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # Stored lowercased; the unique index makes addresses case-insensitive.
     email: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
-    password_hash: Mapped[str | None] = mapped_column(Text)  # set in Phase 2
+    password_hash: Mapped[str | None] = mapped_column(Text)  # argon2id; NULL means no password login
     display_name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     role: Mapped[str] = mapped_column(Text, nullable=False, server_default="user")
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="active")
@@ -69,10 +69,48 @@ class LayoutTemplate(Base):
     updated_at: Mapped[datetime] = _created()
 
 
-class RevokedToken(Base):
-    """Logged-out session tokens. Replaced by server-side sessions in Phase 2."""
+class AuthSession(Base):
+    """A signed-in browser. Only the SHA-256 of the cookie token is stored."""
 
-    __tablename__ = "revoked_tokens"
+    __tablename__ = "auth_sessions"
 
-    nonce: Mapped[str] = mapped_column(Text, primary_key=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, unique=True)
+    created_at: Mapped[datetime] = _created()
+    last_seen_at: Mapped[datetime] = _created()
+    idle_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    absolute_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ip: Mapped[str | None] = mapped_column(INET)
+    user_agent: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+
+
+class EmailToken(Base):
+    """Single-use links sent by email: verify_email, reset_password, change_email."""
+
+    __tablename__ = "email_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, unique=True)
+    new_email: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created()
+
+
+class AuditEvent(Base):
+    """Security-relevant events. Kept (with user_id NULL) after an account is deleted."""
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    event: Mapped[str] = mapped_column(Text, nullable=False)
+    ip: Mapped[str | None] = mapped_column(INET)
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_audit_events_user_created", "user_id", "created_at"),)
