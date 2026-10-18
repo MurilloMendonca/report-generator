@@ -7,6 +7,7 @@ from app.utils.component_library import (
     normalize_visual_options,
 )
 from app.utils.component_renderers import supports_library_renderer
+from app.utils.tabular import metadata_tables
 
 VISUAL_TYPES = {"graphic", "bar", "line", "pie", "scatter", "table", "chart", "radial", "donut", "gauge"}
 ALLOWED_TYPES = VISUAL_TYPES | {"metric", "text"}
@@ -23,7 +24,7 @@ def safe_artifact_id(value: str, fallback: str) -> str:
 
 def metadata_columns(metadata_items: list) -> dict:
     available = {}
-    for item in metadata_items or []:
+    for item in metadata_tables(metadata_items):
         filename = item.get("filename", "")
         for column in item.get("columns", []) or []:
             name = column.get("name")
@@ -36,23 +37,17 @@ def metadata_columns(metadata_items: list) -> dict:
 
 def column_exists(reference: str, available: dict) -> bool:
     text = str(reference or "")
-    if ":" in text:
-        filename, column = text.split(":", 1)
-        if column in available.get(filename, set()):
-            return True
-        if column in available.get("*", set()):
-            return True
+    filename, column = split_column_reference(text)
+    if filename:
+        return column in available.get(filename, set())
     return text in available.get("*", set())
 
 
 def column_profile(reference: str, metadata_items: list) -> dict | None:
     text = str(reference or "")
-    filename = None
-    column_name = text
-    if ":" in text:
-        filename, column_name = text.split(":", 1)
+    filename, column_name = split_column_reference(text)
 
-    for item in metadata_items or []:
+    for item in metadata_tables(metadata_items):
         if filename and item.get("filename") != filename:
             continue
         for column in item.get("columns", []) or []:
@@ -63,16 +58,17 @@ def column_profile(reference: str, metadata_items: list) -> dict | None:
 
 def split_column_reference(reference: str) -> tuple[str | None, str]:
     text = str(reference or "").strip()
-    if ":" not in text:
+    parts = re.split(r"(?<!:):(?!:)", text, maxsplit=1)
+    if len(parts) == 1:
         return None, text
-    filename, column = text.split(":", 1)
+    filename, column = parts
     return filename or None, column
 
 
 def metadata_sources(metadata_items: list) -> set[str]:
     return {
         str(item.get("filename"))
-        for item in metadata_items or []
+        for item in metadata_tables(metadata_items)
         if item.get("filename")
     }
 
@@ -147,7 +143,7 @@ def normalize_binding_column(value: str, source: str | None = None) -> str:
 
 
 def binding_reference(source: str | None, column: str) -> str:
-    if source and ":" not in str(column):
+    if source and split_column_reference(column)[0] is None:
         return f"{source}:{column}"
     return str(column)
 

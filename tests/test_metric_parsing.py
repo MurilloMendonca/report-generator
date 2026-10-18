@@ -1,13 +1,8 @@
 import unittest
 
-from app.services.llm_service import (
-    chart_code_has_layout_risk,
-    estimate_text_block_capacity,
-    extract_json_objects,
-    normalize_metric_value,
-    text_layout_guidance,
-    visual_slot_guidance,
-)
+from app.services.llm.components import chart_code_has_layout_risk, visual_slot_guidance
+from app.services.llm.parsing import extract_json_objects, normalize_metric_value
+from app.services.llm.texts import estimate_text_block_capacity, text_layout_guidance
 
 
 class MetricParsingTests(unittest.TestCase):
@@ -34,6 +29,8 @@ class MetricParsingTests(unittest.TestCase):
     def test_normalizes_empty_or_error_values_to_na(self):
         self.assertEqual(normalize_metric_value({"Sales": "Error: bad column", "Ops": ""}), "N/A")
         self.assertEqual(normalize_metric_value([None, "", "N/A"]), "N/A")
+        for value in (float('inf'), float('-inf'), float('nan'), "NaN", "null", "error: failed"):
+            self.assertEqual(normalize_metric_value(value), "N/A")
 
     def test_keeps_compact_grouped_values(self):
         self.assertEqual(

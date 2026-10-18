@@ -46,7 +46,7 @@ class SessionSchemaTests(unittest.TestCase):
         self.assertEqual(session["job_id"], job_id)
         self.assertEqual(session["current_goal"], "Analisar vendas")
         self.assertEqual(session["provider"], "deepseek")
-        self.assertEqual(session["model_name"], "deepseek-v4-flash")
+        self.assertEqual(session["model_name"], "deepseek-flash")
         self.assertEqual(session["settings"]["alignment"], "J")
         self.assertEqual(session["settings"]["font"], "Arial")
         self.assertEqual(session["settings"]["visual_theme_id"], "executive_clean")

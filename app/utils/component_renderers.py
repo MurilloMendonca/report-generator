@@ -199,6 +199,10 @@ def sandbox_runtime_source() -> str:
         return [palette[i % len(palette)] for i in range(n)]
 
 
+    def _monochrome_charts():
+        return CHART_THEME.get('color_mode') == 'monochrome'
+
+
     def _apply_chart_theme(fig, ax=None, theme=None):
         theme = theme or CHART_THEME
         fig.patch.set_facecolor(theme.get('figure_facecolor', '#ffffff'))
@@ -436,6 +440,7 @@ def library_renderer_source() -> str:
             for key, dataframe in dataframes.items():
                 if os.path.basename(str(key)) == source_base:
                     return dataframe.copy()
+            raise ValueError(f'Data source not found: {source}')
         first = next(iter(dataframes.values()))
         return first.copy() if first is not None else pd.DataFrame()
 
@@ -454,7 +459,7 @@ def library_renderer_source() -> str:
     def _library_column_name(value):
         text = str(value or '').strip()
         if ':' in text:
-            text = text.split(':', 1)[1]
+            text = text.rsplit(':', 1)[1]
         return text
 
     def _library_label_map(options=None):
@@ -574,7 +579,7 @@ def library_renderer_source() -> str:
                 continue
             column = _library_resolve_column(result, item.get('column'))
             if not column:
-                continue
+                raise ValueError(f"Filter column not found: {item.get('column')}")
             op = str(item.get('operator') or item.get('op') or '==').lower()
             value = item.get('value')
             try:
@@ -593,9 +598,11 @@ def library_renderer_source() -> str:
                 elif op in {'in', 'isin'} and isinstance(value, (list, tuple, set)):
                     result = result[result[column].isin(value)]
                 elif op in {'contains'}:
-                    result = result[result[column].astype(str).str.contains(str(value), case=False, na=False)]
-            except Exception:
-                continue
+                    result = result[result[column].astype('str').str.contains(str(value), case=False, na=False, regex=False)]
+                else:
+                    raise ValueError(f'Unsupported filter operator or value: {op}')
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f'Could not apply filter on {column}: {exc}') from exc
         return result
 
     def _library_dataframe(dataframes, binding):
@@ -678,6 +685,7 @@ def library_renderer_source() -> str:
         orientation = str(options.get('orientation') or 'horizontal').lower()
         show_values = bool(options.get('show_values'))
         colors = _chart_colors(12)
+        single_color = options.get('bar_color') or options.get('color')
         fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
 
         if series_col:
@@ -691,6 +699,13 @@ def library_renderer_source() -> str:
             pivot = grouped.pivot_table(index=category_col, columns=series_col, values=value_col, aggfunc='sum', fill_value=0)
             pivot = pivot.reindex(categories)
             pivot.plot(kind='bar', ax=ax, color=_chart_colors(len(pivot.columns)))
+            if _monochrome_charts():
+                hatches = ('', '///', 'xxx', '...', '\\\\', '++')
+                for index, container in enumerate(ax.containers):
+                    for bar in container:
+                        bar.set_hatch(hatches[index % len(hatches)])
+                        bar.set_edgecolor('#111111')
+                        bar.set_linewidth(0.6)
             ax.set_xlabel('')
             ax.set_ylabel(measure_label)
             if len(str(category_col)) < 18:
@@ -699,20 +714,20 @@ def library_renderer_source() -> str:
             ax.tick_params(axis='x', rotation=30)
         else:
             grouped = _library_aggregate(df, [category_col], value_col, aggregation)
-            grouped = _library_limit_top(grouped, value_col, top_n, bool(options.get('aggregate_others')), category_col)
+            grouped = _library_limit_top(grouped, value_col, top_n, bool(options.get('aggregate_others')) and aggregation in {'sum', 'count'}, category_col)
             if grouped.empty:
                 _library_empty_chart(pdf, x, y, w, h, title)
                 return
             labels = [str(item)[:32] for item in grouped[category_col].fillna('')]
             values = grouped[value_col].fillna(0).tolist()
             if orientation == 'vertical':
-                bars = ax.bar(labels, values, color=colors[: len(values)])
+                bars = ax.bar(labels, values, color=single_color or colors[: len(values)])
                 ax.tick_params(axis='x', rotation=30)
                 ax.set_ylabel(measure_label)
                 if show_values:
                     ax.bar_label(bars, labels=[_format_compact_number(v) for v in values], padding=2, fontsize=CHART_LABEL_FONTSIZE)
             else:
-                bars = ax.barh(labels, values, color=colors[: len(values)])
+                bars = ax.barh(labels, values, color=single_color or colors[: len(values)])
                 ax.invert_yaxis()
                 ax.set_xlabel(measure_label)
                 if show_values:
@@ -766,6 +781,10 @@ def library_renderer_source() -> str:
             grouped = work.groupby([date_col, series_col], dropna=False)[value_col].agg(aggregation).reset_index()
             pivot = grouped.pivot_table(index=date_col, columns=series_col, values=value_col, aggfunc='sum').sort_index()
             pivot.plot(ax=ax, marker=marker, linewidth=1.8, color=_chart_colors(len(pivot.columns)))
+            if _monochrome_charts():
+                for index, line in enumerate(ax.lines):
+                    line.set_linestyle(('-', '--', '-.', ':')[index % 4])
+                    line.set_marker(('o', 's', '^', 'D', 'v', 'P')[index % 6])
             ax.legend(title=_library_display_label(series_col, options), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
         else:
             grouped = work.groupby(date_col, dropna=False)[value_col].agg(aggregation).reset_index().sort_values(date_col)
@@ -809,7 +828,11 @@ def library_renderer_source() -> str:
             colors = _chart_colors(len(categories))
             for index, category in enumerate(categories):
                 subset = work[work[color_col].astype(str) == category]
-                ax.scatter(subset[x_col], subset[y_col], s=24, alpha=0.72, color=colors[index], label=str(category)[:24])
+                marker = ('o', '^', 's', 'D', 'v', 'P', 'X', '*')[index % 8] if _monochrome_charts() else 'o'
+                ax.scatter(subset[x_col], subset[y_col], s=24, alpha=0.85 if _monochrome_charts() else 0.72,
+                           color=colors[index], marker=marker,
+                           edgecolors='#111111' if _monochrome_charts() else 'none',
+                           linewidths=0.4, label=str(category)[:24])
             ax.legend(loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
         else:
             ax.scatter(work[x_col], work[y_col], s=24, alpha=0.72, color=_chart_colors(1)[0])
@@ -817,7 +840,8 @@ def library_renderer_source() -> str:
             try:
                 coeffs = np.polyfit(work[x_col], work[y_col], 1)
                 xs = np.array([work[x_col].min(), work[x_col].max()])
-                ax.plot(xs, coeffs[0] * xs + coeffs[1], color=_chart_colors(2)[1], linewidth=1.3)
+                ax.plot(xs, coeffs[0] * xs + coeffs[1], color='#444444' if _monochrome_charts() else _chart_colors(2)[1],
+                        linestyle='--' if _monochrome_charts() else '-', linewidth=1.3)
             except Exception:
                 pass
         title_lines = _set_axis_chart_title(ax, title, w)
@@ -837,9 +861,9 @@ def library_renderer_source() -> str:
             return
         aggregation = options.get('aggregation') or 'sum'
         grouped = _library_aggregate(df, [category_col], value_col, aggregation)
-        if grouped.empty and str(aggregation or '').lower() != 'count':
-            grouped = _library_aggregate(df, [category_col], value_col, 'count')
-        grouped = _library_limit_top(grouped, value_col, options.get('top_n') or 5, bool(options.get('aggregate_others')), category_col)
+        if not grouped.empty and (grouped[value_col] < 0).any():
+            raise ValueError('Part-to-whole charts require non-negative values')
+        grouped = _library_limit_top(grouped, value_col, options.get('top_n') or 5, bool(options.get('aggregate_others')) and aggregation in {'sum', 'count'}, category_col)
         grouped = grouped[grouped[value_col] > 0]
         if grouped.empty:
             _library_empty_chart(pdf, x, y, w, h, title)
@@ -864,23 +888,33 @@ def library_renderer_source() -> str:
         if df.empty or not value_col:
             _library_empty_chart(pdf, x, y, w, h, title)
             return
-        actual = pd.to_numeric(df[value_col], errors='coerce').dropna().sum()
+        values = pd.to_numeric(df[value_col], errors='coerce').dropna()
+        if values.empty:
+            _library_empty_chart(pdf, x, y, w, h, title)
+            return
+        aggregation = str(options.get('aggregation') or 'sum').lower()
+        if aggregation not in {'sum', 'mean', 'median', 'min', 'max', 'count'}:
+            raise ValueError(f'Unsupported gauge aggregation: {aggregation}')
+        actual = values.agg(aggregation)
         if target_col:
-            maximum = pd.to_numeric(df[target_col], errors='coerce').dropna().sum()
+            maximum = pd.to_numeric(df[target_col], errors='coerce').sum(min_count=1)
         else:
-            maximum = options.get('target') or options.get('max_value') or max(actual, 1)
+            maximum = options.get('target', options.get('max_value'))
         try:
             maximum = float(maximum)
-        except Exception:
-            maximum = max(actual, 1)
-        ratio = 0 if maximum <= 0 else max(0, min(1, float(actual) / maximum))
+        except (TypeError, ValueError):
+            maximum = float('nan')
+        if not np.isfinite(maximum) or maximum <= 0 or not np.isfinite(actual):
+            _library_empty_chart(pdf, x, y, w, h, title, message='Meta ou valor indisponivel')
+            return
+        ratio = float(actual) / maximum
         from matplotlib.patches import Wedge
         fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
         ax.set_xlim(-1.2, 1.2)
         ax.set_ylim(-0.2, 1.2)
         ax.axis('off')
         ax.add_patch(Wedge((0, 0), 1, 0, 180, width=0.28, facecolor=CHART_THEME.get('grid_color', '#e5e7eb'), edgecolor='white'))
-        ax.add_patch(Wedge((0, 0), 1, 0, 180 * ratio, width=0.28, facecolor=_chart_colors(1)[0], edgecolor='white'))
+        ax.add_patch(Wedge((0, 0), 1, 0, 180 * max(0, min(1, ratio)), width=0.28, facecolor=_chart_colors(1)[0], edgecolor='white'))
         label = f"{ratio * 100:.0f}%" if options.get('show_center_value', True) else _format_compact_number(actual)
         ax.text(0, 0.2, label, ha='center', va='center', fontsize=max(11, CHART_TITLE_FONTSIZE + 4), fontweight='bold')
         ax.text(0, -0.04, _format_compact_number(actual), ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE, color=CHART_THEME.get('muted_text_color', '#6b7280'))
@@ -904,7 +938,8 @@ def library_renderer_source() -> str:
         if aggregation != 'count':
             for column in metric_cols:
                 work[column] = pd.to_numeric(work[column], errors='coerce')
-        grouped = work.groupby(dimension_cols, dropna=False)[metric_cols].agg(aggregation).reset_index()
+        groups = work.groupby(dimension_cols, dropna=False)[metric_cols]
+        grouped = (groups.sum(min_count=1) if aggregation == 'sum' else groups.agg(aggregation)).reset_index()
         first_metric = metric_cols[0]
         if first_metric in grouped.columns:
             grouped = grouped.sort_values(first_metric, ascending=not bool(options.get('sort_desc', True)))

@@ -8,10 +8,8 @@ from app.services.pipeline_service import (
     _advance_render_modes_after_failure,
     _apply_binding_warning_render_fallbacks,
     _failed_components_from_manifest,
-    is_visual_label_refinement,
     run_pipeline,
     run_script_generation,
-    should_consider_data_filter,
 )
 from app.services.session_manager import create_session, get_session, get_session_path, get_session_lock_path
 from app.utils.template_library import get_layout_template
@@ -35,15 +33,6 @@ class PipelineContractTests(unittest.TestCase):
         job_id = f"test-contract-{uuid.uuid4().hex}"
         self.job_ids.append(job_id)
         return job_id
-
-    def test_friendly_label_feedback_is_visual_not_data_preprocessing(self):
-        prompt = (
-            'Troque o nome das legendas dos gráficos por nomes mais amigáveis, '
-            'por exemplo base_stat_total por Total de Stats Base'
-        )
-
-        self.assertTrue(is_visual_label_refinement(prompt))
-        self.assertFalse(should_consider_data_filter(prompt))
 
     def test_binding_warning_advances_library_to_hybrid(self):
         artifacts = [{
@@ -189,7 +178,8 @@ class PipelineContractTests(unittest.TestCase):
                 f"    pdf.cell(w, 8, {component_id!r})"
             )
 
-        with patch("app.services.pipeline_service.generate_artifacts", return_value=artifacts), \
+        with patch("app.services.pipeline_service.generate_data_filter", return_value={"needs_preprocessing": False, "description": "", "code": ""}) as preprocessing, \
+             patch("app.services.pipeline_service.generate_artifacts", return_value=artifacts), \
              patch("app.services.pipeline_service.generate_report_title", return_value="Título Contrato"), \
              patch("app.services.pipeline_service.calculate_metric_value", return_value=123.45), \
              patch("app.services.pipeline_service.generate_template", return_value=template), \
@@ -199,9 +189,12 @@ class PipelineContractTests(unittest.TestCase):
              patch("app.services.pipeline_service.validate_report_plan", side_effect=lambda plan, *args, **kwargs: (plan, [])), \
              patch("app.services.pipeline_service.fit_artifacts_to_template", side_effect=lambda items, *_args, **_kwargs: items):
             run_pipeline(job_id)
+            run_pipeline(job_id)
+            preprocessing.assert_called_once()
 
         session = get_session(job_id)
         self.assertEqual(session["current_step"], "completed")
+        self.assertTrue(session["data_preprocessing"]["evaluated"])
         self.assertTrue(session["status"].startswith("Relatório concluído"))
         self.assertEqual(session["settings"]["title"], "Título Contrato")
         self.assertIn("t_summary", session["components"])

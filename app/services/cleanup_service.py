@@ -3,7 +3,7 @@ import shutil
 from datetime import datetime, timezone, timedelta
 from typing import TypedDict
 
-from app.services.session_manager import get_session, get_session_path, get_session_lock_path
+from app.services.session_manager import get_session, get_session_path, get_session_lock_path, is_valid_job_id
 
 class RetentionPolicy(TypedDict):
     sessions_days: int
@@ -62,7 +62,7 @@ def safe_remove_path(path: str):
 
 def _session_prefixes(job_id: str) -> tuple[str, ...]:
     return (
-        job_id,
+        f"{job_id}.",
         f"{job_id}_",
         f"{job_id}-",
         f"preprocess_{job_id}",
@@ -103,6 +103,8 @@ def get_session_generated_paths(job_id: str, session: dict) -> set[str]:
 
 def delete_entire_session(job_id: str) -> int:
     """Deletes a session and all its associated artifacts."""
+    if not is_valid_job_id(job_id):
+        return 0
     session = get_session(job_id)
     if not session:
         # Try to delete session files even if JSON is corrupted or missing.

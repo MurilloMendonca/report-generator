@@ -9,6 +9,7 @@ import textwrap
 import time
 import uuid
 import json
+import logging
 from pathlib import Path
 
 from app.utils.component_renderers import sandbox_runtime_source
@@ -21,6 +22,8 @@ FILTERED_DIR = WORKSPACE_DIR / "filtered"
 REPORTS_DIR = WORKSPACE_DIR / "reports"
 UPLOADS_DIR = WORKSPACE_DIR / "uploads"
 SANDBOX_SUPPORT_DIR = WORKSPACE_DIR / "sandbox_support"
+MAX_OUTPUT_FILE_BYTES = int(os.getenv("PDF_REPORT_SANDBOX_MAX_FILE_BYTES", str(200 * 1024 * 1024)))
+logger = logging.getLogger(__name__)
 SYSTEM_BIND_PATHS = [
     "/bin",
     "/etc",
@@ -159,6 +162,40 @@ def _guarded_os_open(path, flags, mode=0o777, *args, **kwargs):
 
 os.open = _guarded_os_open
 
+try:
+    import posix as _posix
+except ImportError:  # pragma: no cover - non-POSIX platforms
+    _posix = None
+if _posix is not None:
+    # os.open is an alias of posix.open; patch the low-level module too.
+    _posix.open = _guarded_os_open
+
+
+def _deny_process_call(*args, **kwargs):
+    _append_manifest("process", None, denied=True)
+    raise PermissionError("Sandbox denied process execution")
+
+
+_PROCESS_FUNCTIONS = (
+    "execl", "execle", "execlp", "execlpe", "execv", "execve", "execvp", "execvpe",
+    "fork", "forkpty", "posix_spawn", "posix_spawnp",
+    "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
+)
+for _module in (os, _posix):
+    if _module is None:
+        continue
+    for _name in _PROCESS_FUNCTIONS:
+        if hasattr(_module, _name):
+            setattr(_module, _name, _deny_process_call)
+    if hasattr(_module, "system"):
+        setattr(_module, "system", _deny_process_call)
+
+try:
+    import _posixsubprocess
+    _posixsubprocess.fork_exec = _deny_process_call
+except ImportError:  # pragma: no cover - non-POSIX platforms
+    pass
+
 
 def _deny_os_system(*args, **kwargs):
     _append_manifest("os.system", None, denied=True)
@@ -255,6 +292,10 @@ def _ensure_runtime_dirs() -> None:
         init_path.write_text(init_content, encoding="utf-8")
     if not runtime_path.exists() or runtime_path.read_text(encoding="utf-8") != runtime_content:
         runtime_path.write_text(runtime_content, encoding="utf-8")
+    loader_path = SANDBOX_SUPPORT_DIR / "pdf_report_data.py"
+    loader_source = (ROOT_DIR / "app" / "utils" / "tabular.py").read_text(encoding="utf-8")
+    if not loader_path.exists() or loader_path.read_text(encoding="utf-8") != loader_source:
+        loader_path.write_text(loader_source, encoding="utf-8")
 
 
 def _existing_paths(paths):
@@ -293,16 +334,33 @@ def _safe_env(tmp_dir: Path) -> dict:
     return {key: value for key, value in keep.items() if value}
 
 
-def _virtualenv_root() -> Path | None:
-    executable = Path(sys.executable).resolve()
-    for parent in executable.parents:
-        if (parent / "bin").exists() and parent.name not in {"bin", "Scripts"}:
-            return parent
-    return executable.parent.parent if executable.parent.parent.exists() else None
+def _is_under_system_path(path: Path) -> bool:
+    return any(path == Path(root) or path.is_relative_to(root) for root in SYSTEM_BIND_PATHS)
 
 
-def _bwrap_available() -> bool:
-    return shutil.which("bwrap") is not None
+def _python_runtime_roots() -> list[Path]:
+    """Directories the interpreter needs that are not already bound as system paths.
+
+    Uses sys.prefix rather than the resolved executable: a venv's bin/python is
+    usually a symlink into /usr, which would otherwise hide the venv itself.
+    """
+    candidates = [
+        sys.prefix,
+        sys.exec_prefix,
+        sys.base_prefix,
+        sys.base_exec_prefix,
+        os.path.dirname(os.path.realpath(sys.executable)),
+    ]
+    roots: list[Path] = []
+    for candidate in candidates:
+        path = Path(candidate).resolve()
+        if not path.exists() or _is_under_system_path(path):
+            continue
+        if any(path == root or path.is_relative_to(root) for root in roots):
+            continue
+        roots = [root for root in roots if not root.is_relative_to(path)]
+        roots.append(path)
+    return roots
 
 
 def _sandbox_bind_args(tmp_dir: Path) -> list[str]:
@@ -319,45 +377,60 @@ def _sandbox_bind_args(tmp_dir: Path) -> list[str]:
         "/tmp",
     ]
 
-    target_paths = [Path(path) for path in SYSTEM_BIND_PATHS if Path(path).exists()]
-    workspace_root = WORKSPACE_DIR.resolve()
-    target_paths.append(workspace_root)
-    target_paths.append(tmp_dir)
+    _ensure_runtime_dirs()
+    read_only_workspace = [UPLOADS_DIR.resolve(), SANDBOX_SUPPORT_DIR.resolve()]
+    writable_workspace = [FILTERED_DIR.resolve(), SCRIPT_DIR.resolve(), REPORTS_DIR.resolve()]
+    runtime_roots = _python_runtime_roots()
 
-    venv_root = _virtualenv_root()
-    if venv_root and venv_root.exists():
-        target_paths.append(venv_root)
-
+    target_paths = [
+        ROOT_DIR.resolve(),
+        *read_only_workspace,
+        *writable_workspace,
+        tmp_dir.resolve(),
+        *runtime_roots,
+    ]
     created_dirs: set[str] = set()
     for target in target_paths:
         current = Path("/")
-        for part in target.resolve().parts[1:]:
+        for part in target.parts[1:]:
             current = current / part
             current_path = str(current)
-            if current_path not in created_dirs:
+            if current_path not in created_dirs and not _is_under_system_path(current):
                 args.extend(["--dir", current_path])
                 created_dirs.add(current_path)
 
     for system_path in SYSTEM_BIND_PATHS:
-        path = Path(system_path)
-        if path.exists():
+        if Path(system_path).exists():
             args.extend(["--ro-bind", system_path, system_path])
-
-    workspace_root_str = str(workspace_root)
-    args.extend(["--bind", workspace_root_str, workspace_root_str])
+    for path in runtime_roots:
+        args.extend(["--ro-bind", str(path), str(path)])
+    for path in read_only_workspace:
+        args.extend(["--ro-bind", str(path), str(path)])
+    for path in writable_workspace:
+        args.extend(["--bind", str(path), str(path)])
     args.extend(["--bind", str(tmp_dir), str(tmp_dir)])
-
-    if venv_root and venv_root.exists():
-        args.extend(["--bind", str(venv_root), str(venv_root)])
-
     return args
+
+
+def _limit_process_resources():
+    limits = (
+        (resource.RLIMIT_CPU, 20),
+        (resource.RLIMIT_AS, 2 * 1024 * 1024 * 1024),
+        (resource.RLIMIT_FSIZE, MAX_OUTPUT_FILE_BYTES),
+    )
+    for limit, value in limits:
+        try:
+            resource.setrlimit(limit, (value, value))
+        except Exception:
+            pass
 
 
 def _run_with_bwrap(command: list[str], env: dict, timeout: int, tmp_dir: Path) -> subprocess.CompletedProcess:
     bwrap_command = ["bwrap", *_sandbox_bind_args(tmp_dir)]
     for key, value in env.items():
         bwrap_command.extend(["--setenv", key, value])
-    bwrap_command.extend(["--chdir", str(WORKSPACE_DIR.resolve())])
+    # Same working directory as the python-guard backend, so relative paths behave identically.
+    bwrap_command.extend(["--chdir", str(ROOT_DIR.resolve())])
     bwrap_command.extend(command)
     return subprocess.run(
         bwrap_command,
@@ -382,16 +455,74 @@ def _run_python_guard(command: list[str], env: dict, timeout: int) -> subprocess
     )
 
 
-def _limit_process_resources():
+class SandboxUnavailableError(RuntimeError):
+    """Raised when no acceptable sandbox backend can run generated code."""
+
+    def as_error_dict(self) -> dict:
+        return {
+            "code": "sandbox_unavailable",
+            "message": str(self),
+            "stage": "sandbox",
+            "retryable": False,
+        }
+
+
+_bwrap_probe_result: tuple[bool, str] | None = None
+
+
+def _unsafe_fallback_allowed() -> bool:
+    return os.getenv("PDF_REPORT_ALLOW_UNSAFE_SANDBOX", "").strip() == "1"
+
+
+def probe_bubblewrap(force: bool = False) -> tuple[bool, str]:
+    """Check once per process that bubblewrap can start this interpreter."""
+    global _bwrap_probe_result
+    if _bwrap_probe_result is not None and not force:
+        return _bwrap_probe_result
+    if shutil.which("bwrap") is None:
+        _bwrap_probe_result = (False, "bwrap is not installed")
+        return _bwrap_probe_result
+    tmp_dir = Path(tempfile.mkdtemp(prefix="pdf-report-sandbox-probe-"))
     try:
-        resource.setrlimit(resource.RLIMIT_CPU, (20, 20))
-    except Exception:
-        pass
-    try:
-        memory_limit = 2 * 1024 * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
-    except Exception:
-        pass
+        result = _run_with_bwrap(
+            [sys.executable, "-I", "-c", "print('sandbox-ok')"],
+            {"PATH": "/usr/bin:/bin", "HOME": "/tmp"},
+            30,
+            tmp_dir,
+        )
+        if result.returncode == 0 and result.stdout.strip() == "sandbox-ok":
+            _bwrap_probe_result = (True, "")
+        else:
+            detail = (result.stderr or result.stdout or f"exit code {result.returncode}").strip()
+            _bwrap_probe_result = (False, detail[-500:])
+    except Exception as exc:
+        _bwrap_probe_result = (False, str(exc))
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    return _bwrap_probe_result
+
+
+def select_sandbox_backend() -> str:
+    available, reason = probe_bubblewrap()
+    if available:
+        return "bubblewrap"
+    if _unsafe_fallback_allowed():
+        logger.warning("bubblewrap unavailable (%s); using python-guard because PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1", reason)
+        return "python-guard"
+    raise SandboxUnavailableError(
+        "Generated code cannot run: the bubblewrap sandbox is unavailable "
+        f"({reason}). Install bubblewrap and allow unprivileged user namespaces, "
+        "or set PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1 only in trusted environments."
+    )
+
+
+def sandbox_status() -> dict:
+    available, reason = probe_bubblewrap()
+    return {
+        "bubblewrap_available": available,
+        "bubblewrap_error": reason,
+        "unsafe_fallback_allowed": _unsafe_fallback_allowed(),
+    }
 
 
 class SandboxExecutor:
@@ -400,6 +531,7 @@ class SandboxExecutor:
 
     def execute(self, script_content: str, script_path: str) -> dict:
         _ensure_runtime_dirs()
+        backend = select_sandbox_backend()
         start_time = time.perf_counter()
         run_id = uuid.uuid4().hex
         tmp_dir = Path(tempfile.mkdtemp(prefix=f"pdf-report-sandbox-{run_id}-"))
@@ -408,13 +540,9 @@ class SandboxExecutor:
         requested_script_path = Path(script_path)
         if not requested_script_path.is_absolute():
             requested_script_path = ROOT_DIR / requested_script_path
-        try:
-            relative_to_workspace = requested_script_path.resolve().is_relative_to(WORKSPACE_DIR.resolve())
-        except ValueError:
-            relative_to_workspace = False
-
-        if relative_to_workspace:
-            user_script_path = requested_script_path
+        resolved_script_path = requested_script_path.resolve()
+        if resolved_script_path.is_relative_to(SCRIPT_DIR.resolve()):
+            user_script_path = resolved_script_path
         else:
             user_script_path = tmp_dir / f"sandbox_{run_id}.py"
 
@@ -469,53 +597,47 @@ class SandboxExecutor:
         env["HOME"] = "/tmp"
         env["TMPDIR"] = str(tmp_dir)
         env["PATH"] = "/usr/bin:/bin"
-        env["PDF_REPORT_SANDBOX_BACKEND"] = "bubblewrap" if _bwrap_available() else "python-guard"
+        env["PDF_REPORT_SANDBOX_BACKEND"] = backend
 
+        base_result = {
+            "sandbox_backend": backend,
+            "sandbox_access_manifest_path": str(manifest_path),
+        }
         try:
             command = [sys.executable, str(wrapper_script_path)]
-            backend = "python-guard"
-            result = None
-            if _bwrap_available():
-                attempted = _run_with_bwrap(command, env, self.timeout, tmp_dir)
-                if attempted.returncode == 0 or not (attempted.stderr or "").startswith("bwrap:"):
-                    result = attempted
-                    backend = "bubblewrap"
-                else:
-                    result = _run_python_guard(command, env, self.timeout)
+            if backend == "bubblewrap":
+                result = _run_with_bwrap(command, env, self.timeout, tmp_dir)
             else:
                 result = _run_python_guard(command, env, self.timeout)
             return {
+                **base_result,
                 "success": result.returncode == 0,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
                 "returncode": result.returncode,
                 "duration": time.perf_counter() - start_time,
-                "sandbox_backend": backend,
                 "sandbox_script_path": str(wrapper_script_path),
                 "sandbox_user_script_path": str(user_script_path),
-                "sandbox_access_manifest_path": str(manifest_path),
                 "sandbox_access_manifest": self._read_access_manifest(manifest_path),
             }
         except subprocess.TimeoutExpired as exc:
             return {
+                **base_result,
                 "success": False,
                 "stdout": exc.stdout or "",
                 "stderr": f"Sandbox execution timed out after {self.timeout}s",
                 "returncode": None,
                 "duration": time.perf_counter() - start_time,
-                "sandbox_backend": "bubblewrap" if _bwrap_available() else "python-guard",
-                "sandbox_access_manifest_path": str(manifest_path),
                 "sandbox_access_manifest": self._read_access_manifest(manifest_path),
             }
         except Exception as exc:
             return {
+                **base_result,
                 "success": False,
                 "stdout": "",
                 "stderr": str(exc),
                 "returncode": None,
                 "duration": time.perf_counter() - start_time,
-                "sandbox_backend": "bubblewrap" if _bwrap_available() else "python-guard",
-                "sandbox_access_manifest_path": str(manifest_path),
                 "sandbox_access_manifest": self._read_access_manifest(manifest_path),
             }
         finally:
@@ -543,12 +665,13 @@ class SandboxExecutor:
 
 def execute_script(script_content: str, script_path: str, timeout: int = 30) -> dict:
     """
-    Writes and executes generated Python with a local sandbox.
+    Writes and executes generated Python inside a sandbox.
 
-    The sandbox is intentionally conservative for this app: generated scripts can
-    read uploaded/filtered data and write scripts, filtered data and reports, but
-    cannot read project secrets, write arbitrary filesystem paths, or open network
-    sockets. Production deployments should still prefer container isolation.
+    bubblewrap is required: generated scripts see the uploads (read-only) and
+    the filtered/scripts/reports folders (writable), but not session files,
+    secrets, the network, or a writable interpreter. The in-process
+    python-guard is only used when PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1, because
+    it can be bypassed. Raises SandboxUnavailableError otherwise.
     """
     return SandboxExecutor(timeout=timeout).execute(
         textwrap.dedent(script_content),

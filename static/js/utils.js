@@ -21,15 +21,18 @@ const Utils = {
 
             document.onmouseup = () => {
                 document.onmousemove = null;
+                document.onmouseup = null;
                 if (onStop) onStop();
             };
         };
     },
 
     openTab(id, event) {
+        document.getElementById('app-shell')?.classList.toggle('explorer-active', id === 'tab-explore');
         document.querySelectorAll('.tab-content, .tab').forEach(el => el.classList.remove('active'));
         document.getElementById(id).classList.add('active');
-        if (event) event.currentTarget.classList.add('active');
+        const tab = event?.target?.closest('[data-tab-target]') || event?.currentTarget;
+        tab?.classList?.add('active');
     },
 
     formatJson(obj) {

@@ -2,7 +2,6 @@ import json
 import os
 import logging
 import time
-import unicodedata
 import uuid
 import threading
 from contextlib import contextmanager
@@ -10,27 +9,21 @@ from contextlib import contextmanager
 import pandas as pd
 
 from app.services.executor_service import execute_script
-from app.services.llm_service import (
-    DEFAULT_MODEL_NAME,
-    DEFAULT_PROVIDER,
-    LLMBudgetError,
-    LLMContractError,
-    LLMTimeoutError,
-    assemble_script,
-    calculate_metric_value,
-    condense_texts_to_fit,
-    dataframe_load_line,
-    fix_script,
-    generate_all_texts,
+from app.services.llm.client import llm_operation_context
+from app.services.llm.components import generate_component_code, slot_by_artifact_id
+from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.metrics import calculate_metric_value, dataframe_load_line
+from app.services.llm.planning import (
     generate_artifacts,
-    generate_component_code,
     generate_data_filter,
     generate_document_insights,
     generate_document_insights_from_pdf_file,
     generate_report_title,
     generate_template,
-    slot_by_artifact_id,
 )
+from app.services.llm.script import assemble_script, fix_script
+from app.services.llm.texts import condense_texts_to_fit, generate_all_texts
+from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 from app.services.session_manager import add_log, append_stage_event, get_session, is_current_session_run, reserve_session_run, set_session_stage, update_session
 from app.utils.data_analyzer import extract_metadata
 from app.utils.artifact_validation import validate_report_plan
@@ -42,6 +35,7 @@ from app.utils.template_library import (
     select_layout_template,
     template_constraints,
 )
+from app.utils.tabular import load_tabular_dataframes
 
 FILTERED_DIR = "workspace/filtered"
 SCRIPT_DIR = "workspace/scripts"
@@ -367,69 +361,14 @@ def raw_metadata_json(session: dict, include_samples: bool = False) -> str:
     return json.dumps(artifacts, indent=2, ensure_ascii=False)
 
 
-def normalize_filter_prompt(prompt: str) -> str:
-    text = unicodedata.normalize("NFKD", prompt or "")
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    return " ".join(text.lower().split())
-
-
-def is_visual_label_refinement(prompt: str) -> bool:
-    normalized = normalize_filter_prompt(prompt)
-    label_terms = [
-        "legenda", "legendas", "eixo", "eixos", "rotulo", "rotulos",
-        "label", "labels", "axis", "axes", "legend", "legends",
-        "nome das colunas", "nomes das colunas", "cabecalho", "cabecalhos",
-        "header", "headers",
-    ]
-    visual_terms = [
-        "grafico", "graficos", "tabela", "tabelas", "visual", "visuais",
-        "chart", "charts", "plot", "plots",
-    ]
-    translation_terms = [
-        "traduzir", "traduza", "traducao", "portugues", "ingles",
-        "translate", "translation", "friendly", "amigavel", "amigaveis",
-    ]
-    has_label = any(term in normalized for term in label_terms)
-    has_visual = any(term in normalized for term in visual_terms)
-    has_translation = any(term in normalized for term in translation_terms)
-    return has_label and (has_visual or has_translation)
-
-
-def should_consider_data_filter(prompt: str, session: dict = None) -> bool:
-    if session and preprocessing_needed(session.get("data_preprocessing") or session.get("data_filter")):
-        return True
-    if is_visual_label_refinement(prompt):
-        return False
-    normalized = normalize_filter_prompt(prompt)
-    keywords = [
-        "filtrar", "filtro", "excluir", "exclua", "remover", "remova",
-        "retirar", "retire", "ignorar", "ignore", "desconsiderar",
-        "desconsidere", "nao incluir", "nao inclua", "nao considerar",
-        "nao considere", "nao usar", "nao use", "nenhum", "nenhuma",
-        "apenas", "somente", "so ", "sem ", "exceto", "limitar",
-        "restringir", "focar", "foco em", "considerar so",
-        "considerar apenas", "incluir apenas", "inclua apenas",
-        "preprocess", "pre-process", "pre process", "preprocessar",
-        "pre-processar", "pre processamento", "pre-processamento",
-        "transformar", "transforme", "preparar", "prepare",
-        "limpar", "limpe", "normalizar", "normalize", "padronizar",
-        "agrupar", "agrupe", "agregado", "agregar", "resumir por",
-        "group by", "grouped by", "aggregate", "summarize by",
-        "nova coluna", "coluna calculada", "criar coluna",
-        "adicione uma coluna", "adicionar uma coluna", "calcular coluna",
-        "calculated column", "new column", "derive column",
-        "keep only", "only", "exclude", "remove", "ignore", "filter",
-        "without", "except", "focus on", "restrict", "do not include",
-        "don't include"
-    ]
-    return any(keyword in normalized for keyword in keywords)
 
 
 def has_data_filter_decision(data_filter: dict | None) -> bool:
     if not data_filter:
         return False
     return bool(
-        preprocessing_needed(data_filter)
+        data_filter.get("evaluated")
+        or preprocessing_needed(data_filter)
         or data_filter.get("description")
         or data_filter.get("code")
     )
@@ -440,14 +379,10 @@ def supported_tabular_path(path: str) -> bool:
 
 
 def read_tabular_preview(path: str) -> tuple[int, set]:
-    ext = os.path.splitext(path)[1].lower()
-    if ext == ".csv":
-        df = pd.read_csv(path)
-    elif ext in {".xls", ".xlsx"}:
-        df = pd.read_excel(path)
-    else:
-        return 0, set()
-    return int(len(df)), {str(column) for column in df.columns}
+    tables = load_tabular_dataframes("data", path)
+    return sum(len(df) for df in tables.values()), {
+        str(column) for df in tables.values() for column in df.columns
+    }
 
 
 def preprocessing_impact(original_path: str, processed_path_value: str) -> dict:
@@ -469,6 +404,7 @@ def preprocessing_impact(original_path: str, processed_path_value: str) -> dict:
 def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     files = session.get("files", [])
     output_paths = {}
+    workbook_sheets = {}
     impacts = {}
     setup_lines = ["import pandas as pd", "import numpy as np", "dataframes = {}"]
 
@@ -479,7 +415,12 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
         setup_line = dataframe_load_line(file_info["original_filename"], os.path.abspath(source_path))
         if setup_line:
             setup_lines.append(setup_line)
-            output_path = os.path.abspath(os.path.join(FILTERED_DIR, f"{job_id}_{uuid.uuid4().hex}_preprocessed.csv"))
+            extension = ".csv"
+            if os.path.splitext(source_path)[1].lower() in {".xls", ".xlsx"}:
+                with pd.ExcelFile(source_path) as workbook:
+                    workbook_sheets[file_info["original_filename"]] = workbook.sheet_names
+                extension = ".xlsx"
+            output_path = os.path.abspath(os.path.join(FILTERED_DIR, f"{job_id}_{uuid.uuid4().hex}_preprocessed{extension}"))
             output_paths[file_info["original_filename"]] = output_path
 
     if not output_paths:
@@ -490,6 +431,7 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     script += data_filter.get("code", "")
     script += "\n\n"
     script += f"output_paths = {json.dumps(output_paths, ensure_ascii=False)}\n"
+    script += f"workbook_sheets = {workbook_sheets!r}\n"
     script += "if 'preprocess_dataframes' in globals():\n"
     script += "    processed = preprocess_dataframes(dataframes)\n"
     script += "else:\n"
@@ -498,7 +440,15 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     script += "    df = processed.get(name, dataframes.get(name))\n"
     script += "    if df is None:\n"
     script += "        continue\n"
-    script += "    df.to_csv(path, index=False)\n"
+    script += "    if name in workbook_sheets:\n"
+    script += "        with pd.ExcelWriter(path) as writer:\n"
+    script += "            for index, sheet in enumerate(workbook_sheets[name]):\n"
+    script += "                key = name if index == 0 else f'{name}::{sheet}'\n"
+    script += "                table = processed.get(key, dataframes.get(key))\n"
+    script += "                if table is not None:\n"
+    script += "                    table.to_excel(writer, sheet_name=sheet, index=False)\n"
+    script += "    else:\n"
+    script += "        df.to_csv(path, index=False)\n"
 
     script_path = os.path.join(SCRIPT_DIR, f"preprocess_{job_id}.py")
     result = execute_script(script, script_path)
@@ -556,7 +506,9 @@ def text_component_code(artifact: dict, text_content: str) -> str:
 def run_pipeline(job_id: str):
     run_info = reserve_session_run(job_id, "pipeline")
     with serialized_pipeline(job_id, "pipeline"):
-        _run_pipeline(job_id, run_info["run_id"])
+        session = get_session(job_id) or {}
+        with llm_operation_context(job_id=job_id, operation="pipeline", settings=session.get("settings")):
+            _run_pipeline(job_id, run_info["run_id"])
 
 
 def _run_pipeline(job_id: str, run_id: int):
@@ -581,6 +533,8 @@ def _run_pipeline(job_id: str, run_id: int):
                     if not processed_path(file_info):
                         files[i]['artifact'] = raw_artifact
                     any_new_artifact = True
+                if (files[i].get('raw_artifact') or {}).get('error'):
+                    raise ValueError(f"{file_info['original_filename']}: {files[i]['raw_artifact']['error']}")
             if any_new_artifact:
                 session = update_session(job_id, {"files": files, "semantic_model": build_semantic_model(files)}) or session
                 files = session.get("files", files)
@@ -588,7 +542,9 @@ def _run_pipeline(job_id: str, run_id: int):
         data_filter = session.get("data_preprocessing") or session.get("data_filter", {})
         has_filter_decision = has_data_filter_decision(data_filter)
         filter_prompt = session.get('current_goal', session['initial_prompt'])
-        should_filter = should_consider_data_filter(filter_prompt, session) and has_tabular_files(files)
+        # The preprocessing planner owns this semantic decision. No prompt-word
+        # heuristics: evaluate once, then reuse the stored plan until data changes.
+        should_filter = has_tabular_files(files)
 
         document_insights = dict(session.get("document_insights") or {})
         pdfs_needing_insights = [
@@ -626,6 +582,8 @@ def _run_pipeline(job_id: str, run_id: int):
                                 settings=session.get("settings"),
                                 job_id=job_id,
                             )
+                    except (LLMBudgetError, LLMTimeoutError):
+                        raise
                     except Exception as exc:
                         logger.exception("Document extraction failed job_id=%s file=%s", job_id, source_name)
                         insights = {
@@ -654,6 +612,7 @@ def _run_pipeline(job_id: str, run_id: int):
                     return
                 add_log(job_id, "Avaliando pré-processamento de dados solicitado...")
                 data_filter = generate_data_filter(raw_metadata_json(session), filter_prompt, provider, model_name, settings=session.get('settings'), job_id=job_id)
+                data_filter["evaluated"] = True
                 session = update_session(job_id, {"data_preprocessing": data_filter, "data_filter": data_filter}) or session
                 has_filter_decision = has_data_filter_decision(data_filter)
 
@@ -892,7 +851,19 @@ def run_script_generation(job_id: str, run_id: int | None = None):
     if run_id is None:
         run_id = reserve_session_run(job_id, "script")["run_id"]
     with serialized_pipeline(job_id, "renderizacao"):
-        _run_script_generation(job_id, run_id)
+        session = get_session(job_id) or {}
+        with llm_operation_context(job_id=job_id, operation="script", settings=session.get("settings")):
+            try:
+                _run_script_generation(job_id, run_id)
+            except Exception as exc:
+                logger.exception("Script generation failed job_id=%s", job_id)
+                if not _ensure_current_run(job_id, run_id, "script"):
+                    return
+                error = exc.as_error_dict() if hasattr(exc, "as_error_dict") else {
+                    "code": "script_error", "message": str(exc), "stage": "script", "retryable": True,
+                }
+                set_session_stage(job_id, "failed", 100, error)
+                add_log(job_id, f"Falha na geração do relatório: {exc}")
 
 
 def _run_script_generation(job_id: str, run_id: int):

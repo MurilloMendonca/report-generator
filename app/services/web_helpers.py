@@ -1,7 +1,6 @@
 import ast
 import mimetypes
 import os
-import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -9,46 +8,25 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
-from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT, DEFAULT_SETTINGS
-from app.services.llm_service import (
-    LLMBudgetError,
-    LLMContractError,
-    LLMTimeoutError,
-    assemble_script,
-    dataframe_load_line,
-    generate_exploration_script,
-    refine_session_modular,
-    resolve_llm_config,
-    strip_code_fence,
-    translate_workspace,
-)
+from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT
+from app.services.llm.client import llm_operation_context, resolve_llm_config
+from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.metrics import dataframe_load_line
+from app.services.llm.refinement import classify_refinement, refine_session_modular
 from app.services.pipeline_service import (
-    FILTERED_DIR,
-    REPORT_DIR,
-    SCRIPT_DIR,
-    VISUAL_TYPES,
     add_log,
     build_files_map as pipeline_build_files_map,
     clear_data_filter_state,
-    metadata_json,
-    normalize_filter_prompt,
     run_pipeline,
     run_script_generation,
-    should_consider_data_filter,
 )
 from app.services.session_manager import (
-    create_session,
     get_session,
-    list_recent_sessions,
+    preserve_report_on_failure,
     set_session_stage,
     update_session,
 )
 from app.utils.layout import normalize_template
-from app.utils.template_library import (
-    delete_layout_template,
-    load_layout_templates,
-    upsert_layout_template,
-)
 
 UPLOAD_DIR = "workspace/uploads"
 ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".xls", ".xlsx", ".pdf"}
@@ -118,151 +96,82 @@ def build_refinement_goal(session: dict, history: list[str]) -> str:
     return f"{base_goal}\nRefinement History:\n- " + "\n- ".join(clean_history)
 
 
-def is_global_visual_refinement(prompt: str) -> bool:
-    normalized = normalize_filter_prompt(prompt)
-    style_terms = [
-        "cor", "cores", "color", "colors", "paleta", "palette", "scheme",
-        "tema", "theme", "visual", "estilo", "style", "tons", "tom",
-        "vermelho", "vermelha", "red", "azul", "blue", "verde", "green",
-    ]
-    global_visual_terms = [
-        "graficos", "charts", "todos os graficos", "todos graficos",
-        "dos graficos", "as visualizacoes", "visualizacoes",
-        "componentes graficos", "todos os charts", "all charts",
-    ]
-    return (
-        any(term in normalized for term in style_terms)
-        and any(term in normalized for term in global_visual_terms)
-    )
-
-
-def chart_palette_from_prompt(prompt: str) -> list[str] | None:
-    normalized = normalize_filter_prompt(prompt)
-    if "vermelh" in normalized or "red" in normalized:
-        return ["#991b1b", "#b91c1c", "#dc2626", "#ef4444", "#f87171", "#fca5a5"]
-    if "azul" in normalized or "blue" in normalized:
-        return ["#1e3a8a", "#1d4ed8", "#2563eb", "#3b82f6", "#60a5fa", "#93c5fd"]
-    if "verde" in normalized or "green" in normalized:
-        return ["#14532d", "#166534", "#16a34a", "#22c55e", "#86efac", "#bbf7d0"]
-    return None
-
-
-def apply_global_visual_refinement(job_id: str, session: dict, prompt: str):
-    settings = dict(session.get("settings") or DEFAULT_SETTINGS.copy())
-    existing_instructions = settings.get("visual_instructions", "")
-    instruction_lines = [
-        line for line in str(existing_instructions).splitlines()
-        if line.strip()
-    ]
-    new_instruction = f"- {prompt.strip()}"
-    if new_instruction not in instruction_lines:
-        instruction_lines.append(new_instruction)
-    settings["visual_instructions"] = "\n".join(instruction_lines)
-
-    palette = chart_palette_from_prompt(prompt)
-    if palette:
-        settings["chart_palette"] = palette
-
-    visual_ids = {
-        artifact.get("id")
-        for artifact in session.get("artifacts", [])
-        if artifact.get("type") in VISUAL_TYPES and artifact.get("id")
-    }
-    components = dict(session.get("components") or {})
-    if visual_ids:
-        components = {
-            component_id: code
-            for component_id, code in components.items()
-            if component_id not in visual_ids
-        }
-
-    update_session(job_id, {
-        "settings": settings,
-        "components": components,
-        "current_step": "refinement_visual",
-        "progress": 20,
-        "error": {},
-    })
-    add_log(job_id, f"Refinamento visual global detectado. Regenerando {len(visual_ids)} gráfico(s)...")
-    append_refinement_message(job_id, "assistant", "Ajuste visual aplicado às instruções dos gráficos. Regenerando os componentes afetados.", "status")
-    run_pipeline(job_id)
-
-
 def append_refinement_result(job_id: str, success_message: str):
     session = get_session(job_id) or {}
     if session.get("current_step") == "failed":
-        append_refinement_message(job_id, "assistant", "O refinamento foi processado, mas a renderização terminou com falha. Veja os logs para o erro exato.", "error")
+        append_refinement_message(job_id, "assistant", "Não foi possível concluir o refinamento. A última versão do relatório foi preservada; veja os logs para o erro exato.", "error")
         return
     append_refinement_message(job_id, "assistant", success_message, "status")
 
 
+@preserve_report_on_failure
 def process_chat_refinement(job_id: str, prompt: str):
     try:
         session = get_session(job_id)
         if not session:
             return
+        set_session_stage(job_id, "refinement_routing", 15, error={})
+        with llm_operation_context(job_id=job_id, operation="refinement", settings=session.get("settings")):
+            decision = classify_refinement(session, prompt, job_id=job_id)
+            add_log(job_id, f"Refinamento classificado pelo modelo: {decision['intent']} ({decision['scope']}).")
+            if decision["intent"] == "clarify":
+                update_session(job_id, {"pending_refinement": {
+                    "prompt": "\n".join(filter(None, [(session.get("pending_refinement") or {}).get("prompt"), prompt]))[-6000:],
+                    "question": decision["clarification_question"],
+                }})
+                append_refinement_message(job_id, "assistant", decision["clarification_question"], "clarification")
+                add_log(job_id, "Aguardando esclarecimento; o relatório não foi alterado.")
+                set_session_stage(job_id, "awaiting_clarification", 100, error={})
+                return
 
-        set_session_stage(job_id, "refinement", 15, error={})
-
-        if should_consider_data_filter(prompt):
-            add_log(job_id, f"Pré-processamento de dados solicitado: {prompt}")
-            files = clear_data_filter_state(session.get("files", []))
-            update_session(job_id, {
-                "files": files,
-                "data_filter": {},
-                "data_preprocessing": {},
-                "artifacts": [],
-                "template": [],
-                "components": {},
-                "calculated_metrics": {},
-                "current_step": "refinement_preprocessing",
-                "progress": 20,
+            state = refine_session_modular(session, prompt, job_id=job_id, decision=decision)
+            history = [str(item).strip() for item in session.get("refinement_history", []) if str(item).strip()]
+            history.append(decision["instruction"])
+            changes = {
+                key: state[key] for key in ("settings", "artifacts", "components", "template")
+                if key in state
+            }
+            changes.update({
+                "refinement_history": history,
+                "current_goal": build_refinement_goal(session, history),
+                "pending_refinement": {},
+                "needs_script_update": False,
+                "needs_full_regeneration": False,
+                "needs_data_preprocessing": False,
+                "error": {},
             })
-            append_refinement_message(job_id, "assistant", "Pedido entendido como ajuste de dados. Vou reavaliar o pré-processamento e regenerar o relatório.", "status")
-            run_pipeline(job_id)
-            append_refinement_result(job_id, "Refinamento concluído com pré-processamento atualizado.")
-            return
+            if state.get("needs_full_regeneration"):
+                changes.update({
+                    "artifacts": [], "template": [], "components": {}, "calculated_metrics": {},
+                    "component_validation_retries": {}, "current_step": "refinement_full", "progress": 20,
+                })
+                if state.get("needs_data_preprocessing"):
+                    changes.update({
+                        "files": clear_data_filter_state(session.get("files", [])),
+                        "data_filter": {}, "data_preprocessing": {}, "current_step": "refinement_preprocessing",
+                    })
+                update_session(job_id, changes)
+                append_refinement_message(job_id, "assistant", "Pedido classificado e validado. Atualizando os dados e o relatório." if state.get("needs_data_preprocessing") else "Pedido de alteração do conteúdo validado. Atualizando o relatório.", "status")
+                run_pipeline(job_id)
+            else:
+                changes.update(current_step="refinement_render", progress=70)
+                update_session(job_id, changes)
+                append_refinement_message(job_id, "assistant", "Ajuste aplicado ao escopo solicitado. Renderizando uma nova versão do PDF.", "status")
+                run_script_generation(job_id)
+            append_refinement_result(job_id, "Refinamento concluído.")
 
-        if is_global_visual_refinement(prompt):
-            apply_global_visual_refinement(job_id, session, prompt)
-            append_refinement_result(job_id, "Refinamento visual concluído.")
-            return
-
-        add_log(job_id, f"Processando refinamento modular: {prompt}")
-        new_session_state = refine_session_modular(session, prompt, job_id=job_id)
-
-        if new_session_state.get("needs_full_regeneration"):
-            add_log(job_id, "Pedido global detectado. Reiniciando pipeline com novos requisitos...")
-            update_session(job_id, {
-                "artifacts": [],
-                "template": [],
-                "components": {},
-                "calculated_metrics": {},
-                "current_step": "refinement_full",
-                "progress": 20,
-            })
-            append_refinement_message(job_id, "assistant", "Pedido entendido como alteração global. Vou regenerar o relatório com o novo objetivo.", "status")
-            run_pipeline(job_id)
-            append_refinement_result(job_id, "Refinamento global concluído.")
-            return
-
-        update_session(job_id, new_session_state)
-        if new_session_state.get("needs_script_update"):
-            append_refinement_message(job_id, "assistant", "Ajuste modular aplicado. Renderizando uma nova versão do PDF.", "status")
-            run_script_generation(job_id)
-            append_refinement_result(job_id, "Refinamento modular concluído.")
-        else:
-            add_log(job_id, "Refinamento analisado, mas nenhuma alteração aplicável foi detectada.")
-            append_refinement_message(job_id, "assistant", "Analisei o pedido, mas não identifiquei uma alteração aplicável no relatório atual.", "status")
-
-    except (LLMBudgetError, LLMTimeoutError) as exc:
-        add_log(job_id, f"Falha de limite LLM no refinamento: {str(exc)}")
-        append_refinement_message(job_id, "assistant", f"Não consegui aplicar o refinamento: {str(exc)}", "error")
-        raise
-    except LLMContractError as exc:
-        add_log(job_id, f"Falha de contrato LLM no refinamento: {str(exc)}")
-        append_refinement_message(job_id, "assistant", f"Não consegui aplicar o refinamento: {str(exc)}", "error")
-        raise
+    except (LLMBudgetError, LLMTimeoutError, LLMContractError) as exc:
+        error = exc.as_error_dict()
+        error["stage"] = error.get("stage") or "refinement_routing"
+        set_session_stage(job_id, "failed", 100, error)
+        add_log(job_id, f"Não foi possível aplicar o refinamento: {str(exc)}")
+        append_refinement_message(job_id, "assistant", "Não consegui interpretar ou concluir esse pedido com segurança. O relatório foi preservado. Tente novamente ou esclareça a alteração desejada.", "error")
+    except Exception as exc:
+        set_session_stage(job_id, "failed", 100, {
+            "code": "refinement_error", "message": str(exc), "stage": "refinement", "retryable": True,
+        })
+        add_log(job_id, f"Falha no refinamento: {str(exc)}")
+        append_refinement_message(job_id, "assistant", "Não consegui aplicar o refinamento. O relatório foi preservado; veja os logs para o erro exato.", "error")
 
 
 def validate_upload(file: UploadFile) -> str:
@@ -293,8 +202,8 @@ def validate_saved_upload(path: str, file_ext: str, file_name: str | None = None
                 raise HTTPException(status_code=400, detail="Invalid Excel file content")
             if os.path.getsize(path) == 0:
                 raise HTTPException(status_code=400, detail="Uploaded file is empty")
-            workbook = pd.ExcelFile(path)
-            sheet_names = list(workbook.sheet_names or [])
+            with pd.ExcelFile(path) as workbook:
+                sheet_names = list(workbook.sheet_names or [])
             if not sheet_names:
                 raise HTTPException(status_code=400, detail="Excel workbook does not contain any readable sheets")
             if len(sheet_names) > MAX_EXCEL_SHEETS:
@@ -321,7 +230,7 @@ def validate_saved_upload(path: str, file_ext: str, file_name: str | None = None
             diagnostics["format"] = "csv"
     except HTTPException:
         raise
-    except OSError as exc:
+    except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not validate uploaded file: {exc}") from exc
     return diagnostics
 
@@ -347,17 +256,25 @@ def copy_upload_with_limit(file: UploadFile, destination: str) -> int:
 
 def save_uploaded_files(files: list[UploadFile]) -> list:
     saved_files = []
+    names = [str(file.filename or "").casefold() for file in files]
+    if len(names) != len(set(names)):
+        raise HTTPException(status_code=400, detail="Each uploaded file must have a unique filename")
+    for file in files:
+        validate_upload(file)
+    created_paths = []
     for file in files:
         file_ext = validate_upload(file)
         data_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}{file_ext}")
+        created_paths.append(data_path)
         try:
             size_bytes = copy_upload_with_limit(file, data_path)
             validation = validate_saved_upload(data_path, file_ext, file.filename, file.content_type)
-        except HTTPException:
-            try:
-                os.remove(data_path)
-            except FileNotFoundError:
-                pass
+        except Exception:
+            for created_path in created_paths:
+                try:
+                    os.remove(created_path)
+                except FileNotFoundError:
+                    pass
             raise
         saved_files.append({
             "original_filename": file.filename,

@@ -93,7 +93,7 @@ const UI = {
         if (el.dataset.signature === signature) return;
 
         const shouldStickToBottom = !el.dataset.signature || (el.scrollTop + el.clientHeight >= el.scrollHeight - 16);
-        const allowedKinds = ['status', 'initial', 'error', 'legacy'];
+        const allowedKinds = ['status', 'initial', 'error', 'legacy', 'clarification'];
         const fragment = document.createDocumentFragment();
 
         const appendMessage = (roleClass, kindClass, label, content, initial = false) => {
@@ -131,6 +131,120 @@ const UI = {
         el.appendChild(fragment);
         el.dataset.signature = signature;
         if (shouldStickToBottom) el.scrollTop = el.scrollHeight;
+    },
+
+    renderExploreChat(session, pending = null) {
+        const chat = document.getElementById('explore-chat');
+        if (!chat || !session) return;
+        const submit = document.getElementById('explore-submit');
+        if (submit) {
+            submit.disabled = Boolean(pending);
+            submit.textContent = pending ? 'Consultando...' : 'Consultar';
+        }
+        chat.setAttribute('aria-busy', pending ? 'true' : 'false');
+        const history = Array.isArray(session.explore_history) ? session.explore_history : [];
+        const signature = JSON.stringify([session.job_id, history, pending?.prompt || null]);
+        if (chat.dataset.signature === signature) return;
+        const stickToBottom = !chat.dataset.signature || chat.scrollTop + chat.clientHeight >= chat.scrollHeight - 48;
+        chat.textContent = '';
+        const fragment = document.createDocumentFragment();
+        const messages = [...history];
+        if (pending && history.length <= (pending.historyLength ?? history.length)) messages.push(
+            { role: 'user', content: pending.prompt },
+            { role: 'assistant', content: 'Analisando os dados e preparando a resposta...', status: 'pending' }
+        );
+        if (!messages.length) {
+            const empty = document.createElement('p');
+            empty.className = 'explore-empty';
+            empty.textContent = 'Faça uma pergunta sobre os dados ou peça um gráfico. Por exemplo: “Mostre um gráfico de barras com as 10 categorias mais frequentes”.';
+            fragment.appendChild(empty);
+        }
+        let previousQuestion = '';
+        messages.forEach(item => {
+            const user = item.role === 'user';
+            if (user) previousQuestion = String(item.content || '');
+            const message = document.createElement('div');
+            message.className = `message ${user ? 'user' : 'ai'} explorer-message${item.status === 'error' ? ' error' : ''}${item.status === 'pending' ? ' pending' : ''}`;
+            const label = document.createElement('b');
+            label.textContent = user ? 'Você:' : 'Analista:';
+            message.appendChild(label);
+            const content = document.createElement('div');
+            content.className = 'explore-answer';
+            content.textContent = String(item.content || '');
+            message.appendChild(content);
+            if (!user) (Array.isArray(item.charts) ? item.charts : []).forEach(chart => {
+                if (!chart || typeof chart !== 'object') return;
+                const url = API.explorerChartUrl(session.job_id, item.turn_id, chart.id);
+                if (!url) return;
+                const figure = document.createElement('figure');
+                figure.className = 'explore-chart';
+                const heading = document.createElement('h4');
+                heading.textContent = String(chart.title || 'Gráfico');
+                figure.appendChild(heading);
+                const preview = document.createElement('a');
+                preview.href = url;
+                preview.target = '_blank';
+                preview.rel = 'noopener noreferrer';
+                preview.setAttribute('aria-label', `Abrir gráfico: ${chart.title || 'Gráfico'}`);
+                const image = document.createElement('img');
+                image.src = url;
+                image.alt = String(chart.title || 'Gráfico da consulta');
+                image.loading = 'lazy';
+                image.decoding = 'async';
+                if (Number.isFinite(chart.width) && Number.isFinite(chart.height)) {
+                    image.width = chart.width;
+                    image.height = chart.height;
+                }
+                preview.appendChild(image);
+                figure.appendChild(preview);
+                const unavailable = document.createElement('p');
+                unavailable.className = 'explore-chart-unavailable';
+                unavailable.textContent = 'Gráfico indisponível. Entre novamente ou repita a consulta para gerar outra imagem.';
+                unavailable.hidden = true;
+                figure.appendChild(unavailable);
+                if (chart.caption) {
+                    const caption = document.createElement('figcaption');
+                    caption.textContent = String(chart.caption);
+                    figure.appendChild(caption);
+                }
+                const download = document.createElement('a');
+                download.className = 'explore-chart-download';
+                download.href = API.explorerChartUrl(session.job_id, item.turn_id, chart.id, true);
+                download.download = `grafico-${chart.id}.png`;
+                download.textContent = 'Baixar PNG';
+                const enlarge = document.createElement('a');
+                enlarge.className = 'explore-chart-open';
+                enlarge.href = url;
+                enlarge.target = '_blank';
+                enlarge.rel = 'noopener noreferrer';
+                enlarge.textContent = 'Ampliar gráfico';
+                figure.appendChild(enlarge);
+                figure.appendChild(download);
+                image.addEventListener('error', () => {
+                    image.hidden = true;
+                    unavailable.hidden = false;
+                    preview.removeAttribute('href');
+                    enlarge.removeAttribute('href');
+                    download.removeAttribute('href');
+                    enlarge.setAttribute('aria-disabled', 'true');
+                    download.setAttribute('aria-disabled', 'true');
+                });
+                message.appendChild(figure);
+            });
+            if (item.status === 'error' && previousQuestion) {
+                const retry = document.createElement('button');
+                retry.type = 'button';
+                retry.className = 'btn btn-secondary explore-retry';
+                retry.dataset.action = 'explore-retry';
+                retry.dataset.prompt = previousQuestion;
+                retry.textContent = 'Tentar novamente';
+                message.appendChild(retry);
+            }
+            fragment.appendChild(message);
+        });
+        chat.appendChild(fragment);
+        chat.dataset.signature = signature;
+        if (stickToBottom || pending) chat.scrollTop = chat.scrollHeight;
     },
 
     fileKind(filename) {
@@ -207,8 +321,9 @@ const UI = {
             const kind = UI.fileKind(filename);
             const hasPreprocessed = Boolean(f.preprocessed_path || f.filtered_path);
             const size = UI.formatBytes(f.size_bytes || (f.artifact && f.artifact.size_bytes));
+            const rows = f.artifact && f.artifact.shape && f.artifact.shape.rows;
             const metadata = f.artifact && !f.artifact.error
-                ? `${f.artifact.rows || f.artifact.pages || ''}${f.artifact.rows ? ' linhas' : f.artifact.pages ? ' paginas' : ''}`
+                ? (Number.isFinite(rows) ? `${rows.toLocaleString('pt-BR')} linhas` : f.artifact.pages ? `${f.artifact.pages} páginas` : 'analisado')
                 : (f.artifact && f.artifact.error ? 'nao analisado' : 'aguardando analise');
             const card = document.createElement('article');
             card.className = 'file-card';
@@ -382,53 +497,8 @@ const UI = {
         container.appendChild(fragment);
     },
 
-    renderLayoutCanvas(session, onUpdate) {
-        const canvas = document.getElementById('layout-canvas');
-        const templateSignature = JSON.stringify(session.template || []);
-        if (canvas.getAttribute('data-job-id') === session.job_id && 
-            canvas.getAttribute('data-template') === templateSignature) return;
-        
-        canvas.setAttribute('data-job-id', session.job_id);
-        canvas.setAttribute('data-template', templateSignature);
-        UI.clearElement(canvas);
-
-        const template = session.template || [];
-        const pageCount = Math.max(1, ...template.map(item => item.page || 1));
-        for (let page = 1; page <= pageCount; page++) {
-            canvas.appendChild(UI.createLayoutPage(page));
-        }
-
-        template.forEach(item => {
-            const art = session.artifacts.find(a => a.id === item.id);
-            if (!art) return;
-            const page = item.page || 1;
-            const pageEl = canvas.querySelector(`.a4-page[data-page="${page}"]`);
-            if (!pageEl) return;
-            
-            const block = document.createElement('div');
-            block.className = 'layout-block';
-            block.id = `block-${item.id}`;
-            block.dataset.page = page;
-            block.style.left = (item.x * MM_TO_PX) + 'px';
-            block.style.top = (item.y * MM_TO_PX) + 'px';
-            block.style.width = (item.w * MM_TO_PX) + 'px';
-            block.style.height = (item.h * MM_TO_PX) + 'px';
-            const label = document.createElement('span');
-            label.textContent = art.indicator || '';
-            const del = document.createElement('button');
-            del.className = 'del-btn';
-            del.type = 'button';
-            del.dataset.action = 'delete-layout-block';
-            del.dataset.componentId = item.id;
-            del.textContent = '✕';
-            const resizer = document.createElement('div');
-            resizer.className = 'resizer';
-            block.appendChild(label);
-            block.appendChild(del);
-            block.appendChild(resizer);
-            Utils.makeDraggable(block);
-            pageEl.appendChild(block);
-        });
+    renderLayoutCanvas(session) {
+        App.renderReportLayout(session);
     },
 
     createLayoutPage(page) {

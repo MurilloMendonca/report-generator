@@ -14,9 +14,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
-from app.main import DEFAULT_EXPLORATORY_PROMPT, DEFAULT_SETTINGS, run_pipeline, run_script_generation
-from app.services.llm_service import refine_session_modular
-from app.services.pipeline_service import clear_data_filter_state, should_consider_data_filter
+from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT, DEFAULT_SETTINGS, run_pipeline, run_script_generation
+from app.services.web_helpers import append_refinement_message, process_chat_refinement
 from app.services.session_manager import add_log, create_session, get_session, update_session
 
 
@@ -90,46 +89,8 @@ def create_canonical_session(case: dict) -> str:
 
 
 def apply_refinement(job_id: str, prompt: str):
-    session = get_session(job_id)
-    history = session.get("refinement_history", [])
-    history.append(prompt)
-    full_goal = session["initial_prompt"] + "\nRefinement History:\n- " + "\n- ".join(history)
-
-    if should_consider_data_filter(prompt):
-        add_log(job_id, f"Canonical data filter refinement: {prompt}")
-        files = clear_data_filter_state(session.get("files", []))
-        update_session(job_id, {
-            "files": files,
-            "data_filter": {},
-            "data_preprocessing": {},
-            "artifacts": [],
-            "template": [],
-            "components": {},
-            "calculated_metrics": {},
-            "refinement_history": history,
-            "current_goal": full_goal,
-        })
-        run_pipeline(job_id)
-        return
-
-    add_log(job_id, f"Canonical refinement: {prompt}")
-    new_state = refine_session_modular(session, prompt)
-    new_state.update({"refinement_history": history, "current_goal": full_goal})
-
-    if new_state.get("needs_full_regeneration"):
-        update_session(job_id, {
-            "artifacts": [],
-            "template": [],
-            "components": {},
-            "calculated_metrics": {},
-            "refinement_history": history,
-            "current_goal": full_goal,
-        })
-        run_pipeline(job_id)
-    else:
-        update_session(job_id, new_state)
-        if new_state.get("needs_script_update"):
-            run_script_generation(job_id)
+    append_refinement_message(job_id, "user", prompt)
+    process_chat_refinement(job_id, prompt)
 
 
 def validate_session(job_id: str, case: dict, artifact_dir: Path | None = None, save_artifacts: bool = True) -> dict:

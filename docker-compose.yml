@@ -1,18 +1,38 @@
 services:
   report-generator:
-    build: .
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     container_name: pdf-report-generator
     restart: unless-stopped
     env_file:
       - .env
     environment:
+      APP_ENV: ${APP_ENV:-production}
       APP_ACCESS_SECRET: ${APP_ACCESS_SECRET:?APP_ACCESS_SECRET must be configured}
+      # Set to 0 only when serving over plain HTTP on a non-localhost address.
+      PDF_REPORT_COOKIE_SECURE: ${PDF_REPORT_COOKIE_SECURE:-1}
       PORT: 8000
       MPLCONFIGDIR: /tmp/matplotlib
     ports:
       - "${HOST_PORT:-8000}:8000"
     volumes:
+      # Must be writable by APP_UID (chown it if an older root-run container created it).
       - ./workspace:/app/workspace
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+      # bubblewrap needs to create namespaces, which Docker's default seccomp and
+      # AppArmor profiles block. Without these two lines report generation fails
+      # unless PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1 is set (weaker isolation).
+      - seccomp=unconfined
+      - apparmor=unconfined
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5).read()"]
       interval: 30s

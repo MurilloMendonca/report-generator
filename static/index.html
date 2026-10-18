@@ -37,7 +37,7 @@
                 <div class="file-tray" id="file-tray"></div>
                 <button class="btn btn-outline add-file-btn" type="button" data-action="trigger-add-file">+ Adicionar Dados</button>
             </div>
-            <input type="file" id="add-file-input" style="display:none" multiple>
+            <input type="file" id="add-file-input" accept=".csv,.xls,.xlsx,.pdf" style="display:none" multiple>
         </div>
 
         <div class="chat-history" id="chat-history">
@@ -65,7 +65,8 @@
                 </div>
                 <div class="form-group">
                     <label>Arquivos de dados e contexto:</label>
-                    <input type="file" id="file" name="files" multiple required>
+                    <input type="file" id="file" name="files" accept=".csv,.xls,.xlsx,.pdf" multiple required>
+                    <small>CSV, Excel (.xls e .xlsx) e PDF. Use nomes diferentes para cada arquivo.</small>
                 </div>
                 <div class="form-group">
                     <label>Objetivo do Relatório (opcional):</label>
@@ -83,6 +84,7 @@
     </div>
 
     <div class="main-content">
+        <div id="workspace-notice" class="workspace-notice" role="status" aria-live="polite" hidden></div>
         <div class="header" id="header-progress" style="display:none;">
             <div class="progress-section">
                 <div id="status-text" class="status-text" style="margin-right: 1.5rem; min-width: 150px;">Processando...</div>
@@ -96,7 +98,7 @@
 
         <div class="tabs">
             <button class="tab active" type="button" data-tab-target="tab-pdf">Visualização</button>
-            <button class="tab" type="button" data-tab-target="tab-design">Editor de Layout 🎨</button>
+            <button class="tab" type="button" data-tab-target="tab-design">Layout</button>
             <button class="tab" type="button" data-tab-target="tab-artifacts">Componentes</button>
             <button class="tab" type="button" data-tab-target="tab-script">Script completo 🐍</button>
             <button class="tab" type="button" data-tab-target="tab-settings">Configurações ⚙️</button>
@@ -109,14 +111,17 @@
         </div>
 
         <div id="tab-design" class="tab-content" style="padding:0">
-            <div class="canvas-area">
-                <div style="margin-bottom: 1.5rem; color: white; display: flex; gap: 1.5rem; align-items: center;">
-                    <span style="font-size: 1rem; opacity: 0.9;">📐 Organize os blocos na página A4 para o PDF final.</span>
-                    <button class="btn btn-secondary" type="button" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" data-action="add-layout-page">+ Página</button>
-                    <button class="btn btn-secondary" type="button" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" data-action="save-visual-layout">💾 Aplicar Layout & Renderizar</button>
+            <div class="editor-workspace-header">
+                <div>
+                    <h3>Organize seu relatório</h3>
+                    <span id="report-layout-status" role="status" aria-live="polite">Ajuste os blocos e aplique para atualizar o PDF.</span>
                 </div>
-                <div class="layout-canvas" id="layout-canvas"></div>
+                <div class="editor-header-actions">
+                    <button class="btn btn-outline" type="button" id="layout-focus-btn" data-action="toggle-layout-focus" aria-pressed="false">Expandir editor</button>
+                    <button class="btn" type="button" id="apply-layout-btn" data-action="save-visual-layout">Aplicar ao PDF</button>
+                </div>
             </div>
+            <div class="layout-editor-host" id="layout-canvas"></div>
         </div>
 
         <div id="tab-artifacts" class="tab-content">
@@ -232,10 +237,11 @@
 
         <div id="tab-explore" class="tab-content">
             <h3 style="color: var(--md-sys-color-primary)">Consultas Ad-hoc (Explorador)</h3>
-            <div id="explore-chat"></div>
-            <form id="explore-form" style="display: flex; gap: 0.75rem; margin-top: 1rem;">
-                <input type="text" id="explore-input" placeholder="Ex: Qual o valor total da coluna X?" style="flex: 1;" required>
-                <button type="submit" class="btn">Consultar</button>
+            <p class="explore-description">Converse com seus dados: peça cálculos, comparações e gráficos. As consultas não alteram o relatório.</p>
+            <div id="explore-chat" role="log" aria-label="Conversa do explorador" aria-live="polite" aria-relevant="additions"></div>
+            <form id="explore-form">
+                <input type="text" id="explore-input" aria-label="Pergunta ou pedido de gráfico" placeholder="Ex: Mostre um gráfico de barras por categoria" maxlength="6000" required>
+                <button type="submit" id="explore-submit" class="btn">Consultar</button>
             </form>
         </div>
 
@@ -360,6 +366,7 @@
     <!-- Scripts -->
     <script src="/static/js/api.js"></script>
     <script src="/static/js/utils.js"></script>
+    <script src="/static/js/layout_editor.js"></script>
     <script src="/static/js/ui.js"></script>
     <script src="/static/js/app.js"></script>
 </body>

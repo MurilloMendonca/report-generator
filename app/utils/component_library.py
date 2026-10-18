@@ -134,6 +134,26 @@ VISUAL_THEMES = {
             "border": "#d1d5db",
         },
     },
+    "print_mono": {
+        "id": "print_mono",
+        "name": "Impressão preto e branco",
+        "description": "Escala de cinza com padrões e marcadores distintos para impressão sem cores.",
+        "color_mode": "monochrome",
+        "palette": ["#111111", "#999999", "#444444", "#cccccc", "#666666", "#eeeeee"],
+        "seaborn_style": "whitegrid",
+        "figure_facecolor": "#ffffff",
+        "axes_facecolor": "#ffffff",
+        "grid_color": "#cccccc",
+        "text_color": "#111111",
+        "muted_text_color": "#444444",
+        "table": {
+            "header_bg": "#111111",
+            "header_text": "#ffffff",
+            "row_bg": "#ffffff",
+            "alt_row_bg": "#eeeeee",
+            "border": "#666666",
+        },
+    },
 }
 
 COMPONENT_PRESETS = {
@@ -320,6 +340,11 @@ PRESET_EXPERIENCE = {
 
 
 THEME_EXPERIENCE = {
+    "print_mono": {
+        "best_for": ["impressão preto e branco", "relatórios técnicos"],
+        "avoid_when": ["apresentações coloridas"],
+        "accessibility_notes": "Distingue séries por marcadores e padrões, além de tons de cinza.",
+    },
     "executive_clean": {
         "best_for": ["board executivo", "relatórios gerais", "PDF limpo"],
         "avoid_when": ["alto contraste extremo", "visual editorial"],

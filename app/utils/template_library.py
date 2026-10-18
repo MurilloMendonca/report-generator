@@ -3,6 +3,7 @@ import os
 import uuid
 
 from app.utils.layout import (
+    CONTENT_BOTTOM_MM,
     CONTENT_TOP_MM,
     DEFAULT_MARGIN_MM,
     PAGE_HEIGHT_MM,
@@ -11,7 +12,7 @@ from app.utils.layout import (
 )
 
 TEMPLATE_LIBRARY_PATH = "workspace/layout_templates.json"
-GRID_MM = 5
+GRID_MM = 1
 
 BLUEPRINTS = {
     "executive_standard": {
@@ -170,6 +171,10 @@ def upsert_layout_template(template_data: dict) -> dict:
         "description": template_data.get("description", ""),
         "slots": sanitize_template_slots(template_data.get("slots", [])),
     }
+    template["page_count"] = max(
+        min(100, int(template_data.get("page_count") or 1)),
+        max((slot["page"] for slot in template["slots"]), default=1),
+    )
 
     existing_index = next((i for i, item in enumerate(templates) if item.get("id") == template_id), None)
     if existing_index is None:
@@ -195,7 +200,8 @@ def sanitize_template_slots(slots: list) -> list:
         slot_type = raw_slot.get("type") if raw_slot.get("type") in {"text", "graphic"} else "graphic"
         page = max(1, int(raw_slot.get("page") or 1))
         y = max(CONTENT_TOP_MM, _snap_mm(raw_slot.get("y", CONTENT_TOP_MM)))
-        h = max(10, _snap_mm(raw_slot.get("h", 40)))
+        h = min(CONTENT_BOTTOM_MM - CONTENT_TOP_MM, max(10, _snap_mm(raw_slot.get("h", 40))))
+        w = max(10, min(PAGE_WIDTH_MM, _snap_mm(raw_slot.get("w", 90))))
         if y >= PAGE_HEIGHT_MM:
             page += y // PAGE_HEIGHT_MM
             y = y % PAGE_HEIGHT_MM
@@ -206,9 +212,9 @@ def sanitize_template_slots(slots: list) -> list:
             "description": raw_slot.get("description", ""),
             "type": slot_type,
             "page": page,
-            "x": max(0, _snap_mm(raw_slot.get("x", DEFAULT_MARGIN_MM))),
-            "y": y,
-            "w": max(10, min(PAGE_WIDTH_MM, _snap_mm(raw_slot.get("w", 90)))),
+            "x": max(0, min(PAGE_WIDTH_MM - w, _snap_mm(raw_slot.get("x", DEFAULT_MARGIN_MM)))),
+            "y": max(CONTENT_TOP_MM, min(CONTENT_BOTTOM_MM - h, y)),
+            "w": w,
             "h": h,
         })
     return sanitized

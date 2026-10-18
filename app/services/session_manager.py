@@ -1,9 +1,12 @@
 import json
 import os
 import logging
+import re
 import tempfile
 from datetime import datetime, timezone
 from contextlib import contextmanager
+from copy import deepcopy
+from functools import wraps
 
 from pydantic import ValidationError
 
@@ -17,12 +20,27 @@ try:
 except ImportError:  # pragma: no cover - Windows fallback
     fcntl = None
 
+JOB_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
+TERMINAL_STEPS = {"", "completed", "failed", "awaiting_clarification", "translation_failed"}
+
+
+def is_valid_job_id(job_id) -> bool:
+    return isinstance(job_id, str) and JOB_ID_PATTERN.fullmatch(job_id) is not None
+
+
+def validate_job_id(job_id) -> str:
+    """Reject ids that could escape the session folder or match other sessions' files."""
+    if not is_valid_job_id(job_id):
+        raise ValueError(f"Invalid session id: {job_id!r}")
+    return job_id
+
+
 def get_session_path(job_id: str) -> str:
-    return os.path.join(SESSION_DIR, f"{job_id}.json")
+    return os.path.join(SESSION_DIR, f"{validate_job_id(job_id)}.json")
 
 
 def get_session_lock_path(job_id: str) -> str:
-    return os.path.join(SESSION_DIR, f"{job_id}.lock")
+    return os.path.join(SESSION_DIR, f"{validate_job_id(job_id)}.lock")
 
 
 @contextmanager
@@ -60,6 +78,8 @@ def create_session(job_id: str, data: dict):
         write_session_file(job_id, data)
 
 def get_session(job_id: str) -> dict:
+    if not is_valid_job_id(job_id):
+        return None
     path = get_session_path(job_id)
     if not os.path.exists(path):
         return None
@@ -84,6 +104,52 @@ def update_session(job_id: str, updates: dict):
             write_session_file(job_id, session)
             return session
     return None
+
+
+def preserve_report_on_failure(refine):
+    """Keep the last usable report when a refinement fails before a new PDF exists."""
+    @wraps(refine)
+    def guarded(job_id: str, *args, **kwargs):
+        original = get_session(job_id) or {}
+        fields = (
+            "files", "data_filter", "data_preprocessing", "semantic_model",
+            "document_insights", "artifacts", "artifact_validation", "template",
+            "components", "calculated_metrics", "component_validation_retries",
+            "settings", "script", "script_path", "pdf_path", "retry_count",
+            "current_goal", "refinement_history", "pending_refinement",
+        )
+        snapshot = {key: deepcopy(original[key]) for key in fields if key in original}
+        raised = False
+        try:
+            return refine(job_id, *args, **kwargs)
+        except Exception:
+            raised = True
+            raise
+        finally:
+            latest = get_session(job_id) or {}
+            if (
+                original.get("pdf_version", 0) > 0
+                and original.get("artifacts") and original.get("template")
+                and (raised or latest.get("current_step") == "failed")
+                and latest.get("pdf_version") == original.get("pdf_version")
+            ):
+                update_session(job_id, snapshot)
+                add_log(job_id, "Refinamento falhou; o estado editável da última versão do relatório foi preservado.")
+    return guarded
+
+
+def append_exploration_turn(job_id: str, user_message: dict, assistant_message: dict):
+    """Append a complete explorer exchange without losing concurrent session updates."""
+    with session_lock(job_id):
+        path = get_session_path(job_id)
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as session_file:
+            session = normalize_session(json.load(session_file), job_id)
+        session["explore_history"] = [*session.get("explore_history", []), user_message, assistant_message]
+        session["updated_at"] = datetime.now(timezone.utc).isoformat()
+        write_session_file(job_id, normalize_session(session, job_id))
+        return session
 
 def list_recent_sessions(limit: int = 12) -> list:
     if not os.path.isdir(SESSION_DIR):
@@ -308,3 +374,30 @@ def set_session_stage(job_id: str, step: str, progress: int = None, error: dict 
         if error:
             updates["status"] = error.get("message", "Erro")
     return update_session(job_id, updates)
+
+
+def recover_interrupted_sessions() -> list[str]:
+    """Mark sessions left mid-run by a server restart as failed, so the UI stops waiting."""
+    if not os.path.isdir(SESSION_DIR):
+        return []
+    recovered = []
+    message = "O processamento foi interrompido porque o servidor reiniciou. Tente novamente."
+    for filename in os.listdir(SESSION_DIR):
+        job_id = filename[:-5]
+        if not filename.endswith(".json") or not is_valid_job_id(job_id):
+            continue
+        session = get_session(job_id)
+        if not session or session.get("current_step", "") in TERMINAL_STEPS:
+            continue
+        update_session(job_id, {
+            "current_step": "failed",
+            "progress": 100,
+            "status": message,
+            "active_run_id": 0,
+            "error": {"code": "interrupted", "message": message, "stage": session.get("current_step", "")},
+        })
+        add_log(job_id, message)
+        recovered.append(job_id)
+    if recovered:
+        logger.warning("Recovered %d interrupted session(s): %s", len(recovered), ", ".join(recovered))
+    return recovered

@@ -6,15 +6,14 @@ import unittest
 import pandas as pd
 from fastapi import BackgroundTasks, HTTPException
 
-from app.main import (
+from app.routers.api import regenerate_session
+from app.services.pipeline_service import (
     apply_data_filter,
     build_files_map,
     clear_data_filter_state,
     has_data_filter_decision,
-    regenerate_session,
-    session_file_variant,
-    should_consider_data_filter,
 )
+from app.services.web_helpers import session_file_variant
 from app.services.session_manager import create_session, get_session, get_session_path
 
 
@@ -27,18 +26,9 @@ class DataFilterTests(unittest.TestCase):
             if path and os.path.exists(path):
                 os.remove(path)
 
-    def test_detects_filter_intent_in_portuguese_and_english(self):
-        self.assertTrue(should_consider_data_filter("quero excluir pokemon variantes de região"))
-        self.assertTrue(should_consider_data_filter("focus on enterprise accounts only"))
-        self.assertTrue(should_consider_data_filter("adicione uma nova coluna calculada de margem"))
-        self.assertTrue(should_consider_data_filter("group by region before generating the report"))
-        self.assertTrue(should_consider_data_filter('Não inclua nenhuma forma regional ou mega. É possível identificar isso pela presença de um "-" no nome do pokemon'))
-        self.assertTrue(should_consider_data_filter("", {"data_filter": {"needs_filter": True}}))
-        self.assertTrue(should_consider_data_filter("", {"data_preprocessing": {"needs_preprocessing": True}}))
-        self.assertFalse(should_consider_data_filter("gere um relatório exploratório dos dados"))
-
     def test_default_filter_state_is_not_treated_as_existing_decision(self):
         self.assertFalse(has_data_filter_decision({}))
+        self.assertTrue(has_data_filter_decision({"evaluated": True, "needs_preprocessing": False}))
         self.assertFalse(has_data_filter_decision({
             "needs_filter": False,
             "description": "",
@@ -215,7 +205,7 @@ class RegenerationEndpointTests(unittest.TestCase):
         self.assertIn("m_total", session["components"])
         self.assertEqual(session["settings"]["title"], "Updated")
         self.assertEqual(session["provider"], "gemini")
-        self.assertEqual(session["model_name"], "models/gemini-2.5-flash")
+        self.assertEqual(session["model_name"], "gemini-2.5-flash")
 
     def test_regenerate_graphics_removes_only_visual_components(self):
         job_id = self.create_report_session()

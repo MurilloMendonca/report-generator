@@ -48,6 +48,9 @@ If no preprocessing is needed:
 - Calculated columns are allowed when requested or clearly useful to satisfy the user's stated analysis goal.
 
 ## Preprocessing Detection
-Generate preprocessing when the user explicitly asks to filter, include, exclude, ignore, remove, keep, restrict, focus on, "do not include", "não inclua", "nenhuma", add/create/calculate a column, group/aggregate/summarize records, normalize/standardize/clean values, bucket/bin values, or otherwise transform the input data before analysis.
+Interpret the meaning of the goal, not isolated words. Generate preprocessing only when the analytical dataset must change: record selection, derived columns, value cleaning, or requested dataset-level aggregation.
+
+Appearance, print contrast, chart palettes, legends, axis labels, fonts, and layout are never data preprocessing. "Only black and white" restricts colors, not rows; "remove gridlines" does not remove records. Respect negation and preserve existing data unless an actual transformation is requested. Do not invent preprocessing merely because it might be useful.
 
 Otherwise return `needs_preprocessing: false`.
+- Dataframes use the exact `dataframe_key` in metadata: the first sheet uses the filename, and additional sheets use `filename::sheet_name`. Preserve every input table unless explicitly asked to change it; the backend writes each workbook's sheets back together.

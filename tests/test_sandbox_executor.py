@@ -1,9 +1,15 @@
 import os
-import shutil
+import sys
 import unittest
 import uuid
+from pathlib import Path
+from unittest.mock import patch
 
-from app.services.executor_service import execute_script
+from app.services import executor_service
+from app.services.executor_service import SandboxUnavailableError, execute_script, probe_bubblewrap
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+BWRAP_AVAILABLE, BWRAP_ERROR = probe_bubblewrap()
 
 
 class SandboxExecutorTests(unittest.TestCase):
@@ -30,8 +36,6 @@ class SandboxExecutorTests(unittest.TestCase):
         )
 
         self.assertTrue(result["success"], result["stderr"])
-        if shutil.which("bwrap") and result.get("sandbox_backend") == "bubblewrap":
-            self.assertEqual(result.get("sandbox_backend"), "bubblewrap")
         self.assertEqual(result["stdout"].strip(), "done")
         self.assertTrue(os.path.exists(output_path))
         self.assertTrue(result["sandbox_access_manifest"])
@@ -159,11 +163,98 @@ class SandboxExecutorTests(unittest.TestCase):
         self.assertIn("Sandbox denied ctypes access", result["stderr"])
         self.assertTrue(any(entry.get("event") == "ctypes.dlopen" for entry in result["sandbox_access_manifest"]))
 
+    def test_denies_low_level_posix_open_outside_workspace(self):
+        result = execute_script(
+            "import posix\nposix.open('.env', posix.O_RDONLY)",
+            self.script_path(),
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("Sandbox denied filesystem access", result["stderr"])
+
+    def test_denies_low_level_process_spawning(self):
+        result = execute_script(
+            "import os\nos.execv('/bin/cat', ['cat', '.env'])",
+            self.script_path(),
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("Sandbox denied process execution", result["stderr"])
+
     def test_times_out_infinite_loops(self):
         result = execute_script("while True:\n    pass", self.script_path(), timeout=1)
 
         self.assertFalse(result["success"])
         self.assertIn("timed out", result["stderr"])
+
+
+
+@unittest.skipUnless(BWRAP_AVAILABLE, f"bubblewrap unavailable: {BWRAP_ERROR}")
+class BubblewrapIsolationTests(unittest.TestCase):
+    """These scripts deliberately skip the Python-level guard (via _io.FileIO and
+    os.listdir) to check that the bubblewrap mounts hold by themselves."""
+
+    def run_script(self, code):
+        script_path = f"workspace/scripts/test_bwrap_{uuid.uuid4().hex}.py"
+        self.addCleanup(lambda: os.path.exists(script_path) and os.remove(script_path))
+        return execute_script(code, script_path)
+
+    def test_uses_bubblewrap_backend(self):
+        result = self.run_script("print('ok')")
+        self.assertTrue(result["success"], result["stderr"])
+        self.assertEqual(result["sandbox_backend"], "bubblewrap")
+
+    def test_interpreter_and_uploads_are_read_only(self):
+        for target in [Path(sys.prefix) / f"probe_{uuid.uuid4().hex}", ROOT_DIR / "workspace" / "uploads" / f"probe_{uuid.uuid4().hex}"]:
+            self.addCleanup(lambda t=target: t.exists() and t.unlink())
+            result = self.run_script(f"import _io\n_io.FileIO({str(target)!r}, 'w').write(b'x')")
+            self.assertFalse(result["success"], target)
+            self.assertIn("Read-only file system", result["stderr"])
+            self.assertFalse(target.exists())
+
+    def test_sessions_and_source_are_not_visible(self):
+        for directory in ["workspace/sessions", "app"]:
+            result = self.run_script(f"import os\nprint(os.listdir({str(ROOT_DIR / directory)!r}))")
+            self.assertFalse(result["success"], directory)
+            self.assertIn("FileNotFoundError", result["stderr"])
+
+    def test_report_outputs_stay_writable(self):
+        target = ROOT_DIR / "workspace" / "reports" / f"probe_{uuid.uuid4().hex}"
+        self.addCleanup(lambda: target.exists() and target.unlink())
+        result = self.run_script(f"import _io\n_io.FileIO({str(target)!r}, 'w').write(b'x')")
+        self.assertTrue(result["success"], result["stderr"])
+        self.assertTrue(target.exists())
+
+
+class SandboxBackendSelectionTests(unittest.TestCase):
+    def test_ci_requires_working_bubblewrap(self):
+        if os.getenv("PDF_REPORT_REQUIRE_BWRAP") != "1":
+            self.skipTest("set PDF_REPORT_REQUIRE_BWRAP=1 to require bubblewrap")
+        self.assertTrue(BWRAP_AVAILABLE, BWRAP_ERROR)
+
+    def test_refuses_to_run_without_bubblewrap(self):
+        with patch.object(executor_service, "probe_bubblewrap", return_value=(False, "missing")), \
+             patch.dict(os.environ, {"PDF_REPORT_ALLOW_UNSAFE_SANDBOX": ""}):
+            with self.assertRaises(SandboxUnavailableError) as error:
+                execute_script("print('never')", "workspace/scripts/never.py")
+        self.assertEqual(error.exception.as_error_dict()["code"], "sandbox_unavailable")
+        self.assertFalse(os.path.exists("workspace/scripts/never.py"))
+
+    def test_unsafe_fallback_requires_explicit_opt_in(self):
+        script_path = f"workspace/scripts/test_fallback_{uuid.uuid4().hex}.py"
+        self.addCleanup(lambda: os.path.exists(script_path) and os.remove(script_path))
+        with patch.object(executor_service, "probe_bubblewrap", return_value=(False, "missing")), \
+             patch.dict(os.environ, {"PDF_REPORT_ALLOW_UNSAFE_SANDBOX": "1"}):
+            result = execute_script("print('guarded')", script_path)
+        self.assertTrue(result["success"], result["stderr"])
+        self.assertEqual(result["sandbox_backend"], "python-guard")
+
+    def test_runtime_roots_use_venv_prefix_not_resolved_executable(self):
+        roots = executor_service._python_runtime_roots()
+        prefix = Path(sys.prefix).resolve()
+        if not executor_service._is_under_system_path(prefix):
+            self.assertTrue(any(prefix == root or prefix.is_relative_to(root) for root in roots))
+        self.assertFalse(any(executor_service._is_under_system_path(root) for root in roots))
 
 
 if __name__ == "__main__":

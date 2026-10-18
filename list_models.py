@@ -16,12 +16,12 @@ def list_gemini_models():
         print("Erro: instale google-genai com `pip install -r requirements.txt`")
         return
 
-    client = genai.Client(api_key=api_key)
     print("Modelos disponíveis para generateContent:")
-    for model in client.models.list():
-        actions = getattr(model, "supported_actions", None) or getattr(model, "supported_generation_methods", [])
-        if not actions or "generateContent" in actions:
-            print(f"- {model.name}")
+    with genai.Client(api_key=api_key, http_options={"timeout": 30000}) as client:
+        for model in client.models.list():
+            actions = getattr(model, "supported_actions", None) or getattr(model, "supported_generation_methods", [])
+            if "generateContent" in actions:
+                print(f"- {model.name}")
 
 
 def list_deepseek_models():
@@ -30,16 +30,19 @@ def list_deepseek_models():
         print("Erro: DEEPSEEK_API_KEY não encontrada no .env")
         return
 
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     print("Modelos DeepSeek disponíveis:")
-    for m in client.models.list().data:
-        print(f"- {m.id}")
+    with OpenAI(api_key=api_key, base_url="https://api.deepseek.com", timeout=30, max_retries=0) as client:
+        for m in client.models.list().data:
+            print(f"- {m.id}")
 
 
 def list_models():
-    list_gemini_models()
-    print()
-    list_deepseek_models()
+    for name, list_provider_models in (("Gemini", list_gemini_models), ("DeepSeek", list_deepseek_models)):
+        try:
+            list_provider_models()
+        except Exception as exc:
+            print(f"Erro ao listar modelos {name}: {type(exc).__name__}")
+        print()
 
 
 if __name__ == "__main__":
