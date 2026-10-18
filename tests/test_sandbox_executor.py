@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 import unittest
 import uuid
@@ -248,6 +249,53 @@ class SandboxBackendSelectionTests(unittest.TestCase):
             result = execute_script("print('guarded')", script_path)
         self.assertTrue(result["success"], result["stderr"])
         self.assertEqual(result["sandbox_backend"], "python-guard")
+
+    def test_falls_back_to_no_proc_when_the_host_refuses_to_mount_it(self):
+        """Docker Desktop on macOS refuses a new /proc while the container's /proc is masked."""
+        calls = []
+
+        def fake_run(command, env, timeout, tmp_dir, *args, **kwargs):
+            args = executor_service._sandbox_bind_args(tmp_dir)
+            calls.append("--proc" in args)
+            if "--proc" in args:
+                return subprocess.CompletedProcess(command, 1, "", "bwrap: Can't mount proc on /proc: Operation not permitted")
+            return subprocess.CompletedProcess(command, 0, "sandbox-ok\n", "")
+
+        self.addCleanup(executor_service.probe_bubblewrap, True)
+        with patch.object(executor_service.shutil, "which", return_value="/usr/bin/bwrap"), \
+             patch.object(executor_service, "_run_with_bwrap", side_effect=fake_run):
+            self.assertEqual(executor_service.probe_bubblewrap(force=True), (True, ""))
+            self.assertEqual(calls, [True, False])
+            self.assertFalse(executor_service.sandbox_status()["sandbox_has_proc"])
+
+    def test_other_failures_do_not_trigger_the_fallback(self):
+        self.addCleanup(executor_service.probe_bubblewrap, True)
+        failure = subprocess.CompletedProcess([], 1, "", "bwrap: No permissions to create a new namespace")
+        with patch.object(executor_service.shutil, "which", return_value="/usr/bin/bwrap"), \
+             patch.object(executor_service, "_run_with_bwrap", return_value=failure) as run:
+            available, reason = executor_service.probe_bubblewrap(force=True)
+        self.assertFalse(available)
+        self.assertIn("namespace", reason)
+        self.assertEqual(run.call_count, 1)
+        self.assertTrue(executor_service._bwrap_mount_proc)
+
+    @unittest.skipUnless(BWRAP_AVAILABLE, f"bubblewrap unavailable: {BWRAP_ERROR}")
+    def test_report_code_and_isolation_work_without_proc(self):
+        script_path = ROOT_DIR / "workspace" / "scripts" / f"test_noproc_{uuid.uuid4().hex}.py"
+        self.addCleanup(lambda: script_path.exists() and script_path.unlink())
+        code = "\n".join([
+            "import os, pandas as pd, matplotlib",
+            "matplotlib.use('Agg')",
+            "import matplotlib.pyplot as plt",
+            "print(pd.DataFrame({'a': [1, 2, 3]}).a.sum(), os.path.exists('/proc/self'))",
+            "plt.subplots()",
+            f"print(os.listdir({str(ROOT_DIR / 'app')!r}))",
+        ])
+        with patch.object(executor_service, "_bwrap_mount_proc", False):
+            result = execute_script(code, str(script_path))
+        self.assertIn("6 False", result["stdout"])
+        self.assertFalse(result["success"])
+        self.assertIn("FileNotFoundError", result["stderr"])  # the source tree stays hidden
 
     def test_runtime_roots_use_venv_prefix_not_resolved_executable(self):
         roots = executor_service._python_runtime_roots()

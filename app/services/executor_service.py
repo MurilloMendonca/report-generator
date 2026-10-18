@@ -370,8 +370,7 @@ def _sandbox_bind_args(tmp_dir: Path, paths: ReportPaths | None = None) -> list[
         "--new-session",
         "--die-with-parent",
         "--clearenv",
-        "--proc",
-        "/proc",
+        *(["--proc", "/proc"] if _bwrap_mount_proc else ["--dir", "/proc"]),
         "--dev",
         "/dev",
         "--tmpfs",
@@ -471,6 +470,7 @@ class SandboxUnavailableError(RuntimeError):
 
 
 _bwrap_probe_result: tuple[bool, str] | None = None
+_bwrap_mount_proc = True  # False when the host refuses a new /proc (see probe_bubblewrap)
 
 
 def _unsafe_fallback_allowed() -> bool:
@@ -485,6 +485,23 @@ def probe_bubblewrap(force: bool = False) -> tuple[bool, str]:
     if shutil.which("bwrap") is None:
         _bwrap_probe_result = (False, "bwrap is not installed")
         return _bwrap_probe_result
+    global _bwrap_mount_proc
+    _bwrap_mount_proc = True
+    _bwrap_probe_result = _probe_once()
+    if not _bwrap_probe_result[0] and "mount proc" in _bwrap_probe_result[1].lower():
+        # Some container hosts (Docker Desktop on macOS, for one) refuse a new
+        # /proc while Docker masks parts of the container's /proc. Generated
+        # code doesn't need /proc, so run without it; all other isolation stays.
+        _bwrap_mount_proc = False
+        _bwrap_probe_result = _probe_once()
+        if _bwrap_probe_result[0]:
+            logger.info("bubblewrap cannot mount /proc on this host; the sandbox runs without /proc.")
+        else:
+            _bwrap_mount_proc = True
+    return _bwrap_probe_result
+
+
+def _probe_once() -> tuple[bool, str]:
     tmp_dir = Path(tempfile.mkdtemp(prefix="pdf-report-sandbox-probe-"))
     try:
         result = _run_with_bwrap(
@@ -494,15 +511,13 @@ def probe_bubblewrap(force: bool = False) -> tuple[bool, str]:
             tmp_dir,
         )
         if result.returncode == 0 and result.stdout.strip() == "sandbox-ok":
-            _bwrap_probe_result = (True, "")
-        else:
-            detail = (result.stderr or result.stdout or f"exit code {result.returncode}").strip()
-            _bwrap_probe_result = (False, detail[-500:])
+            return (True, "")
+        detail = (result.stderr or result.stdout or f"exit code {result.returncode}").strip()
+        return (False, detail[-500:])
     except Exception as exc:
-        _bwrap_probe_result = (False, str(exc))
+        return (False, str(exc))
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-    return _bwrap_probe_result
 
 
 def select_sandbox_backend() -> str:
@@ -524,6 +539,7 @@ def sandbox_status() -> dict:
     return {
         "bubblewrap_available": available,
         "bubblewrap_error": reason,
+        "sandbox_has_proc": _bwrap_mount_proc,
         "unsafe_fallback_allowed": _unsafe_fallback_allowed(),
     }
 
