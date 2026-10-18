@@ -1,6 +1,6 @@
 # Plan: User Accounts and Bring-Your-Own-Key
 
-Status: Phase 0 done (pending the Mac mini check) · Date: 2026-10-18
+Status: Phases 0 and 1 done · Date: 2026-10-18
 
 This plan moves the app from a single shared access secret with server-owned provider keys to:
 
@@ -88,11 +88,11 @@ The host shapes several parts of the design.
 - Run directly on macOS, the sandbox is unavailable and report generation is refused (or, with `PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1`, runs with weak isolation). With open sign-up, that is not acceptable.
 - Phase 0 verifies bubblewrap inside the container on the Mac mini before anything else.
 
-**Run `cloudflared` as a compose service.**
-- It uses the tunnel token from a Docker secret and points the ingress at `http://app:8000`.
-- **Don't publish the app's port on the Mac** (remove `ports:` from the app service, or bind it to `127.0.0.1` for local debugging). Every request then arrives through the tunnel, which makes Cloudflare's headers trustworthy.
+**Keep `cloudflared` on the Mac host, as it runs today.**
+- Its ingress points at `http://localhost:8000`.
+- **Publish the app's port on `127.0.0.1` only.** The LAN can't reach the app directly, so every outside request arrives through the tunnel, which makes Cloudflare's headers trustworthy.
 
-**Client IP.** Behind the tunnel, every request comes from `cloudflared`. Take the real address from `CF-Connecting-IP`, but only when the request came from the `cloudflared` container: `PDF_REPORT_CLIENT_IP_HEADER=CF-Connecting-IP`, `PDF_REPORT_TRUSTED_PROXY=cloudflared`. Rate limits and audit events use this address.
+**Client IP.** Behind the tunnel, every request comes from `cloudflared`. Take the real address from `CF-Connecting-IP`, but only when the request came through Docker's gateway, which is where the host `cloudflared` connects from: `PDF_REPORT_CLIENT_IP_HEADER=CF-Connecting-IP`, `PDF_REPORT_TRUSTED_PROXIES=172.16.0.0/12,192.168.65.0/24`. Rate limits and audit events use this address.
 
 **TLS and cookies.** Cloudflare serves HTTPS, so `Secure` cookies work, while the tunnel carries plain HTTP inside Docker. Set `PUBLIC_BASE_URL=https://repgen.gengardev.com.br` for email links and redirects. Turn on HSTS and "Always Use HTTPS" in the Cloudflare dashboard.
 
@@ -226,7 +226,7 @@ Replace the current `LoginRateLimiter` with a small limiter module that keeps se
 | Forgot password / resend verification | Per IP, and per email |
 
 - In-memory is enough for one process. Section 11 covers moving it into Postgres.
-- Key the limits on the real client IP from `CF-Connecting-IP`, trusted only for requests from `cloudflared` (3.1).
+- Key the limits on the real client IP from `CF-Connecting-IP`, trusted only for requests through Docker's gateway (3.1).
 - **Turnstile:** sign-up, login (after the first failure) and forgot-password require a Cloudflare Turnstile token. The server verifies it with Cloudflare's `siteverify` endpoint before doing any other work. This stops scripted sign-ups and credential stuffing cheaply.
 - After repeated failures on one account, add a growing delay instead of locking the account. Locking would let anyone lock out a known user.
 
@@ -467,17 +467,16 @@ Size estimates: S is about 1–2 days, M is about 3–5 days, L is about 1–2 w
 
 ### Phase 0 — Groundwork on the current single-user app (M)
 
-**Status (2026-10-18): done, except the check on the Mac mini itself.**
-- bubblewrap was verified in Docker Desktop (Linux) with the compose settings: the sandbox tests pass inside the hardened container, and fail as expected with Docker's default profile.
-- The same check still needs to run on the Mac mini (step 1).
+**Status (2026-10-18): done and deployed on the Mac mini.**
+- bubblewrap works in Docker on the Mac mini with the compose settings.
 - New reports use `workspace/tenants/default/reports/{job_id}/`; `default` becomes the owner's user ID in Phase 3.
-- Existing reports keep the shared folders until the Phase 1 import moves them.
+- Existing reports keep the shared folders until the Phase 1 import copies them.
 
 Goal: get the risky refactors in while there's still one user.
 
 1. **Check the sandbox on the Mac mini first.** Run the app's container on the Mac and execute `docker compose exec app env APP_ENV=test PDF_REPORT_REQUIRE_BWRAP=1 python -m unittest tests.test_sandbox_executor`.
    - If bubblewrap fails inside Docker Desktop's VM, fix that (VM settings, or OrbStack) before continuing. Open sign-up depends on it.
-   - Add `cloudflared` to compose and stop publishing the app port (3.1).
+   - Publish the app port on `127.0.0.1` only (3.1).
 2. **Background translation and exploration** (3.1, request timeout): both endpoints queue a job through `run_job` and return right away; the UI polls the session as it already does for reports. Explorer turns get a `pending` state in `explore_history`.
 3. **Provider adapter registry** (6.5). Move the Gemini and DeepSeek code into adapters; `_request_llm_content` dispatches through the registry. Adapters return `GenerationResult` with token counts.
 4. **`ReportPaths` and per-report sandbox mounts** (7.2), still using env keys and JSON sessions. New reports use the per-report layout; old ones are read through a compatibility path.
@@ -491,6 +490,16 @@ Goal: get the risky refactors in while there's still one user.
 **Done when:** bubblewrap is confirmed working on the Mac mini, translation and exploration no longer hold a request open, behavior is otherwise unchanged, and the sandbox only sees the current report.
 
 ### Phase 1 — Postgres foundation (L)
+
+**Status (2026-10-18): done.** Differences from the steps below:
+- **No `migrate` service.** The app applies migrations itself the first time it connects (`app/db.py`, under a Postgres advisory lock), and so does `python -m app.cli migrate`. One fewer container; `PDF_REPORT_AUTO_MIGRATE=0` turns it off.
+- **Backups are a host script,** `scripts/backup.sh` (run from cron or launchd), not a sidecar. `BACKUP_SYNC_COMMAND` copies the files off the Mac. A restore was rehearsed with the production compose file.
+- **The `users` table exists already,** so the import can create the demo account now. Its password is set in Phase 2. Emails are stored lowercased with a unique index instead of `citext`.
+- **Tests:** instead of a rollback per test, the `repgen_test` database is emptied once per run (its name must end in `_test`). Background jobs and the test client use their own connections, which per-test rollback can't cover. Local Postgres comes from `compose.dev.yml` (dev and test databases), and CI runs a `postgres` service.
+- `import-legacy` **copies** files rather than moving them, so the old folders stay until deleted by hand (step 6 of Section 9). Reports created after Phase 0 (already in per-report folders) are copied into the owner's folder too.
+- The explorer's file lock in the shared scripts folder is gone; the in-process lock and the pending turn stored in the database cover it.
+- Postgres can't store NUL characters or NaN/Infinity in JSONB. `app/db.py` drops NULs and stores NaN/Infinity as `null`.
+- Reports created from now until Phase 3 have no owner and stay in `tenants/default/`. Phase 2 assigns them (to the demo account or the admin).
 
 1. Add a `postgres` service to `docker-compose.yml`: data in a named volume (not a macOS bind mount), no published port, a healthcheck, the app waiting for it (`depends_on: condition: service_healthy`), and `DATABASE_URL`. Run `alembic upgrade head` as a one-shot `migrate` service before the app starts.
 2. Add `app/db.py` (engine, session factory, `transaction()` context manager), `app/models/db.py` (SQLAlchemy models from Section 4), and `alembic/`.
@@ -521,7 +530,7 @@ Goal: get the risky refactors in while there's still one user.
    - CSRF double-submit;
    - multi-bucket rate limiter;
    - security headers, with the CSP extended for Turnstile (3.1);
-   - real client IP from `CF-Connecting-IP`, trusted only from `cloudflared`.
+   - real client IP from `CF-Connecting-IP`, trusted only from Docker's gateway (3.1).
    - Remove `APP_ACCESS_SECRET`, the HMAC tokens, `APP_ADMIN_SECRET` and the revocation file.
 5. Open sign-up with Turnstile verification (`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`), and `PDF_REPORT_SIGNUP_MODE=open|closed` as a kill switch.
 6. `python -m app.cli create-admin`.
@@ -602,7 +611,7 @@ Goal: get the risky refactors in while there's still one user.
    - the KEK isn't in DB backups;
    - SMTP credentials are scoped to sending only.
 2. **Cloudflare configuration**, documented as a checklist:
-   - tunnel ingress pointing to `http://app:8000`;
+   - tunnel ingress pointing to `http://localhost:8000`;
    - "Always Use HTTPS" and HSTS;
    - the cache bypass for `/api/*` and `/session/*`;
    - a WAF rate-limiting rule on `/api/auth/*`;
@@ -643,7 +652,7 @@ Goal: get the risky refactors in while there's still one user.
 | bubblewrap not working inside Docker on macOS | Verified first in Phase 0; the app refuses to run generated code rather than fall back silently |
 | One Mac mini is the whole service (disk, power, home network) | Off-machine backups, a rehearsed restore, auto-restart settings, a UPS, Cloudflare tunnel health alerts |
 | Requests cut off at Cloudflare's ~100 s limit | Translation and exploration move to background jobs in Phase 0 |
-| Spoofed client IP defeating rate limits | No published app port; `CF-Connecting-IP` trusted only from `cloudflared` |
+| Spoofed client IP defeating rate limits | App port bound to `127.0.0.1`; `CF-Connecting-IP` trusted only from Docker's gateway |
 | Long migration window with mixed storage | Phase 0 makes per-report paths the default early; the import script has a dry run; old folders stay until removed by hand |
 | Session/report write contention in Postgres | Row-level locks per report (same scope as today's file locks); move logs into their own table if needed |
 
@@ -651,7 +660,7 @@ Goal: get the risky refactors in while there's still one user.
 
 ## 13. Configuration after this plan
 
-New: `DATABASE_URL`, `APP_ENCRYPTION_KEYS`, `APP_ENCRYPTION_ACTIVE_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `PUBLIC_BASE_URL` (`https://repgen.gengardev.com.br`), `PDF_REPORT_SIGNUP_MODE` (`open`), `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `PDF_REPORT_CLIENT_IP_HEADER` (`CF-Connecting-IP`), `PDF_REPORT_TRUSTED_PROXY` (`cloudflared`), `CLOUDFLARE_TUNNEL_TOKEN` (Docker secret, read by the `cloudflared` service), `PDF_REPORT_QUOTA_STORAGE_BYTES`, `PDF_REPORT_QUOTA_REPORTS_PER_DAY`, `PDF_REPORT_MAX_JOBS_PER_USER`, `PDF_REPORT_DEV_SERVER_KEYS` (dev and test only).
+New: `DATABASE_URL`, `APP_ENCRYPTION_KEYS`, `APP_ENCRYPTION_ACTIVE_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `PUBLIC_BASE_URL` (`https://repgen.gengardev.com.br`), `PDF_REPORT_SIGNUP_MODE` (`open`), `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `PDF_REPORT_CLIENT_IP_HEADER` (`CF-Connecting-IP`), `PDF_REPORT_TRUSTED_PROXIES` (Docker's gateway networks), `PDF_REPORT_QUOTA_STORAGE_BYTES`, `PDF_REPORT_QUOTA_REPORTS_PER_DAY`, `PDF_REPORT_MAX_JOBS_PER_USER`, `PDF_REPORT_DEV_SERVER_KEYS` (dev and test only).
 
 Removed: `APP_ACCESS_SECRET`, `PDF_REPORT_ACCESS_SECRET`, `PDF_REPORT_ALLOW_DEFAULT_SECRET`, `APP_ADMIN_SECRET`, `PDF_REPORT_LLM_FALLBACK_PROVIDER` / `_MODEL_NAME` (now a user preference), and `GEMINI_API_KEY` / `DEEPSEEK_API_KEY` in production.
 

@@ -4,7 +4,9 @@ import uuid
 import unittest
 
 from app.models.session import CURRENT_SESSION_SCHEMA_VERSION, normalize_session
-from app.services.session_manager import append_stage_event, create_session, get_session, get_session_lock_path, get_session_path, set_session_stage, update_session
+from app import db
+from app.models.db import Report
+from app.services.session_manager import append_stage_event, create_session, delete_session, get_session, set_session_stage, update_session
 
 
 class SessionSchemaTests(unittest.TestCase):
@@ -13,9 +15,7 @@ class SessionSchemaTests(unittest.TestCase):
 
     def tearDown(self):
         for job_id in self.job_ids:
-            for path in [get_session_path(job_id), get_session_lock_path(job_id)]:
-                if os.path.exists(path):
-                    os.remove(path)
+            delete_session(job_id)
 
     def new_job_id(self):
         job_id = f"test-schema-{uuid.uuid4().hex}"
@@ -23,9 +23,9 @@ class SessionSchemaTests(unittest.TestCase):
         return job_id
 
     def write_raw_session(self, job_id, payload):
-        os.makedirs(os.path.dirname(get_session_path(job_id)), exist_ok=True)
-        with open(get_session_path(job_id), "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False)
+        # Store the document as-is, skipping the normalization create_session does.
+        with db.transaction() as tx:
+            tx.add(Report(id=job_id, state=payload))
 
     def test_normalizes_legacy_session_defaults_without_losing_unknown_fields(self):
         job_id = self.new_job_id()

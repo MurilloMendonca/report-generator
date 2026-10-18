@@ -11,7 +11,7 @@ from app.services.pipeline_service import (
     run_pipeline,
     run_script_generation,
 )
-from app.services.session_manager import create_session, get_session, get_session_path, get_session_lock_path
+from app.services.session_manager import create_session, delete_session, get_session
 from app.utils.template_library import get_layout_template
 
 
@@ -22,9 +22,7 @@ class PipelineContractTests(unittest.TestCase):
 
     def tearDown(self):
         for job_id in self.job_ids:
-            for path in [get_session_path(job_id), get_session_lock_path(job_id)]:
-                if os.path.exists(path):
-                    os.remove(path)
+            delete_session(job_id)
         for path in self.created_paths:
             if os.path.exists(path):
                 os.remove(path)

@@ -12,7 +12,7 @@ from app.main import app
 from app.security import create_session_token
 from app.services.cleanup_service import delete_entire_session, get_session_generated_paths
 from app.services.executor_service import execute_script, probe_bubblewrap
-from app.services.session_manager import create_session, get_session
+from app.services.session_manager import create_session, delete_session, get_session
 from app.utils.report_paths import TENANTS_DIR, ReportPaths
 
 BWRAP_AVAILABLE, BWRAP_ERROR = probe_bubblewrap()
@@ -147,7 +147,7 @@ class NewSessionStorageTests(unittest.TestCase):
     def test_tampered_storage_dir_cannot_point_outside_tenants(self):
         job_id = f"test-paths-{uuid.uuid4().hex}"
         create_session(job_id, {"job_id": job_id, "files": [], "storage_dir": "workspace/sessions"})
-        self.addCleanup(lambda: os.path.exists(f"workspace/sessions/{job_id}.json") and os.remove(f"workspace/sessions/{job_id}.json"))
+        self.addCleanup(delete_session, job_id)
         with patch.object(api, "run_pipeline"), TestClient(app, raise_server_exceptions=False) as client:
             response = client.post(
                 f"/api/sessions/{job_id}/files", headers=self.headers,
@@ -155,6 +155,7 @@ class NewSessionStorageTests(unittest.TestCase):
             )
         self.assertGreaterEqual(response.status_code, 400)
         self.assertFalse(any(Path("workspace/sessions").glob("*.csv")))
+        self.assertEqual(get_session(job_id)["files"], [])
 
 
 class PerReportRenderTests(unittest.TestCase):

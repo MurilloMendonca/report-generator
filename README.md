@@ -31,17 +31,21 @@ The current UI text is mostly Portuguese, and the default report language is Por
   - DeepSeek via OpenAI-compatible client
 - Generated-code isolation: bubblewrap (`bwrap`)
 - Frontend: static HTML/CSS/JavaScript
-- Runtime persistence: JSON files under `workspace/sessions`
+- Database: PostgreSQL 17 via SQLAlchemy 2 (sync) and psycopg 3; schema migrations with Alembic
+- Files: per-report folders under `workspace/tenants/`
 
 ## Repository Layout
 
 ```text
 app/
   main.py                    App setup: auth middleware, startup checks, router wiring
+  db.py                      Postgres engine, transactions, automatic migrations
+  cli.py                     Operator commands (migrate, create-demo-user, import-legacy)
   security.py                Login secret, signed session tokens, revocation, rate limit, headers
   routers/api.py             All HTTP routes
   models/
     session.py               Pydantic session schema and legacy migrations
+    db.py                    Database tables (users, reports, layout_templates, revoked_tokens)
     refinement.py            Schema for chat-refinement routing decisions
   services/
     llm/                     LLM calls, one module per concern (see "LLM Package" below)
@@ -49,7 +53,8 @@ app/
     executor_service.py      Sandboxed generated-script execution
     exploration_service.py   Ad-hoc data explorer (questions and charts)
     job_runner.py            Limits how many report jobs run at once
-    session_manager.py       JSON-backed session persistence and restart recovery
+    session_manager.py       Session storage in the `reports` table, and restart recovery
+    legacy_import.py         Imports the old JSON sessions and template library
     cleanup_service.py       Session deletion, retention cleanup, disk usage
     web_helpers.py           Upload validation, file responses, chat refinement handling
   utils/
@@ -64,6 +69,8 @@ app/
     layout.py                Layout normalization
     template_library.py      Built-in and saved A4 layout blueprints
     model_config.py          Provider/model catalog and defaults
+alembic/                     Database migrations (alembic.ini at the root)
+scripts/backup.sh            Database and workspace backup
 prompts/                     System prompts used for each LLM task
 static/
   index.html                 Main browser workspace
@@ -84,15 +91,14 @@ workspace/
     output/                  Its PDFs, previews, manifests and explorer charts
   uploads/, filtered/,       Shared folders used only by sessions created before
   scripts/, reports/           the per-report layout
-  sessions/                  Session JSON files
-  auth/                      Revoked session tokens
+  sessions/                  Old session JSON files (read only by `import-legacy`)
   sandbox_support/           Runtime guard and helpers loaded inside the sandbox
 requirements.txt             Python dependencies
 requirements-lock.txt        Frozen dependency set for reproducible installs
 list_models.py               Helper script for listing Gemini models
 ```
 
-The `workspace/` directories are created automatically when the app starts.
+The `workspace/` directories are created automatically when the app starts. Session state, layout templates and revoked logins live in Postgres.
 
 ## Setup
 
@@ -105,6 +111,14 @@ pip install -r requirements.txt -c requirements-lock.txt
 ```
 
 This is the same install CI and Docker use. Plain `pip install -r requirements.txt` also works but may resolve newer versions than the tested set.
+
+Start a local Postgres (Docker), used for development and by the tests:
+
+```bash
+docker compose -f compose.dev.yml up -d
+```
+
+It listens on `127.0.0.1:5433`. The app creates its tables on first start.
 
 Install bubblewrap, which isolates the LLM-generated Python (see "Security Notes"):
 
@@ -124,6 +138,7 @@ Create a `.env` file with at least one provider key:
 GEMINI_API_KEY=your_google_gemini_key
 DEEPSEEK_API_KEY=your_deepseek_key
 APP_ACCESS_SECRET=your_long_random_login_secret
+DATABASE_URL=postgresql+psycopg://repgen:repgen@127.0.0.1:5433/repgen
 ```
 
 The default provider is `deepseek`, so `DEEPSEEK_API_KEY` is required for the default path. `GEMINI_API_KEY` is required when selecting Gemini. `APP_ACCESS_SECRET` is the login secret used by the browser UI. After login, the app issues a signed HttpOnly session cookie; the browser does not store the raw secret.
@@ -134,6 +149,11 @@ All settings are environment variables (`.env` is loaded automatically).
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `DATABASE_URL` | none (required) | Postgres connection URL, `postgresql+psycopg://user:password@host:port/db`. Compose builds it from `POSTGRES_PASSWORD`. |
+| `POSTGRES_PASSWORD` | none (required by compose) | Password of the compose `postgres` service. Use a URL-safe value such as `openssl rand -hex 24`. |
+| `TEST_DATABASE_URL` | `postgresql+psycopg://repgen:repgen@127.0.0.1:5433/repgen_test` | Database used when `APP_ENV=test`. Its name must end in `_test`; it is created if missing and emptied at the start of each test run. |
+| `PDF_REPORT_AUTO_MIGRATE` | `1` | Apply pending database migrations when the app (or CLI) first connects. |
+| `PDF_REPORT_DB_POOL_SIZE` / `PDF_REPORT_DB_MAX_OVERFLOW` | `10` / `10` | Database connection pool size. |
 | `APP_ACCESS_SECRET` | `change-me` (dev only) | Login secret. Required outside development; `PDF_REPORT_ACCESS_SECRET` is an alias. |
 | `APP_ENV` | `development` | `development`, `dev`, `local`, or `test` relax the checks below; anything else is production. |
 | `APP_ADMIN_SECRET` | unset | Required in the `X-Admin-Secret` header for `/api/admin/*`. Without it, admin endpoints only work in development. |
@@ -149,7 +169,7 @@ All settings are environment variables (`.env` is loaded automatically).
 | `PDF_REPORT_MAX_REQUEST_UPLOAD_BYTES` | `94371840` (90 MB) | Total size of all files in one upload request. Cloudflare's free plan rejects bodies over 100 MB. |
 | `PDF_REPORT_MAX_EXCEL_SHEETS` | `20` | Sheets allowed per Excel workbook. |
 | `PDF_REPORT_CLIENT_IP_HEADER` | unset (compose: `CF-Connecting-IP`) | Header holding the real client address behind a proxy. Used only for requests from a trusted proxy. |
-| `PDF_REPORT_TRUSTED_PROXIES` | unset (compose: `cloudflared` plus Docker networks) | Comma-separated hostnames, IPs or CIDR ranges whose `PDF_REPORT_CLIENT_IP_HEADER` is believed. |
+| `PDF_REPORT_TRUSTED_PROXIES` | unset (compose: Docker's gateway networks) | Comma-separated hostnames, IPs or CIDR ranges whose `PDF_REPORT_CLIENT_IP_HEADER` is believed. |
 | `PDF_REPORT_LLM_TIMEOUT_SECONDS` | `45` | Timeout per LLM call. Report settings can override it. |
 | `PDF_REPORT_LLM_CALL_BUDGET` | `0` (unlimited) | Maximum LLM calls per top-level operation. Report settings can override it. |
 | `PDF_REPORT_LLM_FALLBACK_PROVIDER` / `PDF_REPORT_LLM_FALLBACK_MODEL_NAME` | unset | Provider/model to try when the primary provider fails. |
@@ -177,11 +197,19 @@ On startup the app checks that bubblewrap works and logs an error if it doesn't.
 
 ## Docker Run
 
-Create `.env` as shown above, then build and run:
+Create `.env` as shown above, without `DATABASE_URL` and with a database password instead:
+
+```bash
+POSTGRES_PASSWORD=$(openssl rand -hex 24)   # put the value in .env
+```
+
+Then build and run:
 
 ```bash
 docker compose up -d --build
 ```
+
+Compose starts two services: `postgres` (data in the `postgres-data` named volume, no published port) and the app, which waits for Postgres to be healthy and applies migrations on startup.
 
 The app will be available at:
 
@@ -209,19 +237,42 @@ The app's port is published on `127.0.0.1` only, so the machine itself can reach
 HOST_PORT=5555 docker compose up -d --build
 ```
 
+### Moving existing reports into the database
+
+Reports created before Postgres are JSON files in `workspace/sessions/`. Import them into a demo account:
+
+```bash
+docker compose exec report-generator python -m app.cli create-demo-user --email demo@gengardev.com.br
+docker compose exec report-generator python -m app.cli import-legacy --owner demo@gengardev.com.br --dry-run
+docker compose exec report-generator python -m app.cli import-legacy --owner demo@gengardev.com.br
+```
+
+Each report keeps its ID. Its files are copied to `workspace/tenants/{account id}/reports/{id}/`, and paths inside the session (including generated scripts) are rewritten. User layout templates from `workspace/layout_templates.json` are imported too. Running it again skips what was already imported. The old files are left in place; delete `workspace/sessions`, `uploads`, `filtered`, `scripts`, `reports` and `layout_templates.json` by hand once you've checked the imported reports.
+
+### Backups
+
+`scripts/backup.sh` writes a `pg_dump` of the database and a tarball of `workspace/` to `./backups` (or `BACKUP_DIR`), and deletes copies older than `BACKUP_KEEP_DAYS` (14). Set `BACKUP_SYNC_COMMAND` to copy them off the machine, for example `rclone sync ./backups r2:repgen-backups`. Run it nightly from the host, for example with cron:
+
+```text
+0 3 * * * cd /path/to/pdf-report-generator && BACKUP_SYNC_COMMAND='rclone sync ./backups r2:repgen-backups' scripts/backup.sh
+```
+
+To restore:
+
+```bash
+docker compose down
+docker volume rm pdf-report-generator_postgres-data      # only if replacing the database
+docker compose up -d --wait postgres
+docker compose exec -T postgres pg_restore -U repgen -d repgen --clean --if-exists --no-owner < backups/db-YYYYMMDD-HHMMSS.dump
+tar -xzf backups/workspace-YYYYMMDD-HHMMSS.tar.gz         # from the project folder, replaces workspace/
+docker compose up -d
+```
+
 ### Cloudflare Tunnel
 
-The app can be served through a Cloudflare Tunnel in two ways:
+Run `cloudflared` on the host as usual, pointing at `http://localhost:8000` (or your `HOST_PORT`). Compose doesn't start a tunnel.
 
-- **`cloudflared` inside compose (recommended).** Put the tunnel token in `.env` as `CLOUDFLARE_TUNNEL_TOKEN`, and in the Cloudflare dashboard point the public hostname at `http://report-generator:8000`. Then start with the `tunnel` profile:
-
-  ```bash
-  docker compose --profile tunnel up -d --build
-  ```
-
-- **`cloudflared` on the host,** pointing at `http://localhost:8000` (or your `HOST_PORT`).
-
-Either way, Cloudflare's real client address arrives in `CF-Connecting-IP`, and compose tells the app to trust it from `cloudflared` and Docker's networks (`PDF_REPORT_TRUSTED_PROXIES`). Login rate limits are then per visitor, not per tunnel. Authenticated responses send `Cache-Control: private, no-store`; also add a Cloudflare cache rule that bypasses the cache for `/api/*` and `/session/*`.
+Cloudflare's real client address arrives in `CF-Connecting-IP`, and compose tells the app to trust it from Docker's gateway networks, which is where a host `cloudflared` connects from (`PDF_REPORT_TRUSTED_PROXIES`). Login rate limits are then per visitor, not per tunnel. Authenticated responses send `Cache-Control: private, no-store`; also add a Cloudflare cache rule that bypasses the cache for `/api/*` and `/session/*`.
 
 Cloudflare drops requests that take longer than about 100 seconds. Report generation, explorer answers and workspace translation all run as background jobs that the UI polls, so no request waits that long.
 
@@ -290,7 +341,7 @@ Import from the submodules directly; the package deliberately has no re-exports.
   - `model_name`: provider model name.
 - `GET /api/sessions`: returns recent sessions.
 - `GET /api/sessions/{job_id}`: returns the full session state.
-- `DELETE /api/sessions/{job_id}`: deletes the session record and all associated workspace files (uploads, scripts, reports, JSON).
+- `DELETE /api/sessions/{job_id}`: deletes the session's database row and all its files.
 - `POST /api/sessions/{job_id}/files`: adds more files and reruns the pipeline.
 - `GET /api/sessions/{job_id}/files/{file_index}/preview`: previews an uploaded file. Use `?variant=preprocessed` when available.
 - `GET /api/sessions/{job_id}/files/{file_index}/download`: downloads an uploaded file. Use `?variant=preprocessed` when available.
@@ -326,20 +377,20 @@ The default retention policy is:
 - **Scripts:** 7 days.
 - **Filtered/Preprocessed data:** 7 days.
 
-Files older than these limits are subject to automatic removal during cleanup tasks.
+Sessions expire by the time of their last update in the database. Files older than these limits are subject to automatic removal during cleanup tasks.
 
 ### Cleanup Tasks
 
-- **Session Deletion:** Using `DELETE /api/sessions/{job_id}` removes all physical files linked to that session across all workspace subdirectories.
+- **Session Deletion:** Using `DELETE /api/sessions/{job_id}` removes the session's database row and all its files.
 - **Automated Cleanup:** The `POST /api/admin/cleanup` endpoint triggers a scan of the workspace to remove orphaned files or expired sessions based on the configured retention policy.
 
 ### Disk Usage
 
-The `GET /api/admin/workspace-usage` endpoint provides a breakdown of storage consumption by category (uploads, scripts, reports, etc.), helping administrators monitor workspace growth.
+The `GET /api/admin/workspace-usage` endpoint provides a breakdown of storage consumption by category (uploads, scripts, reports, tenants, and `sessions`, which is the size of the `reports` table), helping administrators monitor workspace growth.
 
 ## Session Shape
 
-Sessions are normalized by `app/models/session.py` and stored as `workspace/sessions/{job_id}.json`. Important fields:
+Sessions are normalized by `app/models/session.py` and stored as JSONB in `reports.state` (one row per report, keyed by `job_id`). The row also copies a few fields into columns for listing (`title`, `status`, `current_step`, `pdf_version`, `updated_at`). Important fields:
 
 - `schema_version`: current session schema version.
 - `files`: uploaded file records with original name, saved path, extracted metadata, and optional preprocessing output.
@@ -426,14 +477,15 @@ Visual components are expected to render themselves as temporary matplotlib imag
 - The app executes LLM-generated Python for preprocessing, metrics, exploration, and PDF rendering. Uploaded data reaches the model, so a crafted file could steer what code is generated; the sandbox is the boundary that contains it.
 - Generated scripts run under bubblewrap with no network and a private `/tmp`. They see the interpreter and system libraries read-only, **their own report's** `uploads/` read-only, and its `filtered/`, `scripts/` and `output/` writable. Other reports, session files, the source tree, `.env`, and the server's environment variables are not visible. (Sessions created before the per-report layout still use the shared `workspace/uploads`, `filtered`, `scripts` and `reports` folders until they are moved.) Scripts are also limited to 20 s of CPU time, 2 GB of memory, 30 s of wall time, and `PDF_REPORT_SANDBOX_MAX_FILE_BYTES` per file.
 - A Python-level guard runs inside the sandbox as a second layer and records file access in a manifest. On its own it can be bypassed, so the app refuses to run generated code without bubblewrap unless `PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1` is set.
-- Login is a single shared secret. Failed attempts are rate-limited per client address (behind a reverse proxy that address is the proxy's), and logout revokes the token server-side. Tokens are HMAC-signed with `APP_ACCESS_SECRET`; changing the secret invalidates all sessions.
+- Login is a single shared secret. Failed attempts are rate-limited per client address (behind a reverse proxy that address is the proxy's), and logout revokes the token server-side (revoked tokens are kept in Postgres). Tokens are HMAC-signed with `APP_ACCESS_SECRET`; changing the secret invalidates all sessions.
 - Admin endpoints need a separate `APP_ADMIN_SECRET`.
 - Data metadata samples redact values from columns with sensitive names such as email, token, password, document, phone, and address before prompt context is sent to an LLM provider. Sample rows are omitted from prompt payloads by default; enable "Incluir amostras de dados nos prompts" in report settings only when extra context is necessary.
 - Do not commit provider keys or access secrets. Use `.env`.
 
 ## Important Maintenance Notes
 
-- Session persistence is file-based with per-session file locking and atomic writes. Pipeline execution is serialized per session inside a single app process; multi-process deployments should use an external queue or distributed lock. The login rate limit is also per process.
+- Every session change locks the report's row (`SELECT ... FOR UPDATE`), applies the change and writes it back in one transaction, so concurrent updates are never lost. Postgres can't store NUL characters or NaN/Infinity in JSONB, so `app/db.py` drops NULs and stores NaN/Infinity as `null`. Pipeline execution is serialized per session inside a single app process; multi-process deployments should use an external queue or distributed lock. The login rate limit is also per process.
+- Changing a table in `app/models/db.py` needs a migration: `DATABASE_URL=... alembic revision --autogenerate -m "..."`, then review the file in `alembic/versions/`. A test fails if the models and migrations disagree.
 - `execute_script` has a 30-second default timeout.
 - `run_execution` retries failed report scripts up to five total attempts. A missing sandbox fails immediately instead of retrying.
 - `calculate_metric_value` retries each metric up to three times and returns `"N/A"` if no valid value is produced.
@@ -443,11 +495,14 @@ Visual components are expected to render themselves as temporary matplotlib imag
 
 ## Tests And Development Checks
 
-Run the automated test suite:
+Run the automated test suite (needs the local Postgres from `compose.dev.yml`):
 
 ```bash
+docker compose -f compose.dev.yml up -d
 APP_ENV=test venv/bin/python -m unittest discover -s tests
 ```
+
+Tests use the `repgen_test` database (`TEST_DATABASE_URL`), which is emptied at the start of every run, so they never touch your development data. They still share `workspace/` with a running dev server.
 
 The sandbox isolation tests skip themselves when bubblewrap doesn't work. Set `PDF_REPORT_REQUIRE_BWRAP=1` to make that a failure instead (CI does).
 

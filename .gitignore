@@ -11,3 +11,5 @@ tests/canonical/results/
 # Python cache
 __pycache__/
 *.py[cod]
+
+backups/

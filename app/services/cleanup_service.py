@@ -3,7 +3,10 @@ import shutil
 from datetime import datetime, timezone, timedelta
 from typing import TypedDict
 
-from app.services.session_manager import get_session, get_session_path, get_session_lock_path, is_valid_job_id
+from sqlalchemy import func, select
+
+from app import db
+from app.services.session_manager import delete_session, get_session, is_valid_job_id, list_session_activity
 from app.utils.report_paths import TENANTS_DIR, ReportPaths
 
 class RetentionPolicy(TypedDict):
@@ -21,8 +24,8 @@ DEFAULT_RETENTION: RetentionPolicy = {
     "filtered_days": 7
 }
 
+# Legacy shared folders. Session documents live in the `reports` table.
 WORKSPACE_DIRS = {
-    "sessions": "workspace/sessions",
     "uploads": "workspace/uploads",
     "filtered": "workspace/filtered",
     "scripts": "workspace/scripts",
@@ -87,8 +90,6 @@ def get_session_generated_paths(job_id: str, session: dict) -> set[str]:
         session.get("script_path"),
         session.get("pdf_path"),
         f"{session.get('pdf_path')}.manifest.json" if session.get("pdf_path") else None,
-        get_session_path(job_id),
-        get_session_lock_path(job_id),
     }
 
     # Files referenced in session
@@ -109,28 +110,15 @@ def get_session_generated_paths(job_id: str, session: dict) -> set[str]:
     return {p for p in paths if p and isinstance(p, str)}
 
 def delete_entire_session(job_id: str) -> int:
-    """Deletes a session and all its associated artifacts."""
+    """Deletes a session's row and all its files. Returns how many items were removed."""
     if not is_valid_job_id(job_id):
         return 0
     session = get_session(job_id)
-    if not session:
-        # Try to delete session files even if JSON is corrupted or missing.
-        paths = {
-            get_session_path(job_id),
-            get_session_lock_path(job_id),
-            *_scan_workspace_paths(job_id),
-        }
-        removed = 0
-        for p in paths:
-            if safe_remove_path(p):
-                removed += 1
-        return removed
-
-    paths = get_session_generated_paths(job_id, session)
-    removed = 0
-    for p in sorted(list(paths)):
-        if safe_remove_path(p):
-            removed += 1
+    # Without a readable session, still remove files that carry its id.
+    paths = get_session_generated_paths(job_id, session) if session else _scan_workspace_paths(job_id)
+    removed = sum(1 for path in sorted(paths) if safe_remove_path(path))
+    if delete_session(job_id):
+        removed += 1
     return removed
 
 def cleanup_expired_artifacts(policy: RetentionPolicy = None) -> dict:
@@ -140,34 +128,20 @@ def cleanup_expired_artifacts(policy: RetentionPolicy = None) -> dict:
     stats = {"sessions_removed": 0, "files_removed": 0, "errors": 0}
     protected_paths: set[str] = set()
 
-    session_dir = WORKSPACE_DIRS["sessions"]
-    if os.path.exists(session_dir):
-        for filename in os.listdir(session_dir):
-            if not filename.endswith(".json"):
-                continue
-
-            job_id = filename[:-5]
-            session = get_session(job_id)
-            if not session:
-                continue
+    activity = list_session_activity()
+    for job_id, _updated_at in activity:
+        session = get_session(job_id)
+        if session:
             protected_paths.update(get_session_generated_paths(job_id, session))
 
-    # 1. Clean up sessions
-    if os.path.exists(session_dir):
-        for filename in os.listdir(session_dir):
-            if not filename.endswith(".json"):
-                continue
-
-            job_id = filename[:-5]
-            path = os.path.join(session_dir, filename)
-            mtime = datetime.fromtimestamp(os.path.getmtime(path), timezone.utc)
-
-            if now - mtime > timedelta(days=policy["sessions_days"]):
-                try:
-                    stats["files_removed"] += delete_entire_session(job_id)
-                    stats["sessions_removed"] += 1
-                except Exception:
-                    stats["errors"] += 1
+    # 1. Sessions not updated within the retention period
+    for job_id, updated_at in activity:
+        if now - updated_at > timedelta(days=policy["sessions_days"]):
+            try:
+                stats["files_removed"] += delete_entire_session(job_id)
+                stats["sessions_removed"] += 1
+            except Exception:
+                stats["errors"] += 1
 
     # 2. Report folders whose session is gone (per-report layout)
     if TENANTS_DIR.is_dir():
@@ -181,9 +155,6 @@ def cleanup_expired_artifacts(policy: RetentionPolicy = None) -> dict:
 
     # 3. Clean up orphan files in the legacy shared directories based on age
     for category, directory in WORKSPACE_DIRS.items():
-        if category == "sessions":
-            continue
-
         days = policy.get(f"{category}_days", 30)
         if not os.path.exists(directory):
             continue
@@ -202,9 +173,11 @@ def cleanup_expired_artifacts(policy: RetentionPolicy = None) -> dict:
 
 def get_workspace_usage() -> dict:
     """Calculates disk usage for each workspace directory."""
-    usage = {}
-    total_bytes = 0
-    
+    with db.transaction() as tx:
+        session_bytes = int(tx.execute(select(func.pg_total_relation_size("reports"))).scalar() or 0)
+    usage = {"sessions": {"size_bytes": session_bytes, "human_size": f"{session_bytes / (1024*1024):.2f} MB"}}
+    total_bytes = session_bytes
+
     for category, directory in {**WORKSPACE_DIRS, "tenants": str(TENANTS_DIR)}.items():
         dir_size = 0
         if os.path.exists(directory):

@@ -9,6 +9,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: repgen
+          POSTGRES_PASSWORD: repgen
+          POSTGRES_DB: repgen
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U repgen -d repgen"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +57,7 @@ jobs:
         env:
           APP_ENV: test
           PDF_REPORT_REQUIRE_BWRAP: "1"
+          TEST_DATABASE_URL: postgresql+psycopg://repgen:repgen@localhost:5432/repgen_test
         run: python -m unittest discover -s tests
 
       - name: Run frontend tests

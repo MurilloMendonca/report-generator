@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from app.services.executor_service import SandboxUnavailableError, execute_script
 from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
 from app.services.llm.script import generate_exploration_script
-from app.services.pipeline_service import build_files_map, metadata_json, SCRIPT_DIR
-from app.services.session_manager import begin_exploration_turn, fcntl, finish_exploration_turn, get_session
+from app.services.pipeline_service import build_files_map, metadata_json
+from app.services.session_manager import begin_exploration_turn, finish_exploration_turn, get_session
 from app.utils.report_paths import ReportPaths
 from app.utils.exploration_charts import (
     MAX_ANSWER_CHARS, collect_exploration_charts, exploration_directory,
@@ -35,18 +35,7 @@ def exploration_lock(job_id: str):
     if not lock.acquire(blocking=False):
         raise ExplorationError("Já existe uma consulta em andamento nesta sessão. Aguarde a resposta.", 409)
     try:
-        os.makedirs(SCRIPT_DIR, exist_ok=True)
-        with open(os.path.join(SCRIPT_DIR, f"explore_{job_id}.lock"), "a") as file_lock:
-            try:
-                if fcntl:
-                    fcntl.flock(file_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as exc:
-                raise ExplorationError("Já existe uma consulta em andamento nesta sessão. Aguarde a resposta.", 409) from exc
-            try:
-                yield
-            finally:
-                if fcntl:
-                    fcntl.flock(file_lock.fileno(), fcntl.LOCK_UN)
+        yield
     finally:
         lock.release()
 

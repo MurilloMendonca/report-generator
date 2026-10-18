@@ -157,8 +157,9 @@ class UploadSecurityTests(unittest.TestCase):
         response = asyncio.run(api.delete_session(job_id))
 
         self.assertEqual(response["status"], "OK")
-        for path in [upload_path, script_path, pdf_path, f"{pdf_path}.manifest.json", session_manager.get_session_path(job_id)]:
+        for path in [upload_path, script_path, pdf_path, f"{pdf_path}.manifest.json"]:
             self.assertFalse(os.path.exists(path), path)
+        self.assertIsNone(session_manager.get_session(job_id))
 
 
 if __name__ == "__main__":

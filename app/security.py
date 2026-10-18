@@ -3,7 +3,6 @@ import base64
 import hashlib
 import hmac
 import ipaddress
-import json
 import logging
 import os
 import socket
@@ -11,9 +10,15 @@ import threading
 import time
 import uuid
 from collections import defaultdict, deque
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from fastapi import HTTPException, Request, Response
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app import db
+from app.models.db import RevokedToken
 
 # Load .env before reading secrets; this module is imported before the LLM client.
 load_dotenv()
@@ -31,7 +36,6 @@ AUTH_SESSION_TTL_SECONDS = int(os.getenv("PDF_REPORT_SESSION_TTL_SECONDS", str(8
 AUTH_COOKIE_SECURE = os.getenv("PDF_REPORT_COOKIE_SECURE", "0" if IS_DEV_ENV else "1") == "1"
 LOGIN_MAX_FAILURES = int(os.getenv("PDF_REPORT_LOGIN_MAX_FAILURES", "10"))
 LOGIN_WINDOW_SECONDS = int(os.getenv("PDF_REPORT_LOGIN_WINDOW_SECONDS", "300"))
-REVOKED_TOKENS_PATH = os.path.join("workspace", "auth", "revoked_tokens.json")
 PUBLIC_API_PATHS = {"/api/auth/login"}
 
 if APP_ACCESS_SECRET == "change-me" and not ALLOW_DEFAULT_SECRET:
@@ -90,67 +94,31 @@ def _decode_session_token(token: str) -> tuple[int, str] | None:
 
 
 class RevokedTokenStore:
-    """Nonces of logged-out tokens, kept until the token would have expired anyway."""
-
-    def __init__(self, path: str):
-        self.path = path
-        self._lock = threading.Lock()
-        self._revoked: dict[str, float] | None = None
-        self._mtime: float | None = None
-
-    def _file_mtime(self) -> float | None:
-        try:
-            return os.path.getmtime(self.path)
-        except OSError:
-            return None
-
-    def _load(self) -> dict[str, float]:
-        # Reload when another worker process has changed the file.
-        mtime = self._file_mtime()
-        if self._revoked is None or mtime != self._mtime:
-            self._mtime = mtime
-            try:
-                with open(self.path, encoding="utf-8") as handle:
-                    data = json.load(handle)
-                self._revoked = {str(k): float(v) for k, v in data.items()} if isinstance(data, dict) else {}
-            except (OSError, ValueError):
-                self._revoked = {}
-        return self._revoked
-
-    def _prune(self, revoked: dict[str, float]) -> None:
-        now = time.time()
-        for nonce in [nonce for nonce, expires_at in revoked.items() if expires_at <= now]:
-            del revoked[nonce]
-
-    def _save(self, revoked: dict[str, float]) -> None:
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        tmp_path = f"{self.path}.tmp"
-        with open(tmp_path, "w", encoding="utf-8") as handle:
-            json.dump(revoked, handle)
-        os.replace(tmp_path, self.path)
-        self._mtime = self._file_mtime()
+    """Nonces of logged-out tokens, kept until the token would have expired anyway.
+    Stored in Postgres so every process and restart sees them. Phase 2 replaces
+    the signed tokens with server-side sessions and drops this table."""
 
     def revoke(self, nonce: str, expires_at: float) -> None:
-        with self._lock:
-            revoked = self._load()
-            self._prune(revoked)
-            revoked[nonce] = expires_at
-            try:
-                self._save(revoked)
-            except OSError:
-                logger.exception("Could not persist revoked session token")
+        expires = datetime.fromtimestamp(expires_at, timezone.utc)
+        try:
+            with db.transaction() as tx:
+                tx.execute(delete(RevokedToken).where(RevokedToken.expires_at <= func.now()))
+                statement = pg_insert(RevokedToken).values(nonce=nonce, expires_at=expires)
+                tx.execute(statement.on_conflict_do_update(index_elements=[RevokedToken.nonce], set_={"expires_at": expires}))
+        except Exception:
+            logger.exception("Could not persist revoked session token")
 
     def is_revoked(self, nonce: str) -> bool:
-        with self._lock:
-            return nonce in self._load()
+        with db.transaction() as tx:
+            return tx.execute(
+                select(RevokedToken.nonce).where(RevokedToken.nonce == nonce, RevokedToken.expires_at > func.now())
+            ).first() is not None
 
     def reset(self) -> None:
-        with self._lock:
-            self._revoked = None
-            self._mtime = None
+        """Nothing is cached in memory; kept so callers can simulate a restart."""
 
 
-revoked_tokens = RevokedTokenStore(REVOKED_TOKENS_PATH)
+revoked_tokens = RevokedTokenStore()
 
 
 def is_valid_session_token(token: str) -> bool:

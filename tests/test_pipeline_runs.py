@@ -9,7 +9,7 @@ from app.services.pipeline_service import (
     is_current_session_run,
     run_pipeline,
 )
-from app.services.session_manager import create_session, get_session, get_session_lock_path, get_session_path
+from app.services.session_manager import create_session, delete_session, get_session
 
 
 class PipelineRunTests(unittest.TestCase):
@@ -18,9 +18,7 @@ class PipelineRunTests(unittest.TestCase):
 
     def tearDown(self):
         for job_id in self.job_ids:
-            for path in [get_session_path(job_id), get_session_lock_path(job_id)]:
-                if os.path.exists(path):
-                    os.remove(path)
+            delete_session(job_id)
 
     def new_job_id(self):
         job_id = f"test-pipeline-{len(self.job_ids)}"

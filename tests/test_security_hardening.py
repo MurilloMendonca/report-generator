@@ -15,7 +15,8 @@ from app.services.cleanup_service import delete_entire_session
 from app.services.session_manager import (
     create_session,
     get_session,
-    get_session_path,
+    delete_session,
+    validate_job_id,
     is_valid_job_id,
     recover_interrupted_sessions,
 )
@@ -171,7 +172,7 @@ class JobIdValidationTests(unittest.TestCase):
             self.assertFalse(is_valid_job_id(job_id), job_id)
             self.assertIsNone(get_session(job_id))
         with self.assertRaises(ValueError):
-            get_session_path("../secrets")
+            validate_job_id("../secrets")
         self.assertTrue(is_valid_job_id(str(uuid.uuid4())))
 
     def test_deleting_a_short_id_does_not_remove_other_sessions_files(self):
@@ -193,7 +194,7 @@ class InterruptedSessionRecoveryTests(unittest.TestCase):
     def make_session(self, step):
         job_id = f"test-recover-{uuid.uuid4().hex}"
         create_session(job_id, {"job_id": job_id, "current_step": step, "progress": 40, "active_run_id": 3})
-        self.addCleanup(lambda: os.path.exists(get_session_path(job_id)) and os.remove(get_session_path(job_id)))
+        self.addCleanup(delete_session, job_id)
         return job_id
 
     def test_marks_in_progress_sessions_failed_and_leaves_finished_ones(self):

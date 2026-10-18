@@ -1,6 +1,10 @@
-import json
-import os
 import uuid
+
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app import db
+from app.models.db import LayoutTemplate
 
 from app.utils.layout import (
     CONTENT_BOTTOM_MM,
@@ -11,7 +15,8 @@ from app.utils.layout import (
     fallback_template,
 )
 
-TEMPLATE_LIBRARY_PATH = "workspace/layout_templates.json"
+# Where templates lived before Postgres; read only by `app.cli import-legacy`.
+LEGACY_TEMPLATE_LIBRARY_PATH = "workspace/layout_templates.json"
 GRID_MM = 1
 
 BLUEPRINTS = {
@@ -122,35 +127,34 @@ def _default_templates() -> list:
     return templates
 
 
-def _ensure_library_file():
-    os.makedirs(os.path.dirname(TEMPLATE_LIBRARY_PATH), exist_ok=True)
-    if not os.path.exists(TEMPLATE_LIBRARY_PATH):
-        save_layout_templates(_default_templates())
+def _ensure_default_templates(tx) -> None:
+    """Built-in templates are re-added whenever one is missing, as the JSON library did."""
+    existing = set(tx.execute(select(LayoutTemplate.id)).scalars())
+    missing = [template for template in _default_templates() if template["id"] not in existing]
+    if not missing:
         return
-    templates = load_layout_templates_raw()
-    existing_ids = {template.get("id") for template in templates if isinstance(template, dict)}
-    missing_defaults = [template for template in _default_templates() if template.get("id") not in existing_ids]
-    if missing_defaults:
-        save_layout_templates(templates + missing_defaults)
-
-
-def load_layout_templates_raw() -> list:
-    if not os.path.exists(TEMPLATE_LIBRARY_PATH):
-        return []
-    with open(TEMPLATE_LIBRARY_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data if isinstance(data, list) else []
+    position = tx.execute(select(func.coalesce(func.max(LayoutTemplate.position), -1))).scalar()
+    for offset, template in enumerate(missing, start=1):
+        tx.execute(
+            pg_insert(LayoutTemplate)
+            .values(id=template["id"], position=position + offset, data=template)
+            .on_conflict_do_nothing(index_elements=[LayoutTemplate.id])
+        )
 
 
 def load_layout_templates() -> list:
-    _ensure_library_file()
-    return load_layout_templates_raw()
+    with db.transaction() as tx:
+        _ensure_default_templates(tx)
+        rows = tx.execute(select(LayoutTemplate.data).order_by(LayoutTemplate.position, LayoutTemplate.id))
+        return [data for data in rows.scalars() if isinstance(data, dict)]
 
 
 def save_layout_templates(templates: list):
-    os.makedirs(os.path.dirname(TEMPLATE_LIBRARY_PATH), exist_ok=True)
-    with open(TEMPLATE_LIBRARY_PATH, "w", encoding="utf-8") as f:
-        json.dump(templates, f, indent=2, ensure_ascii=False)
+    """Replace the whole library, keeping the given order."""
+    with db.transaction() as tx:
+        tx.execute(delete(LayoutTemplate))
+        for position, template in enumerate(t for t in templates if isinstance(t, dict) and t.get("id")):
+            tx.add(LayoutTemplate(id=str(template["id"]), position=position, data=template))
 
 
 def get_layout_template(template_id: str) -> dict:
@@ -163,7 +167,6 @@ def default_layout_template_id() -> str:
 
 
 def upsert_layout_template(template_data: dict) -> dict:
-    templates = load_layout_templates()
     template_id = template_data.get("id") or f"tpl_{uuid.uuid4().hex[:10]}"
     template = {
         "id": template_id,
@@ -176,22 +179,19 @@ def upsert_layout_template(template_data: dict) -> dict:
         max((slot["page"] for slot in template["slots"]), default=1),
     )
 
-    existing_index = next((i for i, item in enumerate(templates) if item.get("id") == template_id), None)
-    if existing_index is None:
-        templates.append(template)
-    else:
-        templates[existing_index] = template
-    save_layout_templates(templates)
+    with db.transaction() as tx:
+        position = tx.execute(select(func.coalesce(func.max(LayoutTemplate.position), -1) + 1)).scalar()
+        statement = pg_insert(LayoutTemplate).values(id=template_id, position=position, data=template)
+        tx.execute(statement.on_conflict_do_update(
+            index_elements=[LayoutTemplate.id],
+            set_={"data": statement.excluded.data, "updated_at": func.now()},
+        ))
     return template
 
 
 def delete_layout_template(template_id: str) -> bool:
-    templates = load_layout_templates()
-    kept = [template for template in templates if template.get("id") != template_id]
-    if len(kept) == len(templates):
-        return False
-    save_layout_templates(kept)
-    return True
+    with db.transaction() as tx:
+        return tx.execute(delete(LayoutTemplate).where(LayoutTemplate.id == str(template_id))).rowcount > 0
 
 
 def sanitize_template_slots(slots: list) -> list:

@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from app.utils.layout import normalize_template
-from app.utils.template_library import get_layout_template, sanitize_template_slots, upsert_layout_template
+from app.utils.template_library import delete_layout_template, get_layout_template, sanitize_template_slots, upsert_layout_template
 
 
 class LayoutEditorTests(unittest.TestCase):
@@ -25,10 +25,9 @@ class LayoutEditorTests(unittest.TestCase):
             self.assertLessEqual(item["y"] + item["h"], 285)
 
     def test_template_keeps_new_empty_pages(self):
-        with tempfile.TemporaryDirectory() as directory:
-            with patch("app.utils.template_library.TEMPLATE_LIBRARY_PATH", str(Path(directory) / "templates.json")):
-                saved = upsert_layout_template({"name": "Two pages", "slots": [], "page_count": 2})
-                self.assertEqual(get_layout_template(saved["id"])["page_count"], 2)
+        saved = upsert_layout_template({"name": "Two pages", "slots": [], "page_count": 2})
+        self.addCleanup(delete_layout_template, saved["id"])
+        self.assertEqual(get_layout_template(saved["id"])["page_count"], 2)
 
 
 if __name__ == "__main__":

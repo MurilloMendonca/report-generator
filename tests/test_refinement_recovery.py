@@ -16,7 +16,7 @@ from app.services import web_helpers
 from app.services.llm.errors import LLMContractError, LLMTimeoutError
 from app.services.llm.refinement import parse_llm_refinement_decision, refine_session_modular
 from app.services.session_manager import (
-    create_session, get_session, get_session_lock_path, get_session_path,
+    create_session, delete_session, get_session,
     preserve_report_on_failure, update_session,
 )
 from app.utils.component_library import get_theme
@@ -58,9 +58,7 @@ class RefinementRecoveryTests(unittest.TestCase):
         create_session(self.job_id, self.original)
 
     def tearDown(self):
-        for path in (get_session_path(self.job_id), get_session_lock_path(self.job_id)):
-            if os.path.exists(path):
-                os.remove(path)
+        delete_session(self.job_id)
 
     def assert_report_unchanged(self, before):
         after = get_session(self.job_id)

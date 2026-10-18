@@ -24,11 +24,13 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt -c requirements-lock.txt
 
 COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini .
 COPY prompts ./prompts
 COPY static ./static
 COPY list_models.py .
 
-RUN mkdir -p workspace/uploads workspace/scripts workspace/reports workspace/sessions workspace/filtered \
+RUN mkdir -p workspace/uploads workspace/scripts workspace/reports workspace/filtered workspace/tenants \
     && chown -R app:app workspace
 
 USER app

@@ -1,27 +1,31 @@
-import json
-import os
+"""Report sessions, stored as one row per report in the `reports` table.
+
+The session document lives in `reports.state` (JSONB). Every change reads the
+row with `SELECT ... FOR UPDATE`, applies the change, normalizes the document
+and writes it back in the same transaction, so concurrent pipeline threads and
+requests never lose each other's updates.
+"""
 import logging
 import re
-import tempfile
-from datetime import datetime, timezone
-from contextlib import contextmanager
+import uuid
 from copy import deepcopy
+from datetime import datetime, timezone
 from functools import wraps
 
 from pydantic import ValidationError
+from sqlalchemy import delete, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
+from sqlalchemy.orm.attributes import flag_modified
 
+from app import db
+from app.models.db import Report
 from app.models.session import normalize_session
 
-SESSION_DIR = "workspace/sessions"
 logger = logging.getLogger(__name__)
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - Windows fallback
-    fcntl = None
 
 JOB_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 TERMINAL_STEPS = {"", "completed", "failed", "awaiting_clarification", "translation_failed"}
+_NO_WRITE = object()
 
 
 def is_valid_job_id(job_id) -> bool:
@@ -29,81 +33,103 @@ def is_valid_job_id(job_id) -> bool:
 
 
 def validate_job_id(job_id) -> str:
-    """Reject ids that could escape the session folder or match other sessions' files."""
+    """Reject ids that could escape a report folder or match other reports' files."""
     if not is_valid_job_id(job_id):
         raise ValueError(f"Invalid session id: {job_id!r}")
     return job_id
 
 
-def get_session_path(job_id: str) -> str:
-    return os.path.join(SESSION_DIR, f"{validate_job_id(job_id)}.json")
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def get_session_lock_path(job_id: str) -> str:
-    return os.path.join(SESSION_DIR, f"{validate_job_id(job_id)}.lock")
+def _now_iso() -> str:
+    return _now().isoformat()
 
 
-@contextmanager
-def session_lock(job_id: str):
-    os.makedirs(SESSION_DIR, exist_ok=True)
-    lock_path = get_session_lock_path(job_id)
-    with open(lock_path, "a", encoding="utf-8") as lock_file:
-        if fcntl:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if fcntl:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+def report_columns(state: dict) -> dict:
+    """The queryable copies of a few session fields."""
+    settings = state.get("settings") if isinstance(state.get("settings"), dict) else {}
+    title = settings.get("title") or state.get("initial_prompt") or ""
+    def text(value, limit=None):
+        # Postgres text columns reject NUL characters (the JSONB copy is cleaned in app/db.py).
+        return str(value or "").replace("\x00", "")[:limit]
+
+    return {
+        "title": text(title, 300),
+        "status": text(state.get("status"), 1000),
+        "current_step": text(state.get("current_step")),
+        "pdf_version": int(state.get("pdf_version") or 0),
+    }
 
 
-def write_session_file(job_id: str, data: dict):
-    os.makedirs(SESSION_DIR, exist_ok=True)
-    path = get_session_path(job_id)
-    fd, tmp_path = tempfile.mkstemp(prefix=f"{job_id}.", suffix=".tmp", dir=SESSION_DIR)
+def _normalize(state, job_id: str) -> dict | None:
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        return normalize_session(state, job_id)
+    except ValidationError:
+        logger.exception("Stored session %s does not match the schema", job_id)
+        return None
 
 
-def create_session(job_id: str, data: dict):
+def _mutate(job_id: str, change, missing=None):
+    """Lock the report row, call `change(session)`, and save the session unless
+    `change` returns `_NO_WRITE`. Returns `change`'s result, or `missing` when
+    the report doesn't exist."""
+    if not is_valid_job_id(job_id):
+        return missing
+    with db.transaction() as tx:
+        report = tx.get(Report, job_id, with_for_update=True)
+        if report is None:
+            return missing
+        session = _normalize(report.state, job_id)
+        if not session:
+            return missing
+        result = change(session)
+        if result is _NO_WRITE:
+            return missing
+        session = normalize_session(session, job_id)
+        report.state = session
+        flag_modified(report, "state")
+        for column, value in report_columns(session).items():
+            setattr(report, column, value)
+        report.updated_at = _now()
+        return session if result is None else result
+
+
+def create_session(job_id: str, data: dict, owner_id: uuid.UUID | None = None):
+    """Create a report, or replace the document of an existing one."""
+    validate_job_id(job_id)
     data = normalize_session(data, job_id) or {}
-    with session_lock(job_id):
-        write_session_file(job_id, data)
+    values = {"id": job_id, "state": data, "owner_id": owner_id, **report_columns(data)}
+    statement = pg_insert(Report).values(**values)
+    statement = statement.on_conflict_do_update(
+        index_elements=[Report.id],
+        set_={**report_columns(data), "state": statement.excluded.state, "updated_at": func.now()},
+    )
+    with db.transaction() as tx:
+        tx.execute(statement)
+
 
 def get_session(job_id: str) -> dict:
     if not is_valid_job_id(job_id):
         return None
-    path = get_session_path(job_id)
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            return normalize_session(data, job_id)
-    except (json.JSONDecodeError, ValidationError, OSError):
-        return None
+    with db.transaction() as tx:
+        state = tx.execute(select(Report.state).where(Report.id == job_id)).scalar_one_or_none()
+    return None if state is None else _normalize(state, job_id)
+
+
+def delete_session(job_id: str) -> bool:
+    """Delete a report's row. Its files are removed by cleanup_service."""
+    if not is_valid_job_id(job_id):
+        return False
+    with db.transaction() as tx:
+        return tx.execute(delete(Report).where(Report.id == job_id)).rowcount > 0
+
 
 def update_session(job_id: str, updates: dict):
-    with session_lock(job_id):
-        path = get_session_path(job_id)
-        if not os.path.exists(path):
-            return None
-        with open(path, 'r', encoding='utf-8') as f:
-            session = normalize_session(json.load(f), job_id)
-        if session:
-            updates.setdefault("updated_at", datetime.now(timezone.utc).isoformat())
-            session.update(updates)
-            session = normalize_session(session, job_id)
-            write_session_file(job_id, session)
-            return session
-    return None
+    def change(session):
+        session.update({"updated_at": _now_iso(), **updates})
+    return _mutate(job_id, change)
 
 
 def preserve_report_on_failure(refine):
@@ -152,91 +178,85 @@ def has_pending_exploration(session: dict) -> bool:
 def begin_exploration_turn(job_id: str, user_message: dict, turn_id: str):
     """Append a question with a pending answer. Returns None if the session is gone,
     or False if another question is still pending."""
-    with session_lock(job_id):
-        path = get_session_path(job_id)
-        if not os.path.exists(path):
-            return None
-        with open(path, encoding="utf-8") as session_file:
-            session = normalize_session(json.load(session_file), job_id)
+    busy = []
+
+    def change(session):
         if has_pending_exploration(session):
-            return False
+            busy.append(True)
+            return _NO_WRITE
         placeholder = {
             "role": "assistant", "content": EXPLORE_PENDING_MESSAGE, "turn_id": turn_id,
-            "charts": [], "status": "pending", "created_at": datetime.now(timezone.utc).isoformat(),
+            "charts": [], "status": "pending", "created_at": _now_iso(),
         }
         session["explore_history"] = [*session.get("explore_history", []), user_message, placeholder]
-        session["updated_at"] = datetime.now(timezone.utc).isoformat()
-        write_session_file(job_id, normalize_session(session, job_id))
-        return session
+        session["updated_at"] = _now_iso()
+
+    result = _mutate(job_id, change)
+    return False if busy else result
 
 
 def finish_exploration_turn(job_id: str, turn_id: str, assistant_message: dict):
     """Replace a turn's pending answer with the final one, keeping concurrent updates."""
-    with session_lock(job_id):
-        path = get_session_path(job_id)
-        if not os.path.exists(path):
-            return None
-        with open(path, encoding="utf-8") as session_file:
-            session = normalize_session(json.load(session_file), job_id)
+    def change(session):
         history = list(session.get("explore_history", []))
         for index, message in enumerate(history):
             if isinstance(message, dict) and message.get("role") == "assistant" and message.get("turn_id") == turn_id:
                 history[index] = assistant_message
                 break
         else:
-            return None
+            return _NO_WRITE
         session["explore_history"] = history
-        session["updated_at"] = datetime.now(timezone.utc).isoformat()
-        write_session_file(job_id, normalize_session(session, job_id))
-        return session
+        session["updated_at"] = _now_iso()
+
+    return _mutate(job_id, change)
 
 
 def list_recent_sessions(limit: int = 12) -> list:
-    if not os.path.isdir(SESSION_DIR):
-        return []
+    query = (
+        select(
+            Report.id,
+            Report.state["initial_prompt"].astext,
+            Report.status,
+            func.jsonb_array_length(func.coalesce(Report.state["files"], func.cast("[]", JSONB))),
+            Report.pdf_version,
+            Report.state["created_at"].astext,
+            Report.created_at,
+            Report.updated_at,
+        )
+        .order_by(Report.updated_at.desc())
+        .limit(limit)
+    )
+    with db.transaction() as tx:
+        rows = tx.execute(query).all()
+    return [
+        {
+            "job_id": job_id,
+            "initial_prompt": initial_prompt or "",
+            "status": status or "",
+            "file_count": file_count or 0,
+            "pdf_version": pdf_version or 0,
+            "created_at": state_created_at or created_at.isoformat(),
+            "updated_at": updated_at.isoformat(),
+        }
+        for job_id, initial_prompt, status, file_count, pdf_version, state_created_at, created_at, updated_at in rows
+    ]
 
-    sessions = []
-    for filename in os.listdir(SESSION_DIR):
-        if not filename.endswith(".json"):
-            continue
 
-        path = os.path.join(SESSION_DIR, filename)
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                session = normalize_session(json.load(f), filename[:-5])
-        except (OSError, json.JSONDecodeError, ValidationError):
-            continue
+def list_session_activity() -> list[tuple[str, datetime]]:
+    """(job_id, last update) for every report, used by retention cleanup."""
+    with db.transaction() as tx:
+        return [tuple(row) for row in tx.execute(select(Report.id, Report.updated_at)).all()]
 
-        stat = os.stat(path)
-        sessions.append({
-            "job_id": session.get("job_id") or filename[:-5],
-            "initial_prompt": session.get("initial_prompt", ""),
-            "status": session.get("status", ""),
-            "file_count": len(session.get("files", [])),
-            "pdf_version": session.get("pdf_version", 0),
-            "created_at": session.get("created_at") or datetime.fromtimestamp(stat.st_ctime, timezone.utc).isoformat(),
-            "updated_at": session.get("updated_at") or datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
-        })
-
-    sessions.sort(key=lambda item: item["updated_at"], reverse=True)
-    return sessions[:limit]
 
 def add_log(job_id: str, message: str):
-    with session_lock(job_id):
-        path = get_session_path(job_id)
-        if not os.path.exists(path):
-            return
-        with open(path, 'r', encoding='utf-8') as f:
-            session = normalize_session(json.load(f), job_id)
-        if session:
-            logs = session.get("logs", [])
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            logs.append(f"[{timestamp}] {message}")
-            session["logs"] = logs
-            session["status"] = message
-            session["updated_at"] = datetime.now(timezone.utc).isoformat()
-            write_session_file(job_id, normalize_session(session, job_id))
+    def change(session):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        session["logs"] = [*session.get("logs", []), f"[{timestamp}] {message}"]
+        session["status"] = message
+        session["updated_at"] = _now_iso()
+        return True
+
+    _mutate(job_id, change)
 
 
 def append_stage_event(
@@ -250,17 +270,8 @@ def append_stage_event(
     model_name: str | None = None,
     details: dict | None = None,
 ):
-    with session_lock(job_id):
-        path = get_session_path(job_id)
-        if not os.path.exists(path):
-            return
-        with open(path, 'r', encoding='utf-8') as f:
-            session = normalize_session(json.load(f), job_id)
-        if not session:
-            return
-
-        history = session.get("stage_history", [])
-        history.append({
+    def change(session):
+        session["stage_history"] = [*session.get("stage_history", []), {
             "stage": stage,
             "event": event,
             "status": status or session.get("status", ""),
@@ -268,21 +279,24 @@ def append_stage_event(
             "provider": provider,
             "model_name": model_name,
             "details": details or {},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        session["stage_history"] = history
-        session["updated_at"] = datetime.now(timezone.utc).isoformat()
-        write_session_file(job_id, normalize_session(session, job_id))
-        logger.info(
-            "stage_event job_id=%s stage=%s event=%s status=%s duration_ms=%s provider=%s model=%s",
-            job_id,
-            stage,
-            event,
-            status or session.get("status", ""),
-            round(duration_ms, 1) if duration_ms is not None else "",
-            provider or "",
-            model_name or "",
-        )
+            "timestamp": _now_iso(),
+        }]
+        session["updated_at"] = _now_iso()
+        return status or session.get("status", "")
+
+    stored_status = _mutate(job_id, change)
+    if stored_status is None:
+        return
+    logger.info(
+        "stage_event job_id=%s stage=%s event=%s status=%s duration_ms=%s provider=%s model=%s",
+        job_id,
+        stage,
+        event,
+        stored_status,
+        round(duration_ms, 1) if duration_ms is not None else "",
+        provider or "",
+        model_name or "",
+    )
 
 
 def record_llm_usage(
@@ -301,25 +315,14 @@ def record_llm_usage(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
 ):
-    with session_lock(job_id):
-        path = get_session_path(job_id)
-        if not os.path.exists(path):
-            return
-        with open(path, 'r', encoding='utf-8') as f:
-            session = normalize_session(json.load(f), job_id)
-        if not session:
-            return
-
+    def change(session):
         usage = session.get("llm_usage", {})
-        usage.setdefault("calls", 0)
-        usage.setdefault("attempts", 0)
-        usage.setdefault("duration_ms", 0.0)
-        usage.setdefault("by_provider", {})
-        usage.setdefault("by_operation", {})
-        usage.setdefault("history", [])
-        usage.setdefault("cache_hits", 0)
-        usage.setdefault("input_tokens", 0)
-        usage.setdefault("output_tokens", 0)
+        for key, default in (
+            ("calls", 0), ("attempts", 0), ("duration_ms", 0.0), ("by_provider", {}),
+            ("by_operation", {}), ("history", []), ("cache_hits", 0),
+            ("input_tokens", 0), ("output_tokens", 0),
+        ):
+            usage.setdefault(key, default)
         usage["calls"] += 1
         usage["input_tokens"] += int(input_tokens or 0)
         usage["output_tokens"] += int(output_tokens or 0)
@@ -335,8 +338,7 @@ def record_llm_usage(
         usage["last_status"] = status
         usage["last_duration_ms"] = round(duration_ms, 1)
         usage["last_error"] = error or ""
-        history = usage["history"]
-        history.append({
+        usage["history"] = [*usage["history"], {
             "operation": operation,
             "provider": provider,
             "model_name": model_name,
@@ -349,59 +351,54 @@ def record_llm_usage(
             "output_tokens": output_tokens,
             "cache_hit": bool(cache_hit),
             "error": error or "",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        usage["history"] = history[-50:]
+            "timestamp": _now_iso(),
+        }][-50:]
         session["llm_usage"] = usage
-        session["updated_at"] = datetime.now(timezone.utc).isoformat()
-        write_session_file(job_id, normalize_session(session, job_id))
-        logger.info(
-            "llm_usage job_id=%s operation=%s provider=%s model=%s attempt=%s duration_ms=%s status=%s cache_hit=%s",
-            job_id,
-            operation,
-            provider,
-            model_name,
-            attempt,
-            round(duration_ms, 1),
-            status,
-            cache_hit,
-        )
+        session["updated_at"] = _now_iso()
+        return True
+
+    if _mutate(job_id, change) is None:
+        return
+    logger.info(
+        "llm_usage job_id=%s operation=%s provider=%s model=%s attempt=%s duration_ms=%s status=%s cache_hit=%s",
+        job_id,
+        operation,
+        provider,
+        model_name,
+        attempt,
+        round(duration_ms, 1),
+        status,
+        cache_hit,
+    )
 
 
 def reserve_session_run(job_id: str, source: str = "pipeline") -> dict:
-    with session_lock(job_id):
-        path = get_session_path(job_id)
-        if not os.path.exists(path):
-            return {"run_id": 0, "previous_run_id": 0}
-        with open(path, 'r', encoding='utf-8') as f:
-            session = normalize_session(json.load(f), job_id)
-        if not session:
-            return {"run_id": 0, "previous_run_id": 0}
-
+    def change(session):
         previous_run_id = int(session.get("active_run_id", 0) or 0)
         next_run_id = int(session.get("run_sequence", 0) or 0) + 1
-        history = session.get("run_history", [])
-        history.append({
+        session["run_history"] = [*session.get("run_history", []), {
             "run_id": next_run_id,
             "source": source,
             "previous_run_id": previous_run_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": _now_iso(),
             "status": "active",
-        })
+        }][-50:]
         session["run_sequence"] = next_run_id
         session["active_run_id"] = next_run_id
         session["active_run_source"] = source
-        session["run_history"] = history[-50:]
-        session["updated_at"] = datetime.now(timezone.utc).isoformat()
-        write_session_file(job_id, normalize_session(session, job_id))
+        session["updated_at"] = _now_iso()
+        return {"run_id": next_run_id, "previous_run_id": previous_run_id}
+
+    reserved = _mutate(job_id, change, missing={"run_id": 0, "previous_run_id": 0})
+    if reserved["run_id"]:
         logger.info(
             "run_reserved job_id=%s run_id=%s previous_run_id=%s source=%s",
             job_id,
-            next_run_id,
-            previous_run_id,
+            reserved["run_id"],
+            reserved["previous_run_id"],
             source,
         )
-        return {"run_id": next_run_id, "previous_run_id": previous_run_id}
+    return reserved
 
 
 def is_current_session_run(job_id: str, run_id: int | None) -> bool:
@@ -426,24 +423,25 @@ def set_session_stage(job_id: str, step: str, progress: int = None, error: dict 
 
 def recover_interrupted_sessions() -> list[str]:
     """Mark sessions left mid-run by a server restart as failed, so the UI stops waiting."""
-    if not os.path.isdir(SESSION_DIR):
-        return []
+    pending_turn = Report.state["explore_history"].contains([{"role": "assistant", "status": "pending"}])
+    with db.transaction() as tx:
+        job_ids = tx.execute(
+            select(Report.id).where(or_(Report.current_step.not_in(TERMINAL_STEPS), pending_turn))
+        ).scalars().all()
+
     recovered = []
     message = "O processamento foi interrompido porque o servidor reiniciou. Tente novamente."
-    for filename in os.listdir(SESSION_DIR):
-        job_id = filename[:-5]
-        if not filename.endswith(".json") or not is_valid_job_id(job_id):
-            continue
+    for job_id in job_ids:
         session = get_session(job_id)
         if not session:
             continue
         if has_pending_exploration(session):
             explore_message = "A consulta foi interrompida porque o servidor reiniciou. Tente novamente."
             history = [
-                {**message, "content": explore_message, "status": "error", "error_status": 503}
-                if isinstance(message, dict) and message.get("role") == "assistant" and message.get("status") == "pending"
-                else message
-                for message in session.get("explore_history", [])
+                {**item, "content": explore_message, "status": "error", "error_status": 503}
+                if isinstance(item, dict) and item.get("role") == "assistant" and item.get("status") == "pending"
+                else item
+                for item in session.get("explore_history", [])
             ]
             update_session(job_id, {"explore_history": history})
             recovered.append(job_id)

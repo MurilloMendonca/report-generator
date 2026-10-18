@@ -12,7 +12,7 @@ from app.main import app
 from app.security import create_session_token
 from app.services.pipeline_service import run_script_generation, text_component_code
 from app.services.session_manager import (
-    create_session, get_session, get_session_lock_path, get_session_path,
+    create_session, delete_session, get_session,
 )
 
 
@@ -20,7 +20,6 @@ class RefinementHttpTests(unittest.TestCase):
     def setUp(self):
         self.job_id = f"test-refinement-http-{uuid.uuid4().hex}"
         self.paths = [
-            get_session_path(self.job_id), get_session_lock_path(self.job_id),
             f"workspace/uploads/{self.job_id}.csv", f"workspace/scripts/{self.job_id}.py",
             f"workspace/reports/{self.job_id}.pdf", f"workspace/reports/{self.job_id}.pdf.manifest.json",
         ]

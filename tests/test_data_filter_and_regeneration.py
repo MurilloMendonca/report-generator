@@ -14,7 +14,7 @@ from app.services.pipeline_service import (
     has_data_filter_decision,
 )
 from app.services.web_helpers import session_file_variant
-from app.services.session_manager import create_session, get_session, get_session_path
+from app.services.session_manager import create_session, delete_session, get_session
 
 
 class DataFilterTests(unittest.TestCase):
@@ -146,9 +146,7 @@ class RegenerationEndpointTests(unittest.TestCase):
 
     def tearDown(self):
         for job_id in self.job_ids:
-            path = get_session_path(job_id)
-            if os.path.exists(path):
-                os.remove(path)
+            delete_session(job_id)
 
     def create_report_session(self):
         job_id = f"test-regenerate-{uuid.uuid4().hex}"

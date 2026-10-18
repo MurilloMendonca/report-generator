@@ -9,7 +9,7 @@ from fastapi import BackgroundTasks, HTTPException
 import app.routers.api as api
 from app.services import exploration_service
 from app.services.cleanup_service import delete_entire_session
-from app.services.session_manager import create_session, get_session, get_session_lock_path, get_session_path
+from app.services.session_manager import create_session, get_session
 
 
 class ExploreEndpointTests(unittest.TestCase):

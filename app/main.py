@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.db import get_engine
 from app.routers.api import router as api_router
 from app.security import PUBLIC_API_PATHS, add_cache_headers, add_security_headers, request_has_valid_auth
 from app.services.executor_service import sandbox_status
@@ -28,6 +29,7 @@ for directory in [UPLOAD_DIR, FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    get_engine()  # connect and migrate now, so a database problem stops startup
     # Skipped under tests: they share workspace/ with a possibly running dev server.
     if os.getenv("PDF_REPORT_RECOVER_SESSIONS_ON_START", "0" if os.getenv("APP_ENV") == "test" else "1") == "1":
         recover_interrupted_sessions()

@@ -15,13 +15,16 @@ services:
       # Set to 0 only when serving over plain HTTP on a non-localhost address.
       PDF_REPORT_COOKIE_SECURE: ${PDF_REPORT_COOKIE_SECURE:-1}
       PORT: 8000
+      # POSTGRES_PASSWORD must be URL-safe (for example `openssl rand -hex 24`).
+      DATABASE_URL: postgresql+psycopg://repgen:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be configured}@postgres:5432/repgen
       MPLCONFIGDIR: /tmp/matplotlib
       # Real client IPs: trust CF-Connecting-IP only from these peers (see app/security.py).
+      # A cloudflared on the host reaches the container through Docker's gateway:
+      # 192.168.65.0/24 on Docker Desktop for Mac, 172.16.0.0/12 on Linux.
       PDF_REPORT_CLIENT_IP_HEADER: ${PDF_REPORT_CLIENT_IP_HEADER:-CF-Connecting-IP}
-      PDF_REPORT_TRUSTED_PROXIES: ${PDF_REPORT_TRUSTED_PROXIES:-cloudflared,172.16.0.0/12,192.168.65.0/24}
+      PDF_REPORT_TRUSTED_PROXIES: ${PDF_REPORT_TRUSTED_PROXIES:-172.16.0.0/12,192.168.65.0/24}
     ports:
       # Localhost only: a cloudflared on the host can reach it, the LAN cannot.
-      # With the `tunnel` profile below, nothing needs this port at all.
       - "127.0.0.1:${HOST_PORT:-8000}:8000"
     volumes:
       # Must be writable by APP_UID (chown it if an older root-run container created it).
@@ -38,6 +41,9 @@ services:
       # unless PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1 is set (weaker isolation).
       - seccomp=unconfined
       - apparmor=unconfined
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5).read()"]
       interval: 30s
@@ -45,23 +51,26 @@ services:
       retries: 3
       start_period: 20s
 
-  # Cloudflare Tunnel inside compose: `docker compose --profile tunnel up -d`.
-  # In the Cloudflare dashboard, point the public hostname at
-  # http://report-generator:8000 and put the tunnel token in .env as
-  # CLOUDFLARE_TUNNEL_TOKEN.
-  cloudflared:
-    image: cloudflare/cloudflared:2026.9.2
-    container_name: pdf-report-cloudflared
-    profiles: ["tunnel"]
+  # Reports, templates and (from Phase 2) accounts. No published port: only the
+  # app reaches it. Data lives in a named volume inside Docker's VM, which is
+  # faster and safer than a macOS bind mount. Back it up with scripts/backup.sh.
+  postgres:
+    image: postgres:17.6-alpine
+    container_name: pdf-report-postgres
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
-    depends_on:
-      report-generator:
-        condition: service_healthy
-    read_only: true
-    cap_drop:
-      - ALL
+      POSTGRES_USER: repgen
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be configured}
+      POSTGRES_DB: repgen
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U repgen -d repgen"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres-data:
