@@ -35,6 +35,7 @@ def main():
         path = Path(f"workspace/uploads/{job_id}.csv")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("region,revenue\nNorth,10\nSouth,20\nNorth,15\n")
+        user = auth_service.create_user(f"{job_id}@example.com", uuid.uuid4().hex * 2, verified=True)
         create_session(job_id, {
             "job_id": job_id, "initial_prompt": "Explore sales", "current_goal": "Explore sales",
             "status": "Concluído", "current_step": "completed", "progress": 100,
@@ -43,8 +44,7 @@ def main():
                 "filename": "sales.csv", "type": "csv", "shape": {"rows": 3, "columns": 2},
                 "columns": [{"name": "region", "type": "object"}, {"name": "revenue", "type": "int64"}],
             }}],
-        })
-        user = auth_service.create_user(f"{job_id}@example.com", uuid.uuid4().hex * 2, verified=True)
+        }, owner_id=user.id)
         print(json.dumps({"job_id": job_id, "token": auth_service.start_session(user)}))
         return
     job_id = sys.argv[2]

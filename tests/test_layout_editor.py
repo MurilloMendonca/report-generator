@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from app.utils.layout import normalize_template
+from tests.auth_helpers import default_user
 from app.utils.template_library import delete_layout_template, get_layout_template, sanitize_template_slots, upsert_layout_template
 
 
@@ -25,9 +26,10 @@ class LayoutEditorTests(unittest.TestCase):
             self.assertLessEqual(item["y"] + item["h"], 285)
 
     def test_template_keeps_new_empty_pages(self):
-        saved = upsert_layout_template({"name": "Two pages", "slots": [], "page_count": 2})
-        self.addCleanup(delete_layout_template, saved["id"])
-        self.assertEqual(get_layout_template(saved["id"])["page_count"], 2)
+        owner = default_user().id
+        saved = upsert_layout_template({"name": "Two pages", "slots": [], "page_count": 2}, owner)
+        self.addCleanup(delete_layout_template, saved["id"], owner)
+        self.assertEqual(get_layout_template(saved["id"], owner)["page_count"], 2)
 
 
 if __name__ == "__main__":

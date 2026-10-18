@@ -12,8 +12,9 @@ from app.main import app
 from tests.auth_helpers import signed_in_headers
 from app.services.pipeline_service import run_script_generation, text_component_code
 from app.services.session_manager import (
-    create_session, delete_session, get_session,
+    delete_session, get_session,
 )
+from tests.auth_helpers import create_session
 
 
 class RefinementHttpTests(unittest.TestCase):

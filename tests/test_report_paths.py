@@ -12,8 +12,9 @@ from app.main import app
 from tests.auth_helpers import signed_in_headers
 from app.services.cleanup_service import delete_entire_session, get_session_generated_paths
 from app.services.executor_service import execute_script, probe_bubblewrap
-from app.services.session_manager import create_session, delete_session, get_session
+from app.services.session_manager import delete_session, get_session
 from app.utils.report_paths import TENANTS_DIR, ReportPaths
+from tests.auth_helpers import create_session
 
 BWRAP_AVAILABLE, BWRAP_ERROR = probe_bubblewrap()
 

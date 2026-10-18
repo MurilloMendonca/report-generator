@@ -16,9 +16,10 @@ from app.services import web_helpers
 from app.services.llm.errors import LLMContractError, LLMTimeoutError
 from app.services.llm.refinement import parse_llm_refinement_decision, refine_session_modular
 from app.services.session_manager import (
-    create_session, delete_session, get_session,
+    delete_session, get_session,
     preserve_report_on_failure, update_session,
 )
+from tests.auth_helpers import create_session, request_as
 from app.utils.component_library import get_theme
 from app.utils.component_renderers import sandbox_runtime_source
 
@@ -245,7 +246,7 @@ class RefinementRecoveryTests(unittest.TestCase):
     def test_queue_does_not_accept_feedback_into_goal_before_classification(self):
         before = get_session(self.job_id)
         tasks = BackgroundTasks()
-        asyncio.run(api.chat_refinement(self.job_id, tasks, "Make this better"))
+        asyncio.run(api.chat_refinement(request_as(), self.job_id, tasks, "Make this better"))
         after = get_session(self.job_id)
         self.assertEqual(after["current_goal"], before["current_goal"])
         self.assertEqual(after["refinement_history"], [])

@@ -20,7 +20,36 @@ const Account = {
             try { await API.logout(); } catch (error) { /* already signed out */ }
             window.location.assign('/login');
         });
-        await this.loadSessions();
+        document.getElementById('delete-account-form').addEventListener('submit', event => this.deleteAccount(event));
+        await Promise.all([this.loadSessions(), this.loadUsage()]);
+    },
+
+    formatBytes(bytes) {
+        if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+        if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+        return `${Math.round(bytes / 1024)} KB`;
+    },
+
+    async loadUsage() {
+        try {
+            const usage = await this.request('GET', '/api/usage');
+            const share = usage.storage_limit_bytes ? Math.min(100, (usage.storage_bytes / usage.storage_limit_bytes) * 100) : 0;
+            document.getElementById('usage-storage').textContent =
+                `Armazenamento: ${this.formatBytes(usage.storage_bytes)} de ${this.formatBytes(usage.storage_limit_bytes)}`;
+            document.getElementById('usage-storage-bar').style.width = `${share.toFixed(1)}%`;
+            document.getElementById('usage-reports').textContent =
+                `Relatórios criados nas últimas 24 horas: ${usage.reports_last_24h} de ${usage.reports_per_day_limit}.`;
+        } catch (error) {
+            document.getElementById('usage-storage').textContent = error.message;
+        }
+    },
+
+    async deleteAccount(event) {
+        event.preventDefault();
+        const ok = await this.run(async () => {
+            await this.request('DELETE', '/api/auth/account', { password: document.getElementById('delete-password').value });
+        });
+        if (ok) window.location.assign('/login');
     },
 
     notice(text, isError = false) {

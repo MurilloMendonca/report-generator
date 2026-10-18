@@ -12,7 +12,8 @@ from app.services.cleanup_service import (
     get_workspace_usage,
     WORKSPACE_DIRS
 )
-from app.services.session_manager import create_session, get_session
+from app.services.session_manager import get_session
+from tests.auth_helpers import create_session
 
 class TestRetention(unittest.TestCase):
     def setUp(self):

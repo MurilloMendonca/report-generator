@@ -6,7 +6,6 @@
     python -m app.cli set-password --email someone@example.com
     python -m app.cli create-demo-user --email demo@gengardev.com.br
     python -m app.cli import-legacy --owner demo@gengardev.com.br [--dry-run]
-    python -m app.cli assign-unowned --owner demo@gengardev.com.br
 
 Accounts made here are already verified. Passwords are generated and printed
 once; nothing stores them in plain text.
@@ -54,9 +53,6 @@ def main(argv: list[str] | None = None) -> int:
     legacy.add_argument("--owner", required=True, help="Email of the account that will own the reports")
     legacy.add_argument("--workspace", default="workspace", type=Path)
     legacy.add_argument("--dry-run", action="store_true", help="Report what would be imported, change nothing")
-
-    unowned = commands.add_parser("assign-unowned", help="Give reports without an owner to an account")
-    unowned.add_argument("--owner", required=True)
 
     args = parser.parse_args(argv)
 
@@ -112,12 +108,6 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(summary.as_text())
 
-        elif args.command == "assign-unowned":
-            owner = auth_service.get_user_by_email(args.owner)
-            if owner is None:
-                print(f"No account for {args.owner!r}.", file=sys.stderr)
-                return 1
-            print(f"Reports assigned to {owner.email}: {legacy_import.assign_unowned(owner.id)}")
     except AuthError as exc:
         print(exc.message, file=sys.stderr)
         return 1

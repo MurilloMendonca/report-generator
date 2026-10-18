@@ -422,6 +422,39 @@ def confirm_email_change(raw: str, ip: str | None = None) -> User:
         return user
 
 
+# --- Account deletion ----------------------------------------------------------------
+
+def delete_account(user: User, password: str, ip: str | None = None) -> int:
+    """Delete the account with all its reports, files, templates and sessions.
+
+    Audit events stay, detached from the account, plus one anonymous record of
+    the deletion. Returns how many reports were removed."""
+    from app.services.cleanup_service import delete_entire_session, safe_remove_path
+    from app.services.session_manager import list_report_ids
+    from app.utils.report_paths import TENANTS_DIR
+
+    with db.transaction() as tx:
+        row = tx.get(User, user.id)
+        if row is None or not _password_matches(row.password_hash, password):
+            raise AuthError("wrong_password", "Senha incorreta.", 403)
+        if row.role == "admin":
+            admins = tx.execute(select(func.count()).select_from(User).where(User.role == "admin", User.status == "active")).scalar()
+            if admins <= 1:
+                raise AuthError("last_admin", "Esta é a única conta de administrador. Crie outro administrador antes de excluí-la.", 409)
+        _revoke_all(tx, user.id)
+
+    report_ids = list_report_ids(user.id)
+    for job_id in report_ids:
+        delete_entire_session(job_id)
+    safe_remove_path(str(TENANTS_DIR / str(user.id)))
+
+    with db.transaction() as tx:
+        tx.execute(delete(User).where(User.id == user.id))  # cascades to sessions, links and templates
+        anonymous = hashlib.sha256(str(user.id).encode()).hexdigest()[:16]
+        audit("account_deleted", None, ip, tx=tx, account=anonymous, reports=len(report_ids))
+    return len(report_ids)
+
+
 # --- Housekeeping --------------------------------------------------------------------
 
 def purge_expired() -> dict:

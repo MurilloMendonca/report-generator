@@ -14,7 +14,8 @@ from app.services.pipeline_service import (
     has_data_filter_decision,
 )
 from app.services.web_helpers import session_file_variant
-from app.services.session_manager import create_session, delete_session, get_session
+from app.services.session_manager import delete_session, get_session
+from tests.auth_helpers import create_session, request_as
 
 
 class DataFilterTests(unittest.TestCase):
@@ -182,7 +183,7 @@ class RegenerationEndpointTests(unittest.TestCase):
         return job_id
 
     def call_regenerate(self, job_id, payload):
-        return asyncio.run(regenerate_session(job_id, BackgroundTasks(), payload))
+        return asyncio.run(regenerate_session(request_as(), job_id, BackgroundTasks(), payload))
 
     def test_regenerate_texts_removes_only_text_components_and_saves_model_settings(self):
         job_id = self.create_report_session()

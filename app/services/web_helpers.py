@@ -20,7 +20,9 @@ from app.services.pipeline_service import (
     run_pipeline,
     run_script_generation,
 )
+from app.security import current_user
 from app.services.session_manager import (
+    get_owned_session,
     get_session,
     preserve_report_on_failure,
     set_session_stage,
@@ -36,8 +38,10 @@ MAX_REQUEST_UPLOAD_BYTES = int(os.getenv("PDF_REPORT_MAX_REQUEST_UPLOAD_BYTES", 
 MAX_EXCEL_SHEETS = int(os.getenv("PDF_REPORT_MAX_EXCEL_SHEETS", "20"))
 
 
-def require_session(job_id: str) -> dict:
-    session = get_session(job_id)
+def require_session(job_id: str, request) -> dict:
+    """The session if the signed-in user owns it. Anyone else gets 404, never
+    403, so report ids can't be probed."""
+    session = get_owned_session(job_id, current_user(request).id)
     if not session:
         raise HTTPException(status_code=404)
     return session

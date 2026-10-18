@@ -1,6 +1,6 @@
 # Plan: User Accounts and Bring-Your-Own-Key
 
-Status: Phases 0–2 done · Date: 2026-10-18
+Status: Phases 0–3 done · Date: 2026-10-18
 
 This plan moves the app from a single shared access secret with server-owned provider keys to:
 
@@ -525,7 +525,7 @@ Goal: get the risky refactors in while there's still one user.
 - **Repeated failed logins on one account add a growing delay** (2 s doubling to 15 min after the fourth failure), not a lock. Turnstile is required from the first failure on.
 - A new email link cancels older unused links of the same kind.
 - `/api/admin/*` needs `role = 'admin'`; there is no admin page yet (Phase 6).
-- **New reports already get `owner_id` and live in `tenants/{user_id}/`** (part of Phase 3 step 2). The access checks are still Phase 3. `python -m app.cli assign-unowned --owner ...` assigns reports created before accounts existed.
+- **New reports already get `owner_id` and live in `tenants/{user_id}/`** (part of Phase 3 step 2). The access checks came in Phase 3.
 - `X-Access-Token` is gone; API clients will get personal access tokens later (Section 11).
 - The demo account gets a password from `create-demo-user` (when it has none) or `set-password`.
 - Email texts are plain text in Portuguese with a short English summary (`app/templates/email/`).
@@ -562,6 +562,14 @@ Goal: get the risky refactors in while there's still one user.
 **Done when:** anyone can sign up at `https://repgen.gengardev.com.br`, verify, sign in and out, and reset passwords by email, and the shared secret is gone. All existing reports belong to the demo account.
 
 ### Phase 3 — Report ownership (M)
+
+**Status (2026-10-18): done.** Notes:
+- Migration `0003` gives reports (and non-built-in templates) that still had no owner to the demo account, else the first admin, then makes `reports.owner_id` NOT NULL. `assign-unowned` is gone.
+- Route handlers use `require_session(job_id, request)`; `get_session` (no owner check) remains for background jobs. Templates go through the owner too, including the pipeline's template choice (it uses the report owner's templates).
+- Built-in templates are read-only for everyone. Saving one in the editor creates a private copy, and the server always assigns new template ids so nobody can claim a built-in id.
+- The per-user job slot also covers explorer questions, so a question waits while that user's report is generating.
+- `tests/test_isolation.py` walks every route; a mutation check (owner check removed) makes it fail.
+- Account deletion refuses the only admin (`last_admin`).
 
 1. `reports.owner_id` is required. `require_report(report_id, user)` is on every report route in `app/routers/api.py`.
 2. Per-user listing, templates, and storage under `tenants/{user_id}/`.

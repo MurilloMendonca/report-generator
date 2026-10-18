@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app import db
@@ -142,32 +142,58 @@ def _ensure_default_templates(tx) -> None:
         )
 
 
-def load_layout_templates() -> list:
+class TemplateNotEditable(Exception):
+    """Built-in templates can be read and copied, not changed or deleted."""
+
+
+def _visible(owner_id):
+    """Built-ins (no owner) plus the caller's own templates."""
+    if owner_id is None:
+        return LayoutTemplate.owner_id.is_(None)
+    return or_(LayoutTemplate.owner_id.is_(None), LayoutTemplate.owner_id == owner_id)
+
+
+def _payload(row: LayoutTemplate) -> dict:
+    return {**row.data, "id": row.id, "builtin": row.owner_id is None}
+
+
+def load_layout_templates(owner_id=None) -> list:
+    """Built-in templates first, then `owner_id`'s own, each in creation order."""
     with db.transaction() as tx:
         _ensure_default_templates(tx)
-        rows = tx.execute(select(LayoutTemplate.data).order_by(LayoutTemplate.position, LayoutTemplate.id))
-        return [data for data in rows.scalars() if isinstance(data, dict)]
+        rows = tx.execute(
+            select(LayoutTemplate)
+            .where(_visible(owner_id))
+            .order_by(LayoutTemplate.owner_id.is_not(None), LayoutTemplate.position, LayoutTemplate.id)
+        ).scalars()
+        return [_payload(row) for row in rows if isinstance(row.data, dict)]
 
 
-def save_layout_templates(templates: list):
-    """Replace the whole library, keeping the given order."""
+def save_layout_templates(templates: list, owner_id=None):
+    """Replace the built-ins (owner_id None) or one owner's templates, keeping the order. Tests only."""
     with db.transaction() as tx:
-        tx.execute(delete(LayoutTemplate))
+        owned = LayoutTemplate.owner_id.is_(None) if owner_id is None else LayoutTemplate.owner_id == owner_id
+        tx.execute(delete(LayoutTemplate).where(owned))
         for position, template in enumerate(t for t in templates if isinstance(t, dict) and t.get("id")):
-            tx.add(LayoutTemplate(id=str(template["id"]), position=position, data=template))
+            data = {key: value for key, value in template.items() if key != "builtin"}
+            tx.add(LayoutTemplate(id=str(template["id"]), owner_id=owner_id, position=position, data=data))
 
 
-def get_layout_template(template_id: str) -> dict:
-    return next((t for t in load_layout_templates() if t.get("id") == template_id), None)
+def get_layout_template(template_id: str, owner_id=None) -> dict:
+    return next((t for t in load_layout_templates(owner_id) if t.get("id") == template_id), None)
 
 
-def default_layout_template_id() -> str:
-    templates = load_layout_templates()
+def default_layout_template_id(owner_id=None) -> str:
+    templates = load_layout_templates(owner_id)
     return templates[0]["id"] if templates else None
 
 
-def upsert_layout_template(template_data: dict) -> dict:
-    template_id = template_data.get("id") or f"tpl_{uuid.uuid4().hex[:10]}"
+def upsert_layout_template(template_data: dict, owner_id, must_exist: bool = False) -> dict:
+    """Create a template for `owner_id`, or update one they own.
+
+    Raises TemplateNotEditable for a built-in and LookupError for someone
+    else's template (callers answer 404, so ids of other users stay hidden)."""
+    template_id = str(template_data.get("id") or f"tpl_{uuid.uuid4().hex[:10]}")
     template = {
         "id": template_id,
         "name": template_data.get("name") or "Novo template",
@@ -180,18 +206,29 @@ def upsert_layout_template(template_data: dict) -> dict:
     )
 
     with db.transaction() as tx:
-        position = tx.execute(select(func.coalesce(func.max(LayoutTemplate.position), -1) + 1)).scalar()
-        statement = pg_insert(LayoutTemplate).values(id=template_id, position=position, data=template)
-        tx.execute(statement.on_conflict_do_update(
-            index_elements=[LayoutTemplate.id],
-            set_={"data": statement.excluded.data, "updated_at": func.now()},
-        ))
-    return template
+        _ensure_default_templates(tx)  # so nobody can claim a built-in id before it exists
+        existing = tx.get(LayoutTemplate, template_id, with_for_update=True)
+        if existing is not None:
+            if existing.owner_id is None:
+                raise TemplateNotEditable(template_id)
+            if existing.owner_id != owner_id:
+                raise LookupError(template_id)
+            existing.data = template
+            existing.updated_at = func.now()
+        elif must_exist:
+            raise LookupError(template_id)
+        else:
+            position = tx.execute(select(func.coalesce(func.max(LayoutTemplate.position), -1) + 1)).scalar()
+            tx.add(LayoutTemplate(id=template_id, owner_id=owner_id, position=position, data=template))
+    return {**template, "builtin": False}
 
 
-def delete_layout_template(template_id: str) -> bool:
+def delete_layout_template(template_id: str, owner_id) -> bool:
+    """Delete one of `owner_id`'s templates. Built-ins and others' templates are never deleted."""
     with db.transaction() as tx:
-        return tx.execute(delete(LayoutTemplate).where(LayoutTemplate.id == str(template_id))).rowcount > 0
+        return tx.execute(
+            delete(LayoutTemplate).where(LayoutTemplate.id == str(template_id), LayoutTemplate.owner_id == owner_id)
+        ).rowcount > 0
 
 
 def sanitize_template_slots(slots: list) -> list:
@@ -220,22 +257,22 @@ def sanitize_template_slots(slots: list) -> list:
     return sanitized
 
 
-def select_layout_template(artifacts: list, template_id: str = None) -> dict:
-    templates = load_layout_templates()
+def select_layout_template(artifacts: list, template_id: str = None, owner_id=None) -> dict:
+    templates = load_layout_templates(owner_id)
     if not templates:
         return None
-    selected = get_layout_template(template_id) if template_id else None
+    selected = next((t for t in templates if t.get("id") == template_id), None) if template_id else None
     if selected:
         return selected
     return max(templates, key=lambda t: _template_score(t, artifacts))
 
 
-def build_layout_from_template(artifacts: list, template_id: str = None) -> list:
-    templates = load_layout_templates()
+def build_layout_from_template(artifacts: list, template_id: str = None, owner_id=None) -> list:
+    templates = load_layout_templates(owner_id)
     if not templates:
         return fallback_template(artifacts)
 
-    selected = select_layout_template(artifacts, template_id)
+    selected = select_layout_template(artifacts, template_id, owner_id)
 
     slots = _ordered_slots(sanitize_template_slots(selected.get("slots", [])))
     assignments = []

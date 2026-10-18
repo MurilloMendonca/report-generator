@@ -84,8 +84,16 @@ def create_canonical_session(case: dict) -> str:
         "pdf_version": 0,
         "retry_count": 0,
         "explore_history": [],
-    })
+    }, owner_id=canonical_owner_id())
     return job_id
+
+
+def canonical_owner_id():
+    """Canonical reports belong to a dedicated account without a password."""
+    from app.services import auth_service
+    email = "canonical-tests@example.com"
+    user = auth_service.get_user_by_email(email) or auth_service.create_user(email, None, display_name="Canonical tests", verified=True)
+    return user.id
 
 
 def apply_refinement(job_id: str, prompt: str):

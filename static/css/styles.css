@@ -397,6 +397,37 @@ body {
     box-sizing: border-box;
 }
 
+.usage-bar {
+    height: 0.5rem;
+    margin: 0.25rem 0 0.75rem;
+    max-width: 360px;
+    border-radius: 999px;
+    background: var(--md-sys-color-surface-variant);
+    overflow: hidden;
+}
+
+.usage-bar-fill {
+    width: 0;
+    height: 100%;
+    background: var(--md-sys-color-primary);
+}
+
+.account-danger {
+    border-color: #f5c2bd;
+}
+
+.account-danger h2 {
+    color: #912018;
+}
+
+.account-confirm {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+    font-size: 0.88rem;
+}
+
 .session-list {
     list-style: none;
     margin: 0 0 1rem;

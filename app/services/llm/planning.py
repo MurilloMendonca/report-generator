@@ -182,8 +182,8 @@ def generate_document_insights_from_pdf_file(
         return {}
 
 
-def generate_template(artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, template_id: str = None) -> list:
-    return normalize_template(build_layout_from_template(artifacts, template_id))
+def generate_template(artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, template_id: str = None, owner_id=None) -> list:
+    return normalize_template(build_layout_from_template(artifacts, template_id, owner_id))
 
 
 def normalize_preprocessing_payload(payload: dict) -> dict:

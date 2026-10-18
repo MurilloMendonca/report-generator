@@ -9,7 +9,8 @@ import app.routers.api as api
 from app.services import web_helpers
 from app.services.cleanup_service import delete_entire_session
 from app.services.llm.errors import LLMTimeoutError
-from app.services.session_manager import create_session, get_session
+from app.services.session_manager import get_session
+from tests.auth_helpers import create_session, request_as
 
 
 class SettingsTranslationTests(unittest.TestCase):
@@ -34,7 +35,7 @@ class SettingsTranslationTests(unittest.TestCase):
 
     def save(self, settings):
         tasks = BackgroundTasks()
-        response = asyncio.run(api.update_settings(self.job_id, tasks, settings))
+        response = asyncio.run(api.update_settings(request_as(), self.job_id, tasks, settings))
         return response, tasks
 
     def translated(self, session, target_lang, job_id=None):

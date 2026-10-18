@@ -15,13 +15,13 @@ from app.services.rate_limit import LIMITS, limiter
 from tests.auth_helpers import TEST_PASSWORD, csrf_headers, make_user, signed_in_headers
 from app.services.cleanup_service import delete_entire_session
 from app.services.session_manager import (
-    create_session,
     get_session,
     delete_session,
     validate_job_id,
     is_valid_job_id,
     recover_interrupted_sessions,
 )
+from tests.auth_helpers import create_session
 
 
 class FakeRequest:

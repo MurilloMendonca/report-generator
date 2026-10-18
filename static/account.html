@@ -65,10 +65,30 @@
         </section>
 
         <section class="account-section">
+            <h2>Uso</h2>
+            <p id="usage-storage">Carregando...</p>
+            <div class="usage-bar"><div id="usage-storage-bar" class="usage-bar-fill"></div></div>
+            <p id="usage-reports" class="auth-hint"></p>
+        </section>
+
+        <section class="account-section">
             <h2>Dispositivos conectados</h2>
             <ul id="session-list" class="session-list"></ul>
             <button type="button" id="logout-all-btn" class="btn btn-outline">Sair de todos os dispositivos</button>
             <button type="button" id="logout-btn" class="btn btn-outline">Sair</button>
+        </section>
+
+        <section class="account-section account-danger">
+            <h2>Excluir conta</h2>
+            <p>Apaga sua conta, todos os seus relatórios, arquivos enviados e templates. Não é possível desfazer.</p>
+            <form id="delete-account-form" class="account-form">
+                <div class="form-group">
+                    <label for="delete-password">Senha atual</label>
+                    <input type="password" id="delete-password" autocomplete="current-password" required maxlength="256">
+                </div>
+                <label class="account-confirm"><input type="checkbox" id="delete-confirm" required> Entendo que meus relatórios serão apagados para sempre.</label>
+                <button type="submit" class="btn btn-danger">Excluir minha conta</button>
+            </form>
         </section>
     </main>
 

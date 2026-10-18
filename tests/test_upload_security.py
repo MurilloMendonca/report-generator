@@ -8,6 +8,7 @@ from fastapi import HTTPException, Response, UploadFile
 
 import app.main as main
 import app.routers.api as api
+from tests.auth_helpers import create_session, request_as
 import app.security as security
 import app.services.pipeline_service as pipeline_service
 import app.services.session_manager as session_manager
@@ -116,7 +117,7 @@ class UploadSecurityTests(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
 
-        session_manager.create_session(job_id, {
+        create_session(job_id, {
             "job_id": job_id,
             "initial_prompt": "Delete me",
             "files": [{"original_filename": "data.csv", "path": upload_path}],
@@ -124,7 +125,7 @@ class UploadSecurityTests(unittest.TestCase):
             "pdf_path": pdf_path,
         })
 
-        response = asyncio.run(api.delete_session(job_id))
+        response = asyncio.run(api.delete_session(request_as(), job_id))
 
         self.assertEqual(response["status"], "OK")
         for path in [upload_path, script_path, pdf_path, f"{pdf_path}.manifest.json"]:

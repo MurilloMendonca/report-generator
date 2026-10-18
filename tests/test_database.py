@@ -8,12 +8,13 @@ from sqlalchemy.engine import make_url
 from app import db
 from app.models.db import Report
 from app.services.session_manager import (
-    add_log, begin_exploration_turn, create_session, delete_session, get_session,
+    add_log, begin_exploration_turn, delete_session, get_session,
     list_recent_sessions, recover_interrupted_sessions, update_session,
 )
 from app.utils.template_library import (
-    delete_layout_template, load_layout_templates, save_layout_templates, upsert_layout_template,
+    TemplateNotEditable, delete_layout_template, load_layout_templates, save_layout_templates, upsert_layout_template,
 )
+from tests.auth_helpers import create_session, default_user, make_user
 
 
 def new_job(test, **state):
@@ -64,7 +65,7 @@ class ReportStorageTests(unittest.TestCase):
         older = new_job(self, initial_prompt="older", files=[{"original_filename": "a.csv", "path": "a.csv"}])
         newer = new_job(self, initial_prompt="newer")
         update_session(older, {"status": "touched"})  # now the most recent
-        recent = [item for item in list_recent_sessions(limit=50) if item["job_id"] in {older, newer}]
+        recent = [item for item in list_recent_sessions(default_user().id, limit=50) if item["job_id"] in {older, newer}]
         self.assertEqual([item["job_id"] for item in recent], [older, newer])
         self.assertEqual(recent[0]["file_count"], 1)
         self.assertEqual(recent[0]["initial_prompt"], "older")
@@ -80,22 +81,33 @@ class ReportStorageTests(unittest.TestCase):
 
 class TemplateStorageTests(unittest.TestCase):
     def setUp(self):
-        self.original = load_layout_templates()
-        self.addCleanup(save_layout_templates, self.original)
+        self.owner, self.other = make_user().id, make_user().id
 
-    def test_built_ins_come_first_and_new_templates_are_appended(self):
-        saved = upsert_layout_template({"name": "Mine", "slots": []})
-        ids = [template["id"] for template in load_layout_templates()]
+    def test_built_ins_come_first_then_your_own(self):
+        mine = upsert_layout_template({"name": "Mine", "slots": []}, self.owner)
+        theirs = upsert_layout_template({"name": "Theirs", "slots": []}, self.other)
+        templates = load_layout_templates(self.owner)
+        ids = [template["id"] for template in templates]
         self.assertEqual(ids[:3], ["executive_standard", "data_heavy", "document_text_only"])
-        self.assertEqual(ids[-1], saved["id"])
+        self.assertTrue(all(template["builtin"] for template in templates[:3]))
+        self.assertEqual(ids[-1], mine["id"])
+        self.assertNotIn(theirs["id"], ids)
+        self.assertFalse(templates[-1]["builtin"])
 
-    def test_editing_keeps_position_and_deleted_built_ins_return(self):
-        upsert_layout_template({"id": "data_heavy", "name": "Edited", "slots": []})
-        templates = load_layout_templates()
-        self.assertEqual(templates[1]["name"], "Edited")
-        self.assertTrue(delete_layout_template("executive_standard"))
-        self.assertIn("executive_standard", [template["id"] for template in load_layout_templates()])
-        self.assertFalse(delete_layout_template("no-such-template"))
+    def test_built_ins_cannot_be_changed_or_deleted(self):
+        with self.assertRaises(TemplateNotEditable):
+            upsert_layout_template({"id": "data_heavy", "name": "Edited", "slots": []}, self.owner)
+        self.assertFalse(delete_layout_template("executive_standard", self.owner))
+        self.assertEqual(load_layout_templates(self.owner)[1]["id"], "data_heavy")
+
+    def test_someone_elses_template_is_invisible(self):
+        theirs = upsert_layout_template({"name": "Theirs", "slots": []}, self.other)
+        with self.assertRaises(LookupError):
+            upsert_layout_template({"id": theirs["id"], "name": "Hijacked", "slots": []}, self.owner)
+        self.assertFalse(delete_layout_template(theirs["id"], self.owner))
+        self.assertEqual(load_layout_templates(self.other)[-1]["name"], "Theirs")
+        with self.assertRaises(LookupError):
+            upsert_layout_template({"id": "tpl_missing", "name": "x", "slots": []}, self.owner, must_exist=True)
 
 
 class TestDatabaseGuardTests(unittest.TestCase):

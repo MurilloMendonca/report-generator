@@ -25,7 +25,7 @@ from app.services.llm.planning import (
 from app.services.llm.script import assemble_script, fix_script
 from app.services.llm.texts import condense_texts_to_fit, generate_all_texts
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
-from app.services.session_manager import add_log, append_stage_event, get_session, is_current_session_run, reserve_session_run, set_session_stage, update_session
+from app.services.session_manager import add_log, append_stage_event, get_report_owner, get_session, is_current_session_run, reserve_session_run, set_session_stage, update_session
 from app.utils.data_analyzer import extract_metadata
 from app.utils.artifact_validation import validate_report_plan
 from app.utils.component_renderers import supports_library_renderer
@@ -641,6 +641,7 @@ def _run_pipeline(job_id: str, run_id: int):
         settings = session.get('settings', {})
         selected_template_id = settings.get('selected_template_id')
         selected_template = None
+        owner_id = get_report_owner(job_id)  # templates visible to the report's owner
         if not selected_template_id and is_document_only_session(files):
             selected_template_id = DOCUMENT_TEXT_ONLY_TEMPLATE_ID
             settings["selected_template_id"] = selected_template_id
@@ -652,7 +653,7 @@ def _run_pipeline(job_id: str, run_id: int):
                     return
                 max_artifacts_retries = 3
                 if selected_template_id:
-                    selected_template = select_layout_template([], selected_template_id)
+                    selected_template = select_layout_template([], selected_template_id, owner_id)
                 for attempt in range(max_artifacts_retries):
                     add_log(job_id, f"Planejando indicadores (Metric, Graphic, Text) - T{attempt+1}...")
                     artifacts = generate_artifacts(
@@ -678,7 +679,7 @@ def _run_pipeline(job_id: str, run_id: int):
                     time.sleep(2)
 
         visible_artifacts = [a for a in artifacts if a.get('type') in VISUAL_TYPES or a.get('type') == 'text']
-        selected_template = select_layout_template(visible_artifacts, selected_template_id)
+        selected_template = select_layout_template(visible_artifacts, selected_template_id, owner_id)
         if selected_template:
             selected_template_id = selected_template.get("id")
             settings["selected_template_id"] = selected_template_id
@@ -740,7 +741,7 @@ def _run_pipeline(job_id: str, run_id: int):
                     return
                 template_name = selected_template.get("name") if selected_template else "fallback"
                 add_log(job_id, f"Aplicando template de layout: {template_name}...")
-                template = generate_template(visible_artifacts, provider, model_name, template_id=selected_template_id)
+                template = generate_template(visible_artifacts, provider, model_name, template_id=selected_template_id, owner_id=owner_id)
                 update_session(job_id, {"template": normalize_template(template)})
 
         components = session.get('components', {})

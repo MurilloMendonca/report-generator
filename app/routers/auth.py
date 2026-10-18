@@ -282,6 +282,20 @@ def change_email(request: Request, body: ChangeEmailBody):
     return {"status": "OK", "message": "Enviamos um link de confirmação para o novo email."}
 
 
+class DeleteAccountBody(BaseModel):
+    password: str = Field(max_length=1000)
+
+
+@router.delete("/api/auth/account")
+def delete_account(request: Request, response: Response, body: DeleteAccountBody):
+    try:
+        removed = auth_service.delete_account(current_user(request), body.password, ip=client_key(request))
+    except AuthError as exc:
+        raise _error(exc) from exc
+    clear_session_cookie(response)
+    return {"status": "OK", "reports_deleted": removed}
+
+
 # --- Pages ------------------------------------------------------------------------------
 
 for _path in ("/login", "/signup", "/verify-email", "/forgot-password", "/reset-password", "/confirm-email"):

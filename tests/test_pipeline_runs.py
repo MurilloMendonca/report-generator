@@ -9,7 +9,8 @@ from app.services.pipeline_service import (
     is_current_session_run,
     run_pipeline,
 )
-from app.services.session_manager import create_session, delete_session, get_session
+from app.services.session_manager import delete_session, get_session
+from tests.auth_helpers import create_session
 
 
 class PipelineRunTests(unittest.TestCase):

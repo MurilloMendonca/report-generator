@@ -281,8 +281,3 @@ def import_legacy(owner_email: str, *, workspace: Path = Path("workspace"), dry_
     summary.templates_imported = _import_templates(owner, workspace, dry_run)
     return summary
 
-
-def assign_unowned(owner_id) -> int:
-    """Give every report without an owner to `owner_id`. Its files stay where they are."""
-    with db.transaction() as tx:
-        return tx.execute(update(Report).where(Report.owner_id.is_(None)).values(owner_id=owner_id)).rowcount

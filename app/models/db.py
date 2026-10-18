@@ -40,7 +40,7 @@ class Report(Base):
     __tablename__ = "reports"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)  # the job_id
-    owner_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     current_step: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
@@ -57,7 +57,8 @@ class Report(Base):
 
 
 class LayoutTemplate(Base):
-    """Layout templates. Until Phase 3 every template is shared (owner_id NULL)."""
+    """Layout templates. owner_id NULL marks a built-in, readable by everyone and
+    editable by nobody; other templates are private to their owner."""
 
     __tablename__ = "layout_templates"
 

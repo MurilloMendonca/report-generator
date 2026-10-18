@@ -92,6 +92,9 @@ async def require_api_access(request: Request, call_next):
             return response
         if signed_in is not None and path in SIGNED_OUT_PAGES:
             return RedirectResponse("/", status_code=303)
+        if signed_in is not None:
+            request.state.user = signed_in.user
+            request.state.auth_session = signed_in.session
     elif path.startswith("/api/"):
         if not csrf_ok(request):
             return _reject(403, {"code": "csrf_failed", "message": "Sessão do navegador inválida. Recarregue a página e tente novamente."})

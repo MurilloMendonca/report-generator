@@ -6,7 +6,8 @@ import unittest
 from app.models.session import CURRENT_SESSION_SCHEMA_VERSION, normalize_session
 from app import db
 from app.models.db import Report
-from app.services.session_manager import append_stage_event, create_session, delete_session, get_session, set_session_stage, update_session
+from app.services.session_manager import append_stage_event, delete_session, get_session, set_session_stage, update_session
+from tests.auth_helpers import create_session, default_user
 
 
 class SessionSchemaTests(unittest.TestCase):
@@ -25,7 +26,7 @@ class SessionSchemaTests(unittest.TestCase):
     def write_raw_session(self, job_id, payload):
         # Store the document as-is, skipping the normalization create_session does.
         with db.transaction() as tx:
-            tx.add(Report(id=job_id, state=payload))
+            tx.add(Report(id=job_id, owner_id=default_user().id, state=payload))
 
     def test_normalizes_legacy_session_defaults_without_losing_unknown_fields(self):
         job_id = self.new_job_id()

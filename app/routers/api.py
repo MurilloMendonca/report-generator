@@ -9,7 +9,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.pages import render_page
-from app.security import require_admin, require_verified_user
+from app.security import current_user, require_admin, require_verified_user
+from app.services import quotas
 from app.services.cleanup_service import (
     cleanup_expired_artifacts,
     delete_entire_session,
@@ -63,6 +64,7 @@ from app.utils.exploration_charts import chart_path, validate_chart_image
 from app.utils.layout import normalize_template
 from app.utils.report_paths import ReportPaths
 from app.utils.template_library import (
+    TemplateNotEditable,
     delete_layout_template,
     load_layout_templates,
     upsert_layout_template,
@@ -106,8 +108,8 @@ async def read_template_editor():
 
 
 @router.get("/session/{job_id}", response_class=HTMLResponse)
-async def read_session_workspace(job_id: str):
-    require_session(job_id)
+async def read_session_workspace(request: Request, job_id: str):
+    require_session(job_id, request)
     return render_page("index.html")
 
 
@@ -122,8 +124,9 @@ async def start_session(
 ):
     user = require_verified_user(request)
     provider, model_name = validate_provider_model(provider, model_name)
+    await run_in_threadpool(quotas.check_daily_reports, user.id)
+    await run_in_threadpool(quotas.check_storage, user.id, quotas.upload_size(files))
     job_id = str(uuid.uuid4())
-    # Files go under the owner's folder; Phase 3 restricts access to the owner.
     report_paths = ReportPaths.for_new_report(job_id, str(user.id)).ensure()
     session_files = await run_in_threadpool(save_uploaded_files, files, report_paths.uploads)
     now = datetime.now(timezone.utc).isoformat()
@@ -158,51 +161,60 @@ async def start_session(
         "explore_history": [],
         **report_paths.session_fields(),
     }, owner_id=user.id)
+    await run_in_threadpool(quotas.refresh_storage, job_id)
 
     background_tasks.add_task(run_job, run_pipeline, job_id)
     return {"job_id": job_id}
 
 
 @router.get("/api/sessions")
-async def recent_sessions():
-    return {"sessions": list_recent_sessions()}
+def recent_sessions(request: Request):
+    return {"sessions": list_recent_sessions(current_user(request).id)}
+
+
+@router.get("/api/usage")
+def my_usage(request: Request):
+    return quotas.usage_summary(current_user(request).id)
 
 
 @router.post("/api/sessions/{job_id}/files")
 async def add_files_to_session(
+    request: Request,
     job_id: str,
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...)
 ):
-    session = require_session(job_id)
+    session = require_session(job_id, request)
     
     session_files = session.get("files", [])
     existing_names = {file["original_filename"].casefold() for file in session_files}
     if any(str(file.filename or "").casefold() in existing_names for file in files):
         raise HTTPException(status_code=400, detail="A file with this name already exists in the session")
+    await run_in_threadpool(quotas.check_storage, current_user(request).id, quotas.upload_size(files))
     session_files.extend(await run_in_threadpool(save_uploaded_files, files, ReportPaths.from_session(session).uploads))
     
     update_session(job_id, {"files": session_files})
+    await run_in_threadpool(quotas.refresh_storage, job_id)
     add_log(job_id, f"Adicionados {len(files)} novos arquivos.")
     background_tasks.add_task(run_job, run_pipeline, job_id)
     return {"status": "OK"}
 
 
 @router.get("/api/sessions/{job_id}/files/{file_index}/download")
-async def download_session_file(job_id: str, file_index: int, variant: str = "original"):
-    session = require_session(job_id)
+async def download_session_file(request: Request, job_id: str, file_index: int, variant: str = "original"):
+    session = require_session(job_id, request)
     return file_response(get_session_file(session, file_index), variant=variant)
 
 
 @router.get("/api/sessions/{job_id}/files/{file_index}/preview")
-async def preview_session_file(job_id: str, file_index: int, variant: str = "original"):
-    session = require_session(job_id)
+async def preview_session_file(request: Request, job_id: str, file_index: int, variant: str = "original"):
+    session = require_session(job_id, request)
     return file_response(get_session_file(session, file_index), inline=True, variant=variant)
 
 
 @router.delete("/api/sessions/{job_id}/files/{file_index}")
-async def delete_session_file(job_id: str, file_index: int, background_tasks: BackgroundTasks):
-    session = require_session(job_id)
+async def delete_session_file(request: Request, job_id: str, file_index: int, background_tasks: BackgroundTasks):
+    session = require_session(job_id, request)
     file_info = get_session_file(session, file_index)
     files = session.get("files", [])
     removed = files.pop(file_index)
@@ -234,16 +246,14 @@ async def delete_session_file(job_id: str, file_index: int, background_tasks: Ba
 
 
 @router.get("/api/sessions/{job_id}")
-async def get_session_status(job_id: str):
-    return require_session(job_id)
+async def get_session_status(request: Request, job_id: str):
+    return require_session(job_id, request)
 
 
 @router.delete("/api/sessions/{job_id}")
-async def delete_session(job_id: str):
-    if not is_valid_job_id(job_id):
-        raise HTTPException(status_code=404)
-    # delete_entire_session handles get_session internally and removes everything
-    removed_count = delete_entire_session(job_id)
+async def delete_session(request: Request, job_id: str):
+    require_session(job_id, request)
+    removed_count = await run_in_threadpool(delete_entire_session, job_id)
     return {"status": "OK", "removed_files": removed_count}
 
 
@@ -261,8 +271,8 @@ async def admin_cleanup(request: Request, background_tasks: BackgroundTasks, pol
 
 
 @router.post("/api/sessions/{job_id}/chat")
-async def chat_refinement(job_id: str, background_tasks: BackgroundTasks, prompt: str = Form(...)):
-    session = require_session(job_id)
+async def chat_refinement(request: Request, job_id: str, background_tasks: BackgroundTasks, prompt: str = Form(...)):
+    session = require_session(job_id, request)
     clean_prompt = (prompt or "").strip()
     if not clean_prompt:
         raise HTTPException(status_code=400, detail="Feedback cannot be empty")
@@ -282,8 +292,8 @@ async def chat_refinement(job_id: str, background_tasks: BackgroundTasks, prompt
 
 
 @router.put("/api/sessions/{job_id}/artifacts")
-async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTasks, payload: dict = Body(...)):
-    session = require_session(job_id)
+async def update_artifacts_manually(request: Request, job_id: str, background_tasks: BackgroundTasks, payload: dict = Body(...)):
+    session = require_session(job_id, request)
     
     new_artifacts = payload.get("artifacts", [])
     new_components = payload.get("components", {})
@@ -339,8 +349,8 @@ async def update_artifacts_manually(job_id: str, background_tasks: BackgroundTas
 
 
 @router.put("/api/sessions/{job_id}/template")
-async def update_template_manually(job_id: str, background_tasks: BackgroundTasks, template: list = Body(...)):
-    session = require_session(job_id)
+async def update_template_manually(request: Request, job_id: str, background_tasks: BackgroundTasks, template: list = Body(...)):
+    session = require_session(job_id, request)
     
     update_session(job_id, {"template": normalize_template(template)})
     add_log(job_id, "Layout visual atualizado pelo usuário. Re-renderizando...")
@@ -349,8 +359,8 @@ async def update_template_manually(job_id: str, background_tasks: BackgroundTask
 
 
 @router.put("/api/sessions/{job_id}/settings")
-async def update_settings(job_id: str, background_tasks: BackgroundTasks, settings: dict = Body(...)):
-    session = require_session(job_id)
+async def update_settings(request: Request, job_id: str, background_tasks: BackgroundTasks, settings: dict = Body(...)):
+    session = require_session(job_id, request)
     submitted_settings = dict(settings or {})
     provider = submitted_settings.pop("provider", None)
     model_name = submitted_settings.pop("model_name", None)
@@ -416,8 +426,8 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
 
 
 @router.post("/api/sessions/{job_id}/regenerate")
-async def regenerate_session(job_id: str, background_tasks: BackgroundTasks, payload: dict = Body(...)):
-    session = require_session(job_id)
+async def regenerate_session(request: Request, job_id: str, background_tasks: BackgroundTasks, payload: dict = Body(...)):
+    session = require_session(job_id, request)
     scope = payload.get("scope")
     if scope not in {"texts", "graphics", "component", "all"}:
         raise HTTPException(status_code=400, detail="Invalid regeneration scope")
@@ -481,38 +491,47 @@ async def regenerate_session(job_id: str, background_tasks: BackgroundTasks, pay
 
 
 @router.get("/api/layout-templates")
-async def list_layout_templates():
-    return {"templates": load_layout_templates()}
+def list_layout_templates(request: Request):
+    return {"templates": load_layout_templates(current_user(request).id)}
 
 
 @router.post("/api/layout-templates")
-async def create_layout_template(payload: dict = Body(...)):
-    return upsert_layout_template(payload)
+def create_layout_template(request: Request, payload: dict = Body(...)):
+    # New templates always get a fresh id.
+    return upsert_layout_template({**payload, "id": None}, current_user(request).id)
 
 
 @router.put("/api/layout-templates/{template_id}")
-async def update_layout_template(template_id: str, payload: dict = Body(...)):
-    payload["id"] = template_id
-    return upsert_layout_template(payload)
+def update_layout_template(request: Request, template_id: str, payload: dict = Body(...)):
+    try:
+        return upsert_layout_template({**payload, "id": template_id}, current_user(request).id, must_exist=True)
+    except TemplateNotEditable as exc:
+        raise HTTPException(status_code=403, detail={
+            "code": "builtin_template",
+            "message": "Templates padrão não podem ser alterados. Salve uma cópia.",
+        }) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404) from exc
 
 
 @router.delete("/api/layout-templates/{template_id}")
-async def remove_layout_template(template_id: str):
-    if not delete_layout_template(template_id):
+def remove_layout_template(request: Request, template_id: str):
+    if not delete_layout_template(template_id, current_user(request).id):
         raise HTTPException(status_code=404)
     return {"status": "OK"}
 
 
 @router.get("/api/sessions/{job_id}/pdf")
-async def get_pdf(job_id: str):
-    session = get_session(job_id)
-    if not session or not os.path.exists(session.get('pdf_path', '')): raise HTTPException(status_code=404)
+async def get_pdf(request: Request, job_id: str):
+    session = require_session(job_id, request)
+    if not os.path.exists(session.get('pdf_path') or ''):
+        raise HTTPException(status_code=404)
     return FileResponse(session['pdf_path'], media_type="application/pdf")
 
 
 @router.get("/api/sessions/{job_id}/components/{component_id}/preview")
-async def preview_component(job_id: str, component_id: str):
-    session = require_session(job_id)
+async def preview_component(request: Request, job_id: str, component_id: str):
+    session = require_session(job_id, request)
     component_code = session.get("components", {}).get(component_id)
     artifact = next((item for item in session.get("artifacts", []) if item.get("id") == component_id), None)
     if artifact:
@@ -552,13 +571,13 @@ async def preview_component(job_id: str, component_id: str):
 
 
 @router.post("/api/sessions/{job_id}/explore", status_code=202)
-async def explore_data(job_id: str, background_tasks: BackgroundTasks, prompt: str = Form(...)):
+async def explore_data(request: Request, job_id: str, background_tasks: BackgroundTasks, prompt: str = Form(...)):
     """Record the question and answer it in the background; the UI polls the session.
 
     Answering can take longer than Cloudflare's ~100 s request limit, so it never
     happens inside the request.
     """
-    require_session(job_id)
+    require_session(job_id, request)
     try:
         started = await run_in_threadpool(start_exploration, job_id, prompt)
     except ExplorationError as exc:
@@ -568,8 +587,8 @@ async def explore_data(job_id: str, background_tasks: BackgroundTasks, prompt: s
 
 
 @router.get("/api/sessions/{job_id}/explore/{turn_id}/charts/{chart_id}")
-async def get_exploration_chart(job_id: str, turn_id: str, chart_id: str, download: bool = False):
-    session = require_session(job_id)
+async def get_exploration_chart(request: Request, job_id: str, turn_id: str, chart_id: str, download: bool = False):
+    session = require_session(job_id, request)
     registered = any(
         message.get("role") == "assistant" and message.get("turn_id") == turn_id
         and any(chart.get("id") == chart_id for chart in message.get("charts", []) if isinstance(chart, dict))

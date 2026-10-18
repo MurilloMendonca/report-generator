@@ -72,7 +72,7 @@ const TemplateEditor = {
         for (const template of this.templates) {
             const option = document.createElement('option');
             option.value = template.id;
-            option.textContent = template.name;
+            option.textContent = template.builtin ? `${template.name} (padrão)` : template.name;
             select.appendChild(option);
         }
     },
@@ -87,8 +87,10 @@ const TemplateEditor = {
         document.getElementById('template-name').value = template.name || '';
         document.getElementById('template-description').value = template.description || '';
         this.renderCanvas();
-        document.getElementById('delete-template-btn').disabled = !template.id;
-        this.setStatus('Adicione blocos ou selecione um para ajustar o layout.');
+        document.getElementById('delete-template-btn').disabled = !template.id || Boolean(template.builtin);
+        this.setStatus(template.builtin
+            ? 'Template padrão: ao salvar, uma cópia sua é criada.'
+            : 'Adicione blocos ou selecione um para ajustar o layout.');
     },
 
     selectTemplate(templateId, force = false) {
@@ -111,6 +113,7 @@ const TemplateEditor = {
         const copy = {
             ...this.currentTemplate,
             id: '',
+            builtin: false,
             name: document.getElementById('template-name').value + ' — cópia',
             description: document.getElementById('template-description').value,
             slots: this.collectSlotsFromCanvas(),
@@ -153,8 +156,10 @@ const TemplateEditor = {
         if (!this.currentTemplate) return;
         const button = document.getElementById('save-template-btn');
         if (button.disabled) return;
+        // Built-in templates can't be changed; saving one creates your own copy.
+        const isCopy = Boolean(this.currentTemplate.builtin);
         const payload = {
-            id: this.currentTemplate.id,
+            id: isCopy ? '' : this.currentTemplate.id,
             name: document.getElementById('template-name').value,
             description: document.getElementById('template-description').value,
             slots: this.collectSlotsFromCanvas(),
@@ -176,13 +181,13 @@ const TemplateEditor = {
             if (index === -1) this.templates.push(saved); else this.templates[index] = saved;
             this.renderTemplateSelect();
             this.adopt(saved);
-            this.setStatus('Template salvo.');
+            this.setStatus(isCopy ? 'Cópia salva na sua biblioteca.' : 'Template salvo.');
         } catch (error) { this.setStatus(error.message, true); }
         finally {
             button.disabled = false;
             this.editor.container.inert = false;
             for (const id of ['template-name', 'template-description', 'template-select', 'new-template-btn', 'duplicate-template-btn']) document.getElementById(id).disabled = false;
-            document.getElementById('delete-template-btn').disabled = !this.currentTemplate.id;
+            document.getElementById('delete-template-btn').disabled = !this.currentTemplate.id || Boolean(this.currentTemplate.builtin);
         }
     },
 

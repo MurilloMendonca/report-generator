@@ -11,8 +11,9 @@ from app.services.pipeline_service import (
     run_pipeline,
     run_script_generation,
 )
-from app.services.session_manager import create_session, delete_session, get_session
+from app.services.session_manager import delete_session, get_session
 from app.utils.template_library import get_layout_template
+from tests.auth_helpers import create_session
 
 
 class PipelineContractTests(unittest.TestCase):

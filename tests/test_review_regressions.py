@@ -15,6 +15,7 @@ import pandas as pd
 
 import app.main as main
 import app.routers.api as api
+from tests.auth_helpers import request_as
 import app.security as security
 import app.services.pipeline_service as pipeline_service
 import app.services.session_manager as session_manager
@@ -270,7 +271,7 @@ class ApiRegressionTests(unittest.TestCase):
         from fastapi import BackgroundTasks
         with patch.object(api, "require_session", return_value={"files": []}), \
              patch.object(api, "start_exploration", side_effect=generate):
-            self.assertEqual(asyncio.run(api.explore_data("test", BackgroundTasks(), "Question")), {"answer": "answer", "turn_id": "t"})
+            self.assertEqual(asyncio.run(api.explore_data(request_as(), "test", BackgroundTasks(), "Question")), {"answer": "answer", "turn_id": "t"})
         self.assertEqual(len(worker_threads), 1)
         self.assertNotEqual(worker_threads, [event_loop_thread])
 

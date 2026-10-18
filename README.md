@@ -180,7 +180,10 @@ All settings are environment variables (`.env` is loaded automatically).
 | `PDF_REPORT_LOGIN_MAX_FAILURES` / `PDF_REPORT_LOGIN_WINDOW_SECONDS` | `10` / `300` | Failed logins allowed per client address before login returns 429. Failures on one account also add a growing delay (2 s, 4 s, ... up to 15 min) after the fourth, instead of locking it. |
 | `PDF_REPORT_ALLOW_UNSAFE_SANDBOX` | unset | Set `1` to run generated code under the weaker Python-level guard when bubblewrap is unavailable. Trusted environments only. |
 | `PDF_REPORT_SANDBOX_MAX_FILE_BYTES` | `209715200` (200 MB) | Largest file a generated script may write. |
-| `PDF_REPORT_MAX_CONCURRENT_JOBS` | `2` | Report jobs (pipeline, refinement, render) that run at once; others wait. |
+| `PDF_REPORT_MAX_CONCURRENT_JOBS` | `2` | Report jobs (pipeline, refinement, render, explorer) that run at once across all users; others wait. |
+| `PDF_REPORT_MAX_JOBS_PER_USER` | `1` | Jobs one user can run at once. Their next job waits ("Aguardando seu relatório anterior terminar...") without holding a global slot. |
+| `PDF_REPORT_QUOTA_STORAGE_BYTES` | `10737418240` (10 GB) | Storage per user (uploads and generated files). Uploads over it get `413 storage_quota`. |
+| `PDF_REPORT_QUOTA_REPORTS_PER_DAY` | `50` | New reports per user per rolling 24 hours (`429 daily_report_limit`). |
 | `PDF_REPORT_RECOVER_SESSIONS_ON_START` | `1` (`0` when `APP_ENV=test`) | Mark sessions interrupted by a restart as failed on startup. |
 | `PDF_REPORT_MAX_UPLOAD_BYTES` | `52428800` (50 MB) | Per-file upload limit. |
 | `PDF_REPORT_MAX_REQUEST_UPLOAD_BYTES` | `94371840` (90 MB) | Total size of all files in one upload request. Cloudflare's free plan rejects bodies over 100 MB. |
@@ -268,16 +271,15 @@ Each report keeps its ID. Its files are copied to `workspace/tenants/{account id
 
 ### Accounts
 
-Sign-up is closed until you open it (`PDF_REPORT_SIGNUP_MODE=open`). Keep it closed until reports are private to their owner (plan Phase 3) and users bring their own provider keys (Phase 4); until then every account sees every report and uses the server's keys.
+Sign-up is closed until you open it (`PDF_REPORT_SIGNUP_MODE=open`). Keep it closed until users bring their own provider keys (plan Phase 4); until then every account's reports use the server's keys. Reports and templates are already private to their owner.
 
 ```bash
 docker compose exec report-generator python -m app.cli create-admin --email you@example.com
 docker compose exec report-generator python -m app.cli create-user --email friend@example.com
 docker compose exec report-generator python -m app.cli set-password --email demo@gengardev.com.br
-docker compose exec report-generator python -m app.cli assign-unowned --owner demo@gengardev.com.br
 ```
 
-Passwords are generated and printed once. `assign-unowned` gives reports that have no owner (created before accounts existed) to an account.
+Passwords are generated and printed once.
 
 **Email.** Pick a transactional provider with SMTP (Resend, Postmark, Amazon SES, ...), add its SPF, DKIM and DMARC records to the `gengardev.com.br` zone in Cloudflare DNS, and set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` and `SMTP_FROM` (for example `no-reply@gengardev.com.br`) in `.env`.
 
@@ -370,6 +372,7 @@ Accounts (`app/routers/auth.py`). Errors return `{"detail": {"code": ..., "messa
 - `POST /api/auth/logout`, `POST /api/auth/logout-all`: end this session, or every session of the account.
 - `GET /api/auth/sessions`, `DELETE /api/auth/sessions/{id}`: signed-in devices.
 - `POST /api/auth/resend-verification`, `POST /api/auth/change-password`, `POST /api/auth/change-email`.
+- `DELETE /api/auth/account` (`{password}`): deletes the account with all its reports, files and templates. The only admin can't delete their account (`409 last_admin`).
 - Pages: `/login`, `/signup`, `/forgot-password`, `/reset-password`, `/verify-email`, `/confirm-email` (`static/auth.html`) and `/account` (`static/account.html`). Email links put the token in the URL fragment (`#token=...`), so it never reaches server logs.
 
 Reports:
@@ -378,6 +381,7 @@ Reports:
 - `GET /session/{job_id}`: serves the workspace already pointed at a session.
 - `GET /templates`: serves the layout-template editor.
 - `GET /api/models`: lists available providers and models.
+- `GET /api/usage`: your storage use, reports in the last 24 hours, and the limits.
 - `GET /api/component-library`: lists visual presets, themes, and chart styles.
 - `GET /api/component-library/previews`: preview images for presets, given a `theme` and `style`.
 - `GET /api/component-library/presets/{preset_id}/preview`: one preset's preview image.
@@ -402,14 +406,14 @@ Reports:
 - `GET /api/sessions/{job_id}/components/{component_id}/preview`: renders a single component to a small PDF.
 - `POST /api/sessions/{job_id}/explore`: asks an ad-hoc question about the session data. Returns `202` with the question stored and a `pending` answer; the answer (text and up to three charts) is produced in the background and replaces the pending entry in `explore_history`. Returns `409` while another question is pending.
 - `GET /api/sessions/{job_id}/explore/{turn_id}/charts/{chart_id}`: returns an explorer chart PNG. Add `?download=true` to download it.
-- `GET /api/layout-templates`: lists available layout templates.
-- `POST /api/layout-templates`: creates a layout template.
-- `PUT /api/layout-templates/{template_id}`: updates a layout template.
-- `DELETE /api/layout-templates/{template_id}`: deletes a layout template.
+- `GET /api/layout-templates`: the built-in templates (`"builtin": true`) followed by your own.
+- `POST /api/layout-templates`: creates one of your templates (the server assigns the id).
+- `PUT /api/layout-templates/{template_id}`: updates one of your templates. Built-ins answer `403 builtin_template`; the editor saves a copy instead.
+- `DELETE /api/layout-templates/{template_id}`: deletes one of your templates.
 - `GET /api/admin/workspace-usage`: returns disk usage statistics for each workspace directory. Requires the admin role.
 - `POST /api/admin/cleanup`: manually triggers the cleanup of expired artifacts based on the retention policy, plus ended sessions, used email links and week-old unverified accounts. Requires the admin role.
 
-Every `/api/*` endpoint except the public auth ones above needs a signed-in session cookie. Every request that changes state (anything but GET, HEAD, OPTIONS) also needs an `X-CSRF-Token` header equal to the `csrf_token` cookie; `static/js/api.js` adds it. Creating a report (`POST /api/sessions`) needs a verified email (`403 email_not_verified`). Until Phase 3, every signed-in user can still see every report. Session IDs must match `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`; anything else returns 404.
+Every `/api/*` endpoint except the public auth ones above needs a signed-in session cookie. Every request that changes state (anything but GET, HEAD, OPTIONS) also needs an `X-CSRF-Token` header equal to the `csrf_token` cookie; `static/js/api.js` adds it. Creating a report (`POST /api/sessions`) needs a verified email (`403 email_not_verified`). Reports belong to the account that created them: any other account gets `404` for every report route (never `403`, so report ids can't be probed), and `GET /api/sessions` lists only your own. Session IDs must match `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`; anything else returns 404.
 
 ## Workspace Maintenance
 

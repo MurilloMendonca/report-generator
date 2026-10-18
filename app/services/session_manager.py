@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from functools import wraps
 
 from pydantic import ValidationError
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONB, insert as pg_insert
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -96,9 +96,12 @@ def _mutate(job_id: str, change, missing=None):
         return session if result is None else result
 
 
-def create_session(job_id: str, data: dict, owner_id: uuid.UUID | None = None):
-    """Create a report, or replace the document of an existing one."""
+def create_session(job_id: str, data: dict, owner_id: uuid.UUID):
+    """Create a report owned by `owner_id`, or replace the document of an
+    existing report (whose owner never changes)."""
     validate_job_id(job_id)
+    if owner_id is None:
+        raise ValueError("A report needs an owner")
     data = normalize_session(data, job_id) or {}
     values = {"id": job_id, "state": data, "owner_id": owner_id, **report_columns(data)}
     statement = pg_insert(Report).values(**values)
@@ -111,11 +114,55 @@ def create_session(job_id: str, data: dict, owner_id: uuid.UUID | None = None):
 
 
 def get_session(job_id: str) -> dict:
+    """The session document, whoever owns it. Request handlers must use
+    get_owned_session instead; this is for background jobs and maintenance."""
     if not is_valid_job_id(job_id):
         return None
     with db.transaction() as tx:
         state = tx.execute(select(Report.state).where(Report.id == job_id)).scalar_one_or_none()
     return None if state is None else _normalize(state, job_id)
+
+
+def get_owned_session(job_id: str, owner_id) -> dict | None:
+    """The session document only if `owner_id` owns the report, else None."""
+    if not is_valid_job_id(job_id) or owner_id is None:
+        return None
+    with db.transaction() as tx:
+        state = tx.execute(
+            select(Report.state).where(Report.id == job_id, Report.owner_id == owner_id)
+        ).scalar_one_or_none()
+    return None if state is None else _normalize(state, job_id)
+
+
+def get_report_owner(job_id: str) -> uuid.UUID | None:
+    if not is_valid_job_id(job_id):
+        return None
+    with db.transaction() as tx:
+        return tx.execute(select(Report.owner_id).where(Report.id == job_id)).scalar_one_or_none()
+
+
+def list_report_ids(owner_id) -> list[str]:
+    with db.transaction() as tx:
+        return list(tx.execute(select(Report.id).where(Report.owner_id == owner_id)).scalars())
+
+
+def set_storage_bytes(job_id: str, size: int) -> None:
+    with db.transaction() as tx:
+        tx.execute(update(Report).where(Report.id == job_id).values(storage_bytes=max(0, int(size))))
+
+
+def storage_used(owner_id) -> int:
+    with db.transaction() as tx:
+        return int(tx.execute(
+            select(func.coalesce(func.sum(Report.storage_bytes), 0)).where(Report.owner_id == owner_id)
+        ).scalar())
+
+
+def reports_created_since(owner_id, since: datetime) -> int:
+    with db.transaction() as tx:
+        return int(tx.execute(
+            select(func.count()).select_from(Report).where(Report.owner_id == owner_id, Report.created_at >= since)
+        ).scalar())
 
 
 def delete_session(job_id: str) -> bool:
@@ -211,7 +258,7 @@ def finish_exploration_turn(job_id: str, turn_id: str, assistant_message: dict):
     return _mutate(job_id, change)
 
 
-def list_recent_sessions(limit: int = 12) -> list:
+def list_recent_sessions(owner_id, limit: int = 12) -> list:
     query = (
         select(
             Report.id,
@@ -223,6 +270,7 @@ def list_recent_sessions(limit: int = 12) -> list:
             Report.created_at,
             Report.updated_at,
         )
+        .where(Report.owner_id == owner_id)
         .order_by(Report.updated_at.desc())
         .limit(limit)
     )

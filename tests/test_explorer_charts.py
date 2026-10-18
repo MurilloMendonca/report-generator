@@ -13,10 +13,11 @@ from tests.auth_helpers import signed_in_headers
 from app.services import exploration_service as explorer
 from app.services.cleanup_service import delete_entire_session, get_session_generated_paths
 from app.services.llm.errors import LLMBudgetError, LLMTimeoutError
-from app.services.session_manager import create_session, get_session, update_session
+from app.services.session_manager import get_session, update_session
 from app.utils.exploration_charts import (
     MAX_CHART_BYTES, chart_path, collect_exploration_charts, exploration_directory, validate_chart_image,
 )
+from tests.auth_helpers import create_session
 
 
 BAR_SCRIPT = """
