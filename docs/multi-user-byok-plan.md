@@ -1,6 +1,6 @@
 # Plan: User Accounts and Bring-Your-Own-Key
 
-Status: decisions settled, ready for Phase 0 · Date: 2026-10-18
+Status: Phase 0 done (pending the Mac mini check) · Date: 2026-10-18
 
 This plan moves the app from a single shared access secret with server-owned provider keys to:
 
@@ -466,6 +466,12 @@ Test it with a fixture workspace (Phase 1 acceptance).
 Size estimates: S is about 1–2 days, M is about 3–5 days, L is about 1–2 weeks of focused work.
 
 ### Phase 0 — Groundwork on the current single-user app (M)
+
+**Status (2026-10-18): done, except the check on the Mac mini itself.**
+- bubblewrap was verified in Docker Desktop (Linux) with the compose settings: the sandbox tests pass inside the hardened container, and fail as expected with Docker's default profile.
+- The same check still needs to run on the Mac mini (step 1).
+- New reports use `workspace/tenants/default/reports/{job_id}/`; `default` becomes the owner's user ID in Phase 3.
+- Existing reports keep the shared folders until the Phase 1 import moves them.
 
 Goal: get the risky refactors in while there's still one user.
 

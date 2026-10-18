@@ -35,7 +35,6 @@ from app.utils.model_config import DEFAULT_PROVIDER
 from app.services.pipeline_service import (
     DEFAULT_EXPLORATORY_PROMPT,
     DEFAULT_SETTINGS,
-    REPORT_DIR,
     VISUAL_TYPES,
     build_files_map,
     run_pipeline,
@@ -72,6 +71,7 @@ from app.utils.component_library import (
 )
 from app.utils.exploration_charts import chart_path, validate_chart_image
 from app.utils.layout import normalize_template
+from app.utils.report_paths import ReportPaths
 from app.utils.template_library import (
     delete_layout_template,
     load_layout_templates,
@@ -172,7 +172,8 @@ async def start_session(
 ):
     provider, model_name = validate_provider_model(provider, model_name)
     job_id = str(uuid.uuid4())
-    session_files = await run_in_threadpool(save_uploaded_files, files)
+    report_paths = ReportPaths.for_new_report(job_id).ensure()
+    session_files = await run_in_threadpool(save_uploaded_files, files, report_paths.uploads)
     now = datetime.now(timezone.utc).isoformat()
     user_prompt = (prompt or "").strip()
     effective_prompt = user_prompt or DEFAULT_EXPLORATORY_PROMPT
@@ -202,7 +203,8 @@ async def start_session(
         "data_preprocessing": {},
         "pdf_version": 0,
         "retry_count": 0,
-        "explore_history": []
+        "explore_history": [],
+        **report_paths.session_fields(),
     })
     
     background_tasks.add_task(run_job, run_pipeline, job_id)
@@ -226,7 +228,7 @@ async def add_files_to_session(
     existing_names = {file["original_filename"].casefold() for file in session_files}
     if any(str(file.filename or "").casefold() in existing_names for file in files):
         raise HTTPException(status_code=400, detail="A file with this name already exists in the session")
-    session_files.extend(await run_in_threadpool(save_uploaded_files, files))
+    session_files.extend(await run_in_threadpool(save_uploaded_files, files, ReportPaths.from_session(session).uploads))
     
     update_session(job_id, {"files": session_files})
     add_log(job_id, f"Adicionados {len(files)} novos arquivos.")
@@ -572,7 +574,8 @@ async def preview_component(job_id: str, component_id: str):
     slot = component_preview_slot(session, component_id)
     page_width = slot["w"] + 20
     page_height = slot["h"] + 20
-    output_pdf_path = os.path.abspath(os.path.join(REPORT_DIR, component_preview_filename(job_id, component_id, "pdf")))
+    report_paths = ReportPaths.from_session(session).ensure()
+    output_pdf_path = os.path.abspath(os.path.join(report_paths.output, component_preview_filename(job_id, component_id, "pdf")))
     script_path = os.path.join("/tmp", component_preview_filename(job_id, component_id, "py"))
     script_content = component_preview_script_from_session_script(session, component_id, slot, output_pdf_path) if component_code else None
     if not script_content:
@@ -587,7 +590,7 @@ async def preview_component(job_id: str, component_id: str):
             normalize_layout=False,
             artifacts=[artifact] if artifact else None,
         )
-    result = await run_in_threadpool(execute_script, script_content, script_path, timeout=30)
+    result = await run_in_threadpool(execute_script, script_content, script_path, timeout=30, paths=report_paths)
     if not result.get("success"):
         detail = (result.get("stderr") or result.get("stdout") or "Component preview failed").strip()
         raise HTTPException(status_code=500, detail=detail[-1000:])
@@ -623,7 +626,7 @@ async def get_exploration_chart(job_id: str, turn_id: str, chart_id: str, downlo
     if not registered:
         raise HTTPException(status_code=404, detail="Gráfico não encontrado nesta sessão.")
     try:
-        path = chart_path(job_id, turn_id, chart_id)
+        path = chart_path(job_id, turn_id, chart_id, ReportPaths.from_session(session).output)
         await run_in_threadpool(validate_chart_image, path)
     except (ValueError, OSError) as exc:
         raise HTTPException(status_code=404, detail="Gráfico indisponível.") from exc

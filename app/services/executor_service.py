@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 
 from app.utils.component_renderers import sandbox_runtime_source
+from app.utils.report_paths import ReportPaths
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -363,7 +364,7 @@ def _python_runtime_roots() -> list[Path]:
     return roots
 
 
-def _sandbox_bind_args(tmp_dir: Path) -> list[str]:
+def _sandbox_bind_args(tmp_dir: Path, paths: ReportPaths | None = None) -> list[str]:
     args: list[str] = [
         "--unshare-all",
         "--new-session",
@@ -378,8 +379,10 @@ def _sandbox_bind_args(tmp_dir: Path) -> list[str]:
     ]
 
     _ensure_runtime_dirs()
-    read_only_workspace = [UPLOADS_DIR.resolve(), SANDBOX_SUPPORT_DIR.resolve()]
-    writable_workspace = [FILTERED_DIR.resolve(), SCRIPT_DIR.resolve(), REPORTS_DIR.resolve()]
+    paths = (paths or ReportPaths("", None)).ensure()
+    # Only this report's folders (or the shared legacy folders for old sessions).
+    read_only_workspace = [path.resolve() for path in paths.sandbox_read_only] + [SANDBOX_SUPPORT_DIR.resolve()]
+    writable_workspace = [path.resolve() for path in paths.sandbox_writable]
     runtime_roots = _python_runtime_roots()
 
     target_paths = [
@@ -425,8 +428,8 @@ def _limit_process_resources():
             pass
 
 
-def _run_with_bwrap(command: list[str], env: dict, timeout: int, tmp_dir: Path) -> subprocess.CompletedProcess:
-    bwrap_command = ["bwrap", *_sandbox_bind_args(tmp_dir)]
+def _run_with_bwrap(command: list[str], env: dict, timeout: int, tmp_dir: Path, paths: ReportPaths | None = None) -> subprocess.CompletedProcess:
+    bwrap_command = ["bwrap", *_sandbox_bind_args(tmp_dir, paths)]
     for key, value in env.items():
         bwrap_command.extend(["--setenv", key, value])
     # Same working directory as the python-guard backend, so relative paths behave identically.
@@ -529,9 +532,10 @@ class SandboxExecutor:
     def __init__(self, timeout: int = 30):
         self.timeout = timeout
 
-    def execute(self, script_content: str, script_path: str) -> dict:
+    def execute(self, script_content: str, script_path: str, paths: ReportPaths | None = None) -> dict:
         _ensure_runtime_dirs()
         backend = select_sandbox_backend()
+        paths = (paths or ReportPaths("", None)).ensure()
         start_time = time.perf_counter()
         run_id = uuid.uuid4().hex
         tmp_dir = Path(tempfile.mkdtemp(prefix=f"pdf-report-sandbox-{run_id}-"))
@@ -541,7 +545,7 @@ class SandboxExecutor:
         if not requested_script_path.is_absolute():
             requested_script_path = ROOT_DIR / requested_script_path
         resolved_script_path = requested_script_path.resolve()
-        if resolved_script_path.is_relative_to(SCRIPT_DIR.resolve()):
+        if resolved_script_path.is_relative_to(paths.scripts.resolve()):
             user_script_path = resolved_script_path
         else:
             user_script_path = tmp_dir / f"sandbox_{run_id}.py"
@@ -577,19 +581,12 @@ class SandboxExecutor:
         )
 
         read_dirs = _existing_paths([
-            UPLOADS_DIR,
-            FILTERED_DIR,
-            SCRIPT_DIR,
-            REPORTS_DIR,
+            *paths.sandbox_read_only,
+            *paths.sandbox_writable,
             tmp_dir,
             SANDBOX_SUPPORT_DIR,
         ]) + _python_read_dirs()
-        write_dirs = _existing_paths([
-            FILTERED_DIR,
-            SCRIPT_DIR,
-            REPORTS_DIR,
-            tmp_dir,
-        ])
+        write_dirs = _existing_paths([*paths.sandbox_writable, tmp_dir])
 
         env = _safe_env(tmp_dir)
         env["PDF_REPORT_SANDBOX_READ_DIRS"] = os.pathsep.join(read_dirs)
@@ -606,7 +603,7 @@ class SandboxExecutor:
         try:
             command = [sys.executable, str(wrapper_script_path)]
             if backend == "bubblewrap":
-                result = _run_with_bwrap(command, env, self.timeout, tmp_dir)
+                result = _run_with_bwrap(command, env, self.timeout, tmp_dir, paths)
             else:
                 result = _run_python_guard(command, env, self.timeout)
             return {
@@ -663,7 +660,7 @@ class SandboxExecutor:
         return entries
 
 
-def execute_script(script_content: str, script_path: str, timeout: int = 30) -> dict:
+def execute_script(script_content: str, script_path: str, timeout: int = 30, paths: ReportPaths | None = None) -> dict:
     """
     Writes and executes generated Python inside a sandbox.
 
@@ -672,8 +669,12 @@ def execute_script(script_content: str, script_path: str, timeout: int = 30) -> 
     secrets, the network, or a writable interpreter. The in-process
     python-guard is only used when PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1, because
     it can be bypassed. Raises SandboxUnavailableError otherwise.
+
+    Pass the report's ReportPaths so the script sees only that report's
+    folders; without it the shared legacy folders are mounted.
     """
     return SandboxExecutor(timeout=timeout).execute(
         textwrap.dedent(script_content),
         script_path,
+        paths,
     )

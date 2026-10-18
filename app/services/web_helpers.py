@@ -31,6 +31,8 @@ from app.utils.layout import normalize_template
 UPLOAD_DIR = "workspace/uploads"
 ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".xls", ".xlsx", ".pdf"}
 MAX_UPLOAD_BYTES = int(os.getenv("PDF_REPORT_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+# Total per request; Cloudflare's free plan rejects bodies over 100 MB before they reach the app.
+MAX_REQUEST_UPLOAD_BYTES = int(os.getenv("PDF_REPORT_MAX_REQUEST_UPLOAD_BYTES", str(90 * 1024 * 1024)))
 MAX_EXCEL_SHEETS = int(os.getenv("PDF_REPORT_MAX_EXCEL_SHEETS", "20"))
 
 
@@ -286,7 +288,10 @@ def copy_upload_with_limit(file: UploadFile, destination: str) -> int:
     return total
 
 
-def save_uploaded_files(files: list[UploadFile]) -> list:
+def save_uploaded_files(files: list[UploadFile], destination_dir: str | os.PathLike | None = None) -> list:
+    """Validate and save uploads into the report's uploads folder (legacy: the shared one)."""
+    destination_dir = str(destination_dir or UPLOAD_DIR)
+    os.makedirs(destination_dir, exist_ok=True)
     saved_files = []
     names = [str(file.filename or "").casefold() for file in files]
     if len(names) != len(set(names)):
@@ -294,12 +299,16 @@ def save_uploaded_files(files: list[UploadFile]) -> list:
     for file in files:
         validate_upload(file)
     created_paths = []
+    total_bytes = 0
     for file in files:
         file_ext = validate_upload(file)
-        data_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4()}{file_ext}")
+        data_path = os.path.join(destination_dir, f"{uuid.uuid4()}{file_ext}")
         created_paths.append(data_path)
         try:
             size_bytes = copy_upload_with_limit(file, data_path)
+            total_bytes += size_bytes
+            if total_bytes > MAX_REQUEST_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="The files in one upload exceed the total size limit")
             validation = validate_saved_upload(data_path, file_ext, file.filename, file.content_type)
         except Exception:
             for created_path in created_paths:

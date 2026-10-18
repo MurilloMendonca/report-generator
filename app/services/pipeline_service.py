@@ -8,6 +8,7 @@ from contextlib import contextmanager
 
 import pandas as pd
 
+from app.utils.report_paths import ReportPaths
 from app.services.executor_service import execute_script
 from app.services.llm.client import llm_operation_context
 from app.services.llm.components import generate_component_code, slot_by_artifact_id
@@ -403,6 +404,7 @@ def preprocessing_impact(original_path: str, processed_path_value: str) -> dict:
 
 def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     files = session.get("files", [])
+    report_paths = ReportPaths.from_session(session).ensure()
     output_paths = {}
     workbook_sheets = {}
     impacts = {}
@@ -420,7 +422,7 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
                 with pd.ExcelFile(source_path) as workbook:
                     workbook_sheets[file_info["original_filename"]] = workbook.sheet_names
                 extension = ".xlsx"
-            output_path = os.path.abspath(os.path.join(FILTERED_DIR, f"{job_id}_{uuid.uuid4().hex}_preprocessed{extension}"))
+            output_path = os.path.abspath(os.path.join(report_paths.filtered, f"{job_id}_{uuid.uuid4().hex}_preprocessed{extension}"))
             output_paths[file_info["original_filename"]] = output_path
 
     if not output_paths:
@@ -450,8 +452,8 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     script += "    else:\n"
     script += "        df.to_csv(path, index=False)\n"
 
-    script_path = os.path.join(SCRIPT_DIR, f"preprocess_{job_id}.py")
-    result = execute_script(script, script_path)
+    script_path = os.path.join(report_paths.scripts, f"preprocess_{job_id}.py")
+    result = execute_script(script, script_path, paths=report_paths)
     if not result["success"]:
         raise RuntimeError(result["stderr"] or "Falha ao aplicar pré-processamento de dados")
 
@@ -726,7 +728,7 @@ def _run_pipeline(job_id: str, run_id: int):
                     if not _ensure_current_run(job_id, run_id, "metrics"):
                         return
                     add_log(job_id, f"Calculando métrica: {art['indicator']}...")
-                    val = calculate_metric_value(all_metadata, art, files_map, provider, model_name, job_id=job_id)
+                    val = calculate_metric_value(all_metadata, art, files_map, provider, model_name, job_id=job_id, paths=ReportPaths.from_session(session))
                     metrics_store[art['id']] = val
         update_session(job_id, {"calculated_metrics": metrics_store})
 
@@ -873,8 +875,9 @@ def _run_script_generation(job_id: str, run_id: int):
     set_session_stage(job_id, "script", 90)
     add_log(job_id, "Montando script final modular...")
 
-    script_path = os.path.join(SCRIPT_DIR, f"{job_id}.py")
-    output_pdf_path = os.path.abspath(os.path.join(REPORT_DIR, f"{job_id}.pdf"))
+    report_paths = ReportPaths.from_session(session).ensure()
+    script_path = os.path.join(report_paths.scripts, f"{job_id}.py")
+    output_pdf_path = os.path.abspath(os.path.join(report_paths.output, f"{job_id}.pdf"))
     files_map = build_files_map(session)
     metadata_items = [file_info.get("artifact") for file_info in session.get("files", []) if file_info.get("artifact")]
     artifacts, validation_issues = validate_report_plan(session.get("artifacts", []), metadata_items)
@@ -957,7 +960,7 @@ def run_execution(job_id: str, run_id: int | None = None):
     append_stage_event(job_id, "render", "start", status="in_progress", provider=session.get('provider'), model_name=session.get('model_name'))
     start_time = time.perf_counter()
     try:
-        result = execute_script(session['script'], session['script_path'])
+        result = execute_script(session['script'], session['script_path'], paths=ReportPaths.from_session(session))
         duration = time.perf_counter() - start_time
 
         if result["success"]:

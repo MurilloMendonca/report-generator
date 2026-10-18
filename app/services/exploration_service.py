@@ -10,6 +10,7 @@ from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeout
 from app.services.llm.script import generate_exploration_script
 from app.services.pipeline_service import build_files_map, metadata_json, SCRIPT_DIR
 from app.services.session_manager import begin_exploration_turn, fcntl, finish_exploration_turn, get_session
+from app.utils.report_paths import ReportPaths
 from app.utils.exploration_charts import (
     MAX_ANSWER_CHARS, collect_exploration_charts, exploration_directory,
 )
@@ -88,13 +89,15 @@ def complete_exploration(job_id: str, turn_id: str, prompt: str) -> dict:
     Returns the response on success; raises ExplorationError (with the stored
     history in its details) on failure. The stored turn is resolved either way.
     """
-    output_directory = exploration_directory(job_id, turn_id)
+    output_directory = None
     answer, charts, error = "", [], None
     try:
         with exploration_lock(job_id):
             session = get_session(job_id)
             if not session:
                 raise ExplorationError("Sessão não encontrada.", 404)
+            report_paths = ReportPaths.from_session(session).ensure()
+            output_directory = exploration_directory(job_id, turn_id, report_paths.output)
             history = [
                 message for message in session.get("explore_history", [])
                 if not (isinstance(message, dict) and message.get("turn_id") == turn_id)
@@ -106,14 +109,14 @@ def complete_exploration(job_id: str, turn_id: str, prompt: str) -> dict:
                 history=history, job_id=job_id,
                 settings=session.get("settings"), output_directory=str(output_directory),
             )
-            result = execute_script(script, os.path.join(SCRIPT_DIR, f"explore_{job_id}_{turn_id}.py"))
+            result = execute_script(script, os.path.join(report_paths.scripts, f"explore_{job_id}_{turn_id}.py"), paths=report_paths)
             if not result.get("success"):
                 logger.warning("Exploration execution failed job_id=%s turn_id=%s stderr=%s", job_id, turn_id, str(result.get("stderr") or "")[-1500:])
                 raise ExplorationError("Não foi possível executar a consulta. Revise as colunas e tente novamente.", 422)
             answer = str(result.get("stdout") or "")
             if len(answer) > MAX_ANSWER_CHARS:
                 raise ValueError("Exploration answer exceeds the text size limit")
-            charts = collect_exploration_charts(job_id, turn_id)
+            charts = collect_exploration_charts(job_id, turn_id, report_paths.output)
             if not answer.strip() and not charts:
                 raise ValueError("Exploration produced no answer or charts")
     except SandboxUnavailableError:
@@ -136,7 +139,8 @@ def complete_exploration(job_id: str, turn_id: str, prompt: str) -> dict:
     if error:
         answer, charts = str(error), []
         # Only this turn's explicitly resolved output is discarded on failure.
-        safe_remove_path(str(output_directory))
+        if output_directory is not None:
+            safe_remove_path(str(output_directory))
     assistant = {
         "role": "assistant", "content": answer, "turn_id": turn_id,
         "charts": charts, "status": "error" if error else "ok",
@@ -146,7 +150,8 @@ def complete_exploration(job_id: str, turn_id: str, prompt: str) -> dict:
         assistant["error_status"] = error.status_code
     updated = finish_exploration_turn(job_id, turn_id, assistant)
     if not updated:
-        safe_remove_path(str(output_directory))
+        if output_directory is not None:
+            safe_remove_path(str(output_directory))
         raise ExplorationError("A sessão foi removida durante a consulta.", 404)
     response = {"answer": answer, "charts": charts, "turn_id": turn_id, "history": updated["explore_history"]}
     if error:

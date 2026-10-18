@@ -53,6 +53,7 @@ app/
     cleanup_service.py       Session deletion, retention cleanup, disk usage
     web_helpers.py           Upload validation, file responses, chat refinement handling
   utils/
+    report_paths.py          Where a report's files live and what its sandbox may see
     data_analyzer.py         CSV/Excel metadata extraction
     tabular.py               Shared CSV/Excel loader (also used inside the sandbox)
     artifact_validation.py   Validation of LLM-planned artifacts against the data
@@ -76,10 +77,13 @@ static/
   js/utils.js                Drag/drop, tab, JSON helpers
 tests/                       unittest suite, Node specs, browser checks, canonical sessions
 workspace/
-  uploads/                   Uploaded data files
-  filtered/                  Preprocessed tabular outputs
-  scripts/                   Generated report/exploration scripts
-  reports/                   Generated PDFs and explorer charts
+  tenants/default/reports/{job_id}/
+    uploads/                 This report's uploaded files
+    filtered/                Its preprocessed tables
+    scripts/                 Its generated scripts
+    output/                  Its PDFs, previews, manifests and explorer charts
+  uploads/, filtered/,       Shared folders used only by sessions created before
+  scripts/, reports/           the per-report layout
   sessions/                  Session JSON files
   auth/                      Revoked session tokens
   sandbox_support/           Runtime guard and helpers loaded inside the sandbox
@@ -142,7 +146,10 @@ All settings are environment variables (`.env` is loaded automatically).
 | `PDF_REPORT_MAX_CONCURRENT_JOBS` | `2` | Report jobs (pipeline, refinement, render) that run at once; others wait. |
 | `PDF_REPORT_RECOVER_SESSIONS_ON_START` | `1` (`0` when `APP_ENV=test`) | Mark sessions interrupted by a restart as failed on startup. |
 | `PDF_REPORT_MAX_UPLOAD_BYTES` | `52428800` (50 MB) | Per-file upload limit. |
+| `PDF_REPORT_MAX_REQUEST_UPLOAD_BYTES` | `94371840` (90 MB) | Total size of all files in one upload request. Cloudflare's free plan rejects bodies over 100 MB. |
 | `PDF_REPORT_MAX_EXCEL_SHEETS` | `20` | Sheets allowed per Excel workbook. |
+| `PDF_REPORT_CLIENT_IP_HEADER` | unset (compose: `CF-Connecting-IP`) | Header holding the real client address behind a proxy. Used only for requests from a trusted proxy. |
+| `PDF_REPORT_TRUSTED_PROXIES` | unset (compose: `cloudflared` plus Docker networks) | Comma-separated hostnames, IPs or CIDR ranges whose `PDF_REPORT_CLIENT_IP_HEADER` is believed. |
 | `PDF_REPORT_LLM_TIMEOUT_SECONDS` | `45` | Timeout per LLM call. Report settings can override it. |
 | `PDF_REPORT_LLM_CALL_BUDGET` | `0` (unlimited) | Maximum LLM calls per top-level operation. Report settings can override it. |
 | `PDF_REPORT_LLM_FALLBACK_PROVIDER` / `PDF_REPORT_LLM_FALLBACK_MODEL_NAME` | unset | Provider/model to try when the primary provider fails. |
@@ -196,11 +203,27 @@ Runtime files are persisted on the host through:
 ./workspace:/app/workspace
 ```
 
-To change the host port:
+The app's port is published on `127.0.0.1` only, so the machine itself can reach it but the rest of the network can't. To change the host port:
 
 ```bash
 HOST_PORT=5555 docker compose up -d --build
 ```
+
+### Cloudflare Tunnel
+
+The app can be served through a Cloudflare Tunnel in two ways:
+
+- **`cloudflared` inside compose (recommended).** Put the tunnel token in `.env` as `CLOUDFLARE_TUNNEL_TOKEN`, and in the Cloudflare dashboard point the public hostname at `http://report-generator:8000`. Then start with the `tunnel` profile:
+
+  ```bash
+  docker compose --profile tunnel up -d --build
+  ```
+
+- **`cloudflared` on the host,** pointing at `http://localhost:8000` (or your `HOST_PORT`).
+
+Either way, Cloudflare's real client address arrives in `CF-Connecting-IP`, and compose tells the app to trust it from `cloudflared` and Docker's networks (`PDF_REPORT_TRUSTED_PROXIES`). Login rate limits are then per visitor, not per tunnel. Authenticated responses send `Cache-Control: private, no-store`; also add a Cloudflare cache rule that bypasses the cache for `/api/*` and `/session/*`.
+
+Cloudflare drops requests that take longer than about 100 seconds. Report generation, explorer answers and workspace translation all run as background jobs that the UI polls, so no request waits that long.
 
 The container runs as a non-root user (UID/GID 1000 by default, configurable with the `APP_UID` and `APP_GID` build args), with a read-only root filesystem, all Linux capabilities dropped, and `no-new-privileges`. Notes:
 
@@ -212,7 +235,7 @@ The container runs as a non-root user (UID/GID 1000 by default, configurable wit
 
 The pipeline starts from `POST /api/sessions` and runs in a FastAPI background task, through `job_runner.run_job` so at most `PDF_REPORT_MAX_CONCURRENT_JOBS` jobs run at once.
 
-1. `start_session` (`app/routers/api.py`) saves uploads into `workspace/uploads` and creates a session JSON file.
+1. `start_session` (`app/routers/api.py`) creates the report's folder under `workspace/tenants/`, saves the uploads into its `uploads/`, and creates a session JSON file that records the folder as `storage_dir`.
 2. `run_pipeline` (`pipeline_service.py`) enriches missing file artifacts through `extract_metadata`.
 3. If the goal asks to transform data first, `generate_data_filter` asks the LLM for a `preprocess_dataframes(dataframes)` function. The app executes it once and writes CSV outputs under `workspace/filtered`.
 4. `generate_artifacts` asks the LLM for report component definitions using the raw or preprocessed metadata.
@@ -234,7 +257,8 @@ If the server restarts mid-job, the job is lost; on the next startup that sessio
 
 | Module | Contents |
 |---|---|
-| `client.py` | `call_llm`, provider clients, retries, timeouts, call budgets, provider fallback, PDF calls |
+| `client.py` | `call_llm`, retries, timeouts, call budgets, provider fallback, PDF calls |
+| `providers/` | One adapter per provider (`gemini.py`, `openai_compatible.py` for DeepSeek), registered in `registry.py`. Adapters build the SDK client, send the request, and report token counts. |
 | `planning.py` | Report plan (`generate_artifacts`), document insights, layout template, data preprocessing, title |
 | `metrics.py` | `calculate_metric_value` and the shared dataframe loader line |
 | `components.py` | Generated render code for visual components |
@@ -274,11 +298,11 @@ Import from the submodules directly; the package deliberately has no re-exports.
 - `POST /api/sessions/{job_id}/chat`: routes refinement feedback to a specific component, layout, settings, or full regeneration.
 - `PUT /api/sessions/{job_id}/artifacts`: manually updates artifact definitions and optional component code overrides.
 - `PUT /api/sessions/{job_id}/template`: manually updates layout coordinates and rerenders.
-- `PUT /api/sessions/{job_id}/settings`: updates report settings plus provider/model; language changes trigger workspace translation.
+- `PUT /api/sessions/{job_id}/settings`: updates report settings plus provider/model. A language change queues workspace translation as a background job and returns `{"status": "queued", "translating": true}`; the session shows `current_step: "translating"` until it finishes.
 - `POST /api/sessions/{job_id}/regenerate`: regenerates `texts`, `graphics`, one `component`, or `all` using the current provider/model/settings.
 - `GET /api/sessions/{job_id}/pdf`: downloads or previews the generated PDF.
 - `GET /api/sessions/{job_id}/components/{component_id}/preview`: renders a single component to a small PDF.
-- `POST /api/sessions/{job_id}/explore`: runs an ad-hoc LLM-generated analysis script against the session data.
+- `POST /api/sessions/{job_id}/explore`: asks an ad-hoc question about the session data. Returns `202` with the question stored and a `pending` answer; the answer (text and up to three charts) is produced in the background and replaces the pending entry in `explore_history`. Returns `409` while another question is pending.
 - `GET /api/sessions/{job_id}/explore/{turn_id}/charts/{chart_id}`: returns an explorer chart PNG. Add `?download=true` to download it.
 - `GET /api/layout-templates`: lists available layout templates.
 - `POST /api/layout-templates`: creates a layout template.
@@ -400,7 +424,7 @@ Visual components are expected to render themselves as temporary matplotlib imag
 ## Security Notes
 
 - The app executes LLM-generated Python for preprocessing, metrics, exploration, and PDF rendering. Uploaded data reaches the model, so a crafted file could steer what code is generated; the sandbox is the boundary that contains it.
-- Generated scripts run under bubblewrap with no network and a private `/tmp`. They see the interpreter and system libraries read-only, `workspace/uploads` read-only, and `workspace/filtered`, `workspace/scripts`, and `workspace/reports` writable. Session files, other workspace folders, the source tree, `.env`, and the server's environment variables are not visible. Scripts are also limited to 20 s of CPU time, 2 GB of memory, 30 s of wall time, and `PDF_REPORT_SANDBOX_MAX_FILE_BYTES` per file.
+- Generated scripts run under bubblewrap with no network and a private `/tmp`. They see the interpreter and system libraries read-only, **their own report's** `uploads/` read-only, and its `filtered/`, `scripts/` and `output/` writable. Other reports, session files, the source tree, `.env`, and the server's environment variables are not visible. (Sessions created before the per-report layout still use the shared `workspace/uploads`, `filtered`, `scripts` and `reports` folders until they are moved.) Scripts are also limited to 20 s of CPU time, 2 GB of memory, 30 s of wall time, and `PDF_REPORT_SANDBOX_MAX_FILE_BYTES` per file.
 - A Python-level guard runs inside the sandbox as a second layer and records file access in a manifest. On its own it can be bypassed, so the app refuses to run generated code without bubblewrap unless `PDF_REPORT_ALLOW_UNSAFE_SANDBOX=1` is set.
 - Login is a single shared secret. Failed attempts are rate-limited per client address (behind a reverse proxy that address is the proxy's), and logout revokes the token server-side. Tokens are HMAC-signed with `APP_ACCESS_SECRET`; changing the secret invalidates all sessions.
 - Admin endpoints need a separate `APP_ADMIN_SECRET`.

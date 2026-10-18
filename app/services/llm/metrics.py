@@ -12,6 +12,7 @@ from app.services.llm.client import llm_operation_context
 from app.services.llm.errors import LLMBudgetError, LLMTimeoutError
 from app.services.llm.parsing import extract_json_objects, normalize_metric_value, strip_code_fence
 from app.services.llm.prompts import load_prompt
+from app.utils.report_paths import ReportPaths
 logger = logging.getLogger(__name__)
 
 
@@ -32,6 +33,7 @@ def calculate_metric_value(
     provider: str = DEFAULT_PROVIDER,
     model_name: str = DEFAULT_MODEL_NAME,
     job_id: str | None = None,
+    paths: ReportPaths | None = None,
 ) -> any:
     """
     Generates and executes a script to calculate a metric value with automatic retries.
@@ -60,7 +62,7 @@ def calculate_metric_value(
                 import tempfile
 
                 with tempfile.TemporaryDirectory(prefix="pdf_metric_") as metric_dir:
-                    result = execute_script(full_script, os.path.join(metric_dir, "metric.py"))
+                    result = execute_script(full_script, os.path.join(metric_dir, "metric.py"), paths=paths)
 
                     if result["success"]:
                         output = result["stdout"].strip()

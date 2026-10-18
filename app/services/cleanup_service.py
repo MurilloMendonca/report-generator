@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 from typing import TypedDict
 
 from app.services.session_manager import get_session, get_session_path, get_session_lock_path, is_valid_job_id
+from app.utils.report_paths import TENANTS_DIR, ReportPaths
 
 class RetentionPolicy(TypedDict):
     sessions_days: int
@@ -99,6 +100,12 @@ def get_session_generated_paths(job_id: str, session: dict) -> set[str]:
         })
 
     paths.update(_scan_workspace_paths(job_id))
+    try:
+        report_paths = ReportPaths.from_session({**session, "job_id": job_id})
+    except ValueError:
+        report_paths = None
+    if report_paths is not None and not report_paths.is_legacy:
+        paths.add(str(report_paths.root))
     return {p for p in paths if p and isinstance(p, str)}
 
 def delete_entire_session(job_id: str) -> int:
@@ -162,7 +169,17 @@ def cleanup_expired_artifacts(policy: RetentionPolicy = None) -> dict:
                 except Exception:
                     stats["errors"] += 1
 
-    # 2. Clean up orphan files in other directories based on age
+    # 2. Report folders whose session is gone (per-report layout)
+    if TENANTS_DIR.is_dir():
+        for report_dir in TENANTS_DIR.glob("*/reports/*"):
+            path = str(report_dir)
+            if path in protected_paths or not report_dir.is_dir():
+                continue
+            mtime = datetime.fromtimestamp(report_dir.stat().st_mtime, timezone.utc)
+            if now - mtime > timedelta(days=policy["sessions_days"]) and safe_remove_path(path):
+                stats["files_removed"] += 1
+
+    # 3. Clean up orphan files in the legacy shared directories based on age
     for category, directory in WORKSPACE_DIRS.items():
         if category == "sessions":
             continue
@@ -188,7 +205,7 @@ def get_workspace_usage() -> dict:
     usage = {}
     total_bytes = 0
     
-    for category, directory in WORKSPACE_DIRS.items():
+    for category, directory in {**WORKSPACE_DIRS, "tenants": str(TENANTS_DIR)}.items():
         dir_size = 0
         if os.path.exists(directory):
             for root, _, files in os.walk(directory):

@@ -125,6 +125,7 @@ class ReportSession(BaseModel):
     script: str = ""
     script_path: str | None = None
     pdf_path: str | None = None
+    storage_dir: str | None = None  # per-report folder; absent on legacy sessions
     provider: str = DEFAULT_PROVIDER
     model_name: str = ""
     data_filter: DataFilterState = Field(default_factory=DataFilterState)

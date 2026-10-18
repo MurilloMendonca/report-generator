@@ -222,6 +222,29 @@ class ExplorerChartTests(unittest.TestCase):
             self.assertEqual(response.status_code, 422, response.text)
             self.assertEqual(response.json()["detail"]["charts"], [])
 
+    def test_charts_live_in_the_reports_own_folder(self):
+        from app.utils.report_paths import ReportPaths
+        paths = ReportPaths.for_new_report(f"test-explorer-chart-{uuid.uuid4().hex}").ensure()
+        self.job_ids.append(paths.job_id)
+        upload = paths.uploads / "sales.csv"
+        upload.write_text("region,revenue\nNorth,10\nSouth,20\nNorth,15\n")
+        session = get_session(self.job_id)
+        create_session(paths.job_id, {
+            **session, "job_id": paths.job_id, "explore_history": [],
+            "files": [{**session["files"][0], "path": str(upload)}],
+            **paths.session_fields(),
+        })
+        self.job_id = paths.job_id
+        response = self.ask(BAR_SCRIPT)
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        stored = chart_path(paths.job_id, data["turn_id"], "chart_1", paths.output)
+        self.assertTrue(stored.exists())
+        self.assertFalse(exploration_directory(paths.job_id, data["turn_id"]).exists(), "nothing in the shared folder")
+        self.assertEqual(self.client.get(data["charts"][0]["url"], headers=self.headers).status_code, 200)
+        delete_entire_session(paths.job_id)
+        self.assertFalse(paths.root.exists())
+
     def test_cross_session_unknown_and_symlink_assets_are_rejected(self):
         data = self.ask(BAR_SCRIPT).json()
         url = data["charts"][0]["url"]

@@ -98,6 +98,18 @@ class UploadSecurityTests(unittest.TestCase):
         self.assertTrue(security.is_valid_session_token(token))
         self.assertFalse(security.is_valid_session_token(security.APP_ACCESS_SECRET))
 
+    def test_total_upload_size_per_request_is_limited(self):
+        old_limit = web_helpers.MAX_REQUEST_UPLOAD_BYTES
+        web_helpers.MAX_REQUEST_UPLOAD_BYTES = 12
+        try:
+            before = set(os.listdir(web_helpers.UPLOAD_DIR))
+            with self.assertRaises(HTTPException) as error:
+                web_helpers.save_uploaded_files([self.upload("a.csv", b"a,b\n1,2\n"), self.upload("b.csv", b"a,b\n3,4\n")])
+            self.assertEqual(error.exception.status_code, 413)
+            self.assertEqual(set(os.listdir(web_helpers.UPLOAD_DIR)), before, "partial uploads are removed")
+        finally:
+            web_helpers.MAX_REQUEST_UPLOAD_BYTES = old_limit
+
     def test_login_sets_http_only_session_cookie(self):
         import asyncio
 

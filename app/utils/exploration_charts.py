@@ -17,19 +17,21 @@ TURN_ID_PATTERN = r"[0-9a-f]{32}"
 CHART_ID_PATTERN = r"chart_[1-3]"
 
 
-def exploration_directory(job_id: str, turn_id: str) -> Path:
+def exploration_directory(job_id: str, turn_id: str, base_dir: Path | None = None) -> Path:
+    """A turn's chart folder inside the report's output folder (legacy: workspace/reports)."""
     if not re.fullmatch(SESSION_ID_PATTERN, job_id) or not re.fullmatch(TURN_ID_PATTERN, turn_id):
         raise ValueError("Invalid exploration identifier")
-    directory = REPORTS_DIR.absolute() / f"explore_{job_id}_{turn_id}"
-    if directory.is_symlink() or directory.resolve().parent != REPORTS_DIR.resolve():
+    base = Path(base_dir or REPORTS_DIR)
+    directory = base.absolute() / f"explore_{job_id}_{turn_id}"
+    if directory.is_symlink() or directory.resolve().parent != base.resolve():
         raise ValueError("Invalid exploration directory")
     return directory
 
 
-def chart_path(job_id: str, turn_id: str, chart_id: str) -> Path:
+def chart_path(job_id: str, turn_id: str, chart_id: str, base_dir: Path | None = None) -> Path:
     if not re.fullmatch(CHART_ID_PATTERN, chart_id):
         raise ValueError("Invalid chart identifier")
-    directory = exploration_directory(job_id, turn_id)
+    directory = exploration_directory(job_id, turn_id, base_dir)
     path = directory / f"{chart_id}.png"
     if path.is_symlink() or path.resolve().parent != directory.absolute():
         raise ValueError("Invalid chart path")
@@ -50,8 +52,8 @@ def validate_chart_image(path: Path) -> tuple[int, int]:
     return width, height
 
 
-def collect_exploration_charts(job_id: str, turn_id: str) -> list[dict]:
-    directory = exploration_directory(job_id, turn_id)
+def collect_exploration_charts(job_id: str, turn_id: str, base_dir: Path | None = None) -> list[dict]:
+    directory = exploration_directory(job_id, turn_id, base_dir)
     manifest = directory / "charts.json"
     if not manifest.exists():
         if any(directory.iterdir()):
@@ -73,7 +75,7 @@ def collect_exploration_charts(job_id: str, turn_id: str) -> list[dict]:
         if chart_id in seen or not title.strip() or len(title) > 200 or len(caption) > 2000:
             raise ValueError("Invalid chart description or duplicate chart ID")
         seen.add(chart_id)
-        width, height = validate_chart_image(chart_path(job_id, turn_id, chart_id))
+        width, height = validate_chart_image(chart_path(job_id, turn_id, chart_id, base_dir))
         charts.append({
             "id": chart_id, "title": title, "caption": caption, "width": width, "height": height,
             "url": f"/api/sessions/{job_id}/explore/{turn_id}/charts/{chart_id}",

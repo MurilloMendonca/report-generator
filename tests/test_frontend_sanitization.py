@@ -1,8 +1,10 @@
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
 
 
+@unittest.skipUnless(shutil.which("node"), "Node.js is not installed (e.g. inside the production image)")
 class FrontendSanitizationTests(unittest.TestCase):
     def test_layout_history_and_page_bounds(self):
         script = Path(__file__).with_name("layout_state.spec.js")
