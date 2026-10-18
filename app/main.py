@@ -11,23 +11,28 @@ if __package__ in (None, ""):
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from app.db import get_engine
 from app.routers.api import router as api_router
 from app.routers.auth import router as auth_router
+from app.routers.credentials import router as credentials_router
 from app.security import (
     PUBLIC_API_PATHS, SESSION_COOKIE, add_cache_headers, add_security_headers, clear_session_cookie,
     csrf_ok, ensure_csrf_cookie, signup_open,
 )
 from app.services import auth_service, email_service, turnstile
+from app.services.crypto import validate_configuration
+from app.services.redaction import install_log_redaction, redact
 from app.services.executor_service import sandbox_status
 from app.services.pipeline_service import FILTERED_DIR, REPORT_DIR, SCRIPT_DIR
 from app.services.session_manager import recover_interrupted_sessions
 from app.services.web_helpers import UPLOAD_DIR
 
 load_dotenv()
+install_log_redaction()
 logger = logging.getLogger(__name__)
 
 for directory in [UPLOAD_DIR, FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
@@ -36,6 +41,7 @@ for directory in [UPLOAD_DIR, FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    validate_configuration()
     get_engine()  # connect and migrate now, so a database problem stops startup
     logger.info("Auth housekeeping: %s", auth_service.purge_expired())
     if email_service.backend() == "console":
@@ -57,13 +63,23 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Report Generator v0.3.6", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(auth_router)
+app.include_router(credentials_router)
 app.include_router(api_router)
 
 
 # Pages that need a signed-in user (signed-out visitors go to /login), and
 # pages only for signed-out visitors (signed-in users go to the studio).
-SIGNED_IN_PAGES = {"/", "/templates", "/account"}
+SIGNED_IN_PAGES = {"/", "/templates", "/account", "/keys"}
 SIGNED_OUT_PAGES = {"/login", "/signup", "/forgot-password"}
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(_request: Request, exc: RequestValidationError):
+    # FastAPI normally echoes rejected input, including secrets in malformed JSON.
+    return JSONResponse(status_code=422, content={"detail": [
+        {"loc": redact(error["loc"]), "type": error["type"], "msg": "Valor inválido."}
+        for error in exc.errors()
+    ]})
 
 
 def _reject(status_code: int, detail) -> JSONResponse:

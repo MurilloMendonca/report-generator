@@ -133,11 +133,16 @@ class CallLlmIntegrationTests(unittest.TestCase):
                 call_llm("deepseek", "deepseek-flash", "sys", "user", retries=1)
 
     def test_pdf_provider_falls_back_to_a_pdf_capable_model(self):
-        self.assertEqual(_document_pdf_provider("gemini", "gemini-3.8-flash"), ("gemini", "gemini-3.8-flash"))
-        self.assertEqual(_document_pdf_provider("deepseek", "deepseek-flash")[0], "gemini")
-        provider, model = _document_pdf_provider("gemini", "gemma-4-31b-it")
-        self.assertEqual(provider, "gemini")
-        self.assertFalse(model.startswith("gemma-"))
+        with patch("app.services.llm.client.resolve_api_key", return_value="fake-owned-key"), \
+             patch("app.services.llm.client.operation_user_id", return_value="fake-owner"), \
+             patch("app.services.llm.client.credential_service.model_catalog", return_value={
+                 "providers": {"deepseek": [], "gemini": [{"id": "gemini-3.8-flash", "label": "Gemini"}]},
+             }):
+            self.assertEqual(_document_pdf_provider("gemini", "gemini-3.8-flash"), ("gemini", "gemini-3.8-flash"))
+            self.assertEqual(_document_pdf_provider("deepseek", "deepseek-flash")[0], "gemini")
+            provider, model = _document_pdf_provider("gemini", "gemma-4-31b-it")
+            self.assertEqual(provider, "gemini")
+            self.assertFalse(model.startswith("gemma-"))
 
 
 if __name__ == "__main__":

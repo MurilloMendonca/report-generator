@@ -38,7 +38,7 @@ class ProviderAdapter:
     # Environment variable holding the operator key (development only after BYOK).
     env_key: str = ""
 
-    def build_client(self, api_key: str):
+    def build_client(self, api_key: str, timeout_seconds: int = 45):
         raise NotImplementedError
 
     def generate(self, client, request: GenerationRequest) -> GenerationResult:
@@ -50,6 +50,23 @@ class ProviderAdapter:
 
     def supports_pdf(self, model: str) -> bool:
         return False
+
+    def classify_error(self, exc) -> str:
+        status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+        if status in {401, 403}:
+            return "auth"
+        if status == 429:
+            return "rate_limit"
+        if status in {408, 500, 502, 503, 504}:
+            return "retryable"
+        return "fatal"
+
+    def validate_key(self, api_key: str) -> list[str]:
+        client = self.build_client(api_key, timeout_seconds=10)
+        try:
+            return self.list_models(client)
+        finally:
+            client.close()
 
 
 def token_count(value) -> int | None:

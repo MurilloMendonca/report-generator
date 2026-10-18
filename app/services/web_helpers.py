@@ -10,7 +10,8 @@ from fastapi.responses import FileResponse
 
 from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT
 from app.services.llm.client import llm_operation_context, resolve_llm_config
-from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.errors import MissingCredentialError, LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.redaction import redact
 from app.services.llm.metrics import dataframe_load_line
 from app.services.llm.refinement import classify_refinement, refine_session_modular, translate_workspace
 from app.services.pipeline_service import (
@@ -23,6 +24,7 @@ from app.services.pipeline_service import (
 from app.security import current_user
 from app.services.session_manager import (
     get_owned_session,
+    get_report_owner,
     get_session,
     preserve_report_on_failure,
     set_session_stage,
@@ -47,12 +49,13 @@ def require_session(job_id: str, request) -> dict:
     return session
 
 
-def validate_provider_model(provider: str | None, model_name: str | None) -> tuple[str, str]:
+def validate_provider_model(provider: str | None, model_name: str | None, user_id=None) -> tuple[str, str]:
     try:
-        resolved_provider, resolved_model = resolve_llm_config(provider, model_name)
+        with llm_operation_context(user_id=str(user_id) if user_id else None):
+            resolved_provider, resolved_model = resolve_llm_config(provider, model_name)
         return resolved_provider, model_name or resolved_model
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=redact(str(exc))) from exc
 
 
 def refinement_message(role: str, content: str, kind: str = "message") -> dict:
@@ -117,7 +120,7 @@ def process_chat_refinement(job_id: str, prompt: str):
         if not session:
             return
         set_session_stage(job_id, "refinement_routing", 15, error={})
-        with llm_operation_context(job_id=job_id, operation="refinement", settings=session.get("settings")):
+        with llm_operation_context(job_id=job_id, user_id=get_report_owner(job_id), operation="refinement", settings=session.get("settings")):
             decision = classify_refinement(session, prompt, job_id=job_id)
             add_log(job_id, f"Refinamento classificado pelo modelo: {decision['intent']} ({decision['scope']}).")
             if decision["intent"] == "clarify":
@@ -166,7 +169,7 @@ def process_chat_refinement(job_id: str, prompt: str):
                 run_script_generation(job_id)
             append_refinement_result(job_id, "Refinamento concluído.")
 
-    except (LLMBudgetError, LLMTimeoutError, LLMContractError) as exc:
+    except (MissingCredentialError, LLMBudgetError, LLMTimeoutError, LLMContractError) as exc:
         error = exc.as_error_dict()
         error["stage"] = error.get("stage") or "refinement_routing"
         set_session_stage(job_id, "failed", 100, error)

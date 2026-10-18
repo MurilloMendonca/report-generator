@@ -7,12 +7,12 @@ class GeminiAdapter(ProviderAdapter):
     label = "Google Gemini"
     env_key = "GEMINI_API_KEY"
 
-    def build_client(self, api_key: str):
+    def build_client(self, api_key: str, timeout_seconds: int = 45):
         try:
             from google import genai
         except ImportError as exc:
             raise ImportError("google-genai is required for Gemini. Install dependencies with `pip install -r requirements.txt`.") from exc
-        return genai.Client(api_key=api_key)
+        return genai.Client(api_key=api_key, http_options={"timeout": timeout_seconds * 1000, "retry_options": {"attempts": 1}})
 
     def generate(self, client, request: GenerationRequest) -> GenerationResult:
         contents = request.user
@@ -41,7 +41,9 @@ class GeminiAdapter(ProviderAdapter):
         )
 
     def list_models(self, client) -> list[str]:
-        return sorted(str(model.name).removeprefix("models/") for model in client.models.list())
+        return sorted(str(model.name).removeprefix("models/") for model in client.models.list()
+                      if "generateContent" in (getattr(model, "supported_actions", None)
+                                               or getattr(model, "supported_generation_methods", [])))
 
     def supports_pdf(self, model: str) -> bool:
         return not str(model).startswith("gemma-")

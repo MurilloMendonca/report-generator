@@ -13,8 +13,8 @@ class OpenAICompatibleAdapter(ProviderAdapter):
         self.base_url = base_url
         self.env_key = env_key
 
-    def build_client(self, api_key: str):
-        return OpenAI(api_key=api_key, base_url=self.base_url, max_retries=0)
+    def build_client(self, api_key: str, timeout_seconds: int = 45):
+        return OpenAI(api_key=api_key, base_url=self.base_url, max_retries=0, timeout=timeout_seconds)
 
     def generate(self, client, request: GenerationRequest) -> GenerationResult:
         if request.pdf_bytes is not None:

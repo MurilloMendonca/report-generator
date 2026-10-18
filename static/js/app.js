@@ -53,7 +53,18 @@ const App = {
             this.defaultProvider = catalog.default_provider || this.defaultProvider;
             this.defaultModelName = catalog.default_model || this.defaultModelName;
             const provider = document.getElementById('provider');
+            for (const id of ['provider', 's-provider']) {
+                const select = document.getElementById(id);
+                if (!select) continue;
+                for (const option of select.options) {
+                    const status = catalog.credential_status?.[option.value];
+                    option.disabled = status ? !status.enabled : false;
+                }
+            }
             if (provider && catalog.default_provider) provider.value = catalog.default_provider;
+            if (catalog.credential_status && !Object.values(catalog.credential_status).some(status => status.enabled)) {
+                this.showNotice('Adicione sua chave de API para gerar relatórios.', { code: 'missing_provider_key' });
+            }
         }
     },
 
@@ -162,6 +173,8 @@ const App = {
         const models = this.models[providerEl.value] || [];
         UI.clearElement(select);
         models.forEach(m => select.appendChild(UI.buildOption(m.id, m.label)));
+        const submit = document.querySelector('#upload-form button[type="submit"]');
+        if (submit) submit.disabled = !models.length;
         const defaultModel = this.modelDefaults[providerEl.value] || this.defaultModelName;
         if (models.some(m => m.id === defaultModel)) {
             select.value = defaultModel;
@@ -426,11 +439,17 @@ const App = {
         }
     },
 
-    showNotice(message) {
+    showNotice(message, error = null) {
         const notice = document.getElementById('workspace-notice');
         if (!notice) return;
         notice.textContent = message || '';
         notice.hidden = !message;
+        if (['missing_provider_key', 'invalid_provider_key'].includes(error?.code)) {
+            const link = document.createElement('a');
+            link.href = '/keys';
+            link.textContent = 'Abrir Chaves';
+            notice.append(' ', link);
+        }
     },
 
     showWorkspace() {
@@ -492,7 +511,7 @@ const App = {
             this.settingsSignature = signature;
             this.updateModelDefaultNotice('s-provider', 's-model-name', 'settings-model-default-notice');
         }
-        this.showNotice(session.error && session.error.message ? session.error.message : '');
+        this.showNotice(session.error && session.error.message ? session.error.message : '', session.error);
 
         if (session.pdf_version > this.lastPdfVersion && !this.pdfLoading) {
             this.refreshPdf(session);

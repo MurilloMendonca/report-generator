@@ -6,10 +6,11 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from app.services.executor_service import SandboxUnavailableError, execute_script
-from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.errors import MissingCredentialError, LLMBudgetError, LLMContractError, LLMTimeoutError
 from app.services.llm.script import generate_exploration_script
+from app.services.llm.client import llm_operation_context
 from app.services.pipeline_service import build_files_map, metadata_json
-from app.services.session_manager import begin_exploration_turn, finish_exploration_turn, get_session
+from app.services.session_manager import begin_exploration_turn, finish_exploration_turn, get_report_owner, get_session
 from app.utils.report_paths import ReportPaths
 from app.utils.exploration_charts import (
     MAX_ANSWER_CHARS, collect_exploration_charts, exploration_directory,
@@ -92,12 +93,13 @@ def complete_exploration(job_id: str, turn_id: str, prompt: str) -> dict:
                 if not (isinstance(message, dict) and message.get("turn_id") == turn_id)
             ]
             output_directory.mkdir(parents=True, exist_ok=False)
-            script = generate_exploration_script(
-                metadata_json(session), prompt, build_files_map(session),
-                session.get("provider"), session.get("model_name"),
-                history=history, job_id=job_id,
-                settings=session.get("settings"), output_directory=str(output_directory),
-            )
+            with llm_operation_context(job_id=job_id, user_id=get_report_owner(job_id), operation="exploration", settings=session.get("settings")):
+                script = generate_exploration_script(
+                    metadata_json(session), prompt, build_files_map(session),
+                    session.get("provider"), session.get("model_name"),
+                    history=history, job_id=job_id,
+                    settings=session.get("settings"), output_directory=str(output_directory),
+                )
             result = execute_script(script, os.path.join(report_paths.scripts, f"explore_{job_id}_{turn_id}.py"), paths=report_paths)
             if not result.get("success"):
                 logger.warning("Exploration execution failed job_id=%s turn_id=%s stderr=%s", job_id, turn_id, str(result.get("stderr") or "")[-1500:])
@@ -111,6 +113,8 @@ def complete_exploration(job_id: str, turn_id: str, prompt: str) -> dict:
     except SandboxUnavailableError:
         logger.error("Exploration blocked: sandbox unavailable job_id=%s", job_id)
         error = ExplorationError("O ambiente seguro de execução não está disponível no servidor.", 503)
+    except MissingCredentialError as exc:
+        error = ExplorationError(str(exc), 400, exc.as_error_dict())
     except LLMBudgetError:
         error = ExplorationError("O limite de chamadas do modelo foi atingido. Revise as configurações e tente novamente.", 429)
     except LLMTimeoutError:
@@ -137,6 +141,8 @@ def complete_exploration(job_id: str, turn_id: str, prompt: str) -> dict:
     }
     if error:
         assistant["error_status"] = error.status_code
+        if error.details.get("code"):
+            assistant["error"] = error.details.copy()
     updated = finish_exploration_turn(job_id, turn_id, assistant)
     if not updated:
         if output_directory is not None:

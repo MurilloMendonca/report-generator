@@ -140,15 +140,17 @@ On Ubuntu 24.04 and later, unprivileged user namespaces are restricted by AppArm
 sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 ```
 
-Create a `.env` file with at least one provider key:
+Create a `.env` file with a database URL and an encryption keyring. Generate the master key with `openssl rand -base64 32`, then put that value after `v1:`:
 
 ```bash
-GEMINI_API_KEY=your_google_gemini_key
-DEEPSEEK_API_KEY=your_deepseek_key
 DATABASE_URL=postgresql+psycopg://repgen:repgen@127.0.0.1:5433/repgen
+APP_ENCRYPTION_KEYS=v1:<base64-encoded-32-byte-master-key>
+APP_ENCRYPTION_ACTIVE_KEY=v1
 ```
 
-The default provider is `deepseek`, so `DEEPSEEK_API_KEY` is required for the default path. `GEMINI_API_KEY` is required when selecting Gemini.
+After signing in, open **Conta → Chaves de API** (`/keys`) and save your Gemini or DeepSeek key. The app validates it using the provider's model listing, encrypts it, and shows only its last four characters. Model choices and fallback preferences belong to your account. Imported demo reports need a key on the demo account before they can use an LLM again.
+
+For local development and canonical sessions only, `PDF_REPORT_DEV_SERVER_KEYS=1` permits `GEMINI_API_KEY` / `DEEPSEEK_API_KEY` as a fallback when the owner has no stored key. It still requires a report owner or user context. Production refuses to start with this flag.
 
 Create your account (sign-up is closed by default) and note the printed password:
 
@@ -175,7 +177,12 @@ All settings are environment variables (`.env` is loaded automatically).
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | unset, `587` | Outgoing email. Port 465 uses implicit TLS; other ports use STARTTLS (`SMTP_STARTTLS=0` turns it off). Without `SMTP_HOST`, emails go to the log. |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | unset | Cloudflare Turnstile on sign-up, forgot-password and login after a failure. Without both keys the check is skipped. |
 | `PDF_REPORT_SESSION_IDLE_DAYS` / `PDF_REPORT_SESSION_MAX_DAYS` | `7` / `30` | A sign-in ends after this many days unused, or this many days after it started. |
-| `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` | unset | Provider keys. |
+| `APP_ENCRYPTION_KEYS` | unset | Versioned AES-256 master keys, e.g. `v2:<base64>,v1:<base64>`. Each decoded key must be 32 bytes. Required in production, or use the secret file below. |
+| `APP_ENCRYPTION_KEYS_FILE` | unset (compose: `/run/secrets/provider_encryption_keys`) | Read the same keyring from a mounted Docker secret instead of the environment. Takes precedence over `APP_ENCRYPTION_KEYS`. |
+| `APP_ENCRYPTION_ACTIVE_KEY` | `v1` | Master-key version used to encrypt new credentials and re-wrap existing ones. |
+| `APP_ENCRYPTION_KEYS_PATH` | `./secrets/provider-encryption-keys` | Host keyring file mounted by production compose. |
+| `PDF_REPORT_DEV_SERVER_KEYS` | `0` | Explicitly permit env provider keys in development/test. Forbidden in production. |
+| `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` | unset | Used only with the dev-server-keys flag; remove them from production `.env`. |
 | `PDF_REPORT_COOKIE_SECURE` | `1` in production, `0` in development | Send the session cookie over HTTPS only. Set `0` only for plain HTTP on a non-localhost address. |
 | `PDF_REPORT_LOGIN_MAX_FAILURES` / `PDF_REPORT_LOGIN_WINDOW_SECONDS` | `10` / `300` | Failed logins allowed per client address before login returns 429. Failures on one account also add a growing delay (2 s, 4 s, ... up to 15 min) after the fourth, instead of locking it. |
 | `PDF_REPORT_ALLOW_UNSAFE_SANDBOX` | unset | Set `1` to run generated code under the weaker Python-level guard when bubblewrap is unavailable. Trusted environments only. |
@@ -192,8 +199,8 @@ All settings are environment variables (`.env` is loaded automatically).
 | `PDF_REPORT_TRUSTED_PROXIES` | unset (compose: Docker's gateway networks) | Comma-separated hostnames, IPs or CIDR ranges whose `PDF_REPORT_CLIENT_IP_HEADER` is believed. |
 | `PDF_REPORT_LLM_TIMEOUT_SECONDS` | `45` | Timeout per LLM call. Report settings can override it. |
 | `PDF_REPORT_LLM_CALL_BUDGET` | `0` (unlimited) | Maximum LLM calls per top-level operation. Report settings can override it. |
-| `PDF_REPORT_LLM_FALLBACK_PROVIDER` / `PDF_REPORT_LLM_FALLBACK_MODEL_NAME` | unset | Provider/model to try when the primary provider fails. |
-| `PDF_REPORT_DOCUMENT_LLM_PROVIDER` / `PDF_REPORT_DOCUMENT_LLM_MODEL_NAME` | `gemini` / provider default | Model that reads PDF context files when the selected model isn't a PDF-capable Gemini model. |
+
+Fallback provider/model settings are now account preferences on `/keys`; the old `PDF_REPORT_LLM_FALLBACK_*` variables are ignored. Scanned PDFs use the owner's selected PDF-capable model or another valid PDF-capable key on that account. If none exists, the app skips extraction for that file and records a visible note. PDFs with extracted text work with either provider.
 
 ## Run
 
@@ -223,6 +230,15 @@ Create `.env` as shown above, without `DATABASE_URL` and with a database passwor
 POSTGRES_PASSWORD=$(openssl rand -hex 24)   # put the value in .env
 ```
 
+Create the Docker secret before starting the app. Its contents are the versioned master keyring; the app container's user must be able to read it. Keep its backup in a password manager, separately from database and workspace backups. Remove `GEMINI_API_KEY` and `DEEPSEEK_API_KEY` from the production `.env`.
+
+```bash
+mkdir -p secrets
+(umask 077; printf 'v1:%s\n' "$(openssl rand -base64 32)" > secrets/provider-encryption-keys)
+```
+
+If `APP_UID` differs from the file owner's UID, set the file ownership to that UID. `secrets/` is excluded from Git and Docker's build context. Set `APP_ENCRYPTION_KEYS_PATH` to use a file elsewhere.
+
 Then build and run:
 
 ```bash
@@ -230,6 +246,8 @@ docker compose up -d --build
 ```
 
 Compose starts two services: `postgres` (data in the `postgres-data` named volume, no published port) and the app, which waits for Postgres to be healthy and applies migrations on startup.
+
+To rotate the master key, add `v2:<new-base64-key>` to the keyring while retaining `v1`, set `APP_ENCRYPTION_ACTIVE_KEY=v2`, and restart the app. Run `docker compose exec report-generator python -m app.cli rewrap-keys`. It re-wraps data keys in one transaction without changing API-key ciphertexts. After it succeeds, remove `v1` and restart. Losing every copy of a required master key makes those stored credentials unreadable; users must enter their provider keys again.
 
 The app will be available at:
 
@@ -271,7 +289,7 @@ Each report keeps its ID. Its files are copied to `workspace/tenants/{account id
 
 ### Accounts
 
-Sign-up is closed until you open it (`PDF_REPORT_SIGNUP_MODE=open`). Keep it closed until users bring their own provider keys (plan Phase 4); until then every account's reports use the server's keys. Reports and templates are already private to their owner.
+Sign-up is closed until you open it (`PDF_REPORT_SIGNUP_MODE=open`). Reports and templates are private to their owner, and each account uses its own provider keys. Configure SMTP and Turnstile before opening registration.
 
 ```bash
 docker compose exec report-generator python -m app.cli create-admin --email you@example.com
@@ -380,7 +398,9 @@ Reports:
 - `GET /`: serves the static workspace UI.
 - `GET /session/{job_id}`: serves the workspace already pointed at a session.
 - `GET /templates`: serves the layout-template editor.
-- `GET /api/models`: lists available providers and models.
+- `GET /api/models`: lists the caller's credential status and available models; providers without valid keys are disabled.
+- `GET /api/credentials`, `PUT /api/credentials/{provider}`, `POST /api/credentials/{provider}/test`, `DELETE /api/credentials/{provider}`: list masked credential metadata, validate and save, re-test, or delete the caller's key. Adding/testing requires a verified email.
+- `GET /api/model-preferences`, `PUT /api/model-preferences`: account defaults and fallback, restricted to the caller's keys.
 - `GET /api/usage`: your storage use, reports in the last 24 hours, and the limits.
 - `GET /api/component-library`: lists visual presets, themes, and chart styles.
 - `GET /api/component-library/previews`: preview images for presets, given a `theme` and `style`.
@@ -583,10 +603,10 @@ venv/bin/python tests/canonical/run_canonical_sessions.py
 
 Canonical PDFs are copied to `tests/canonical/generated_pdfs/` for manual review.
 
-`list_models.py` lists Gemini and DeepSeek models when `GEMINI_API_KEY` and `DEEPSEEK_API_KEY` are configured:
+`list_models.py` lists models using an explicit provider and a hidden key prompt (or `--api-key`):
 
 ```bash
-venv/bin/python list_models.py
+venv/bin/python list_models.py --provider deepseek
 ```
 
 CI (`.github/workflows/ci.yml`) installs from the lock file, installs bubblewrap, and runs the compile check, the unit tests with `PDF_REPORT_REQUIRE_BWRAP=1`, and the Node specs.

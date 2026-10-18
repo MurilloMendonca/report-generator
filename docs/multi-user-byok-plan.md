@@ -1,6 +1,6 @@
 # Plan: User Accounts and Bring-Your-Own-Key
 
-Status: Phases 0–3 done · Date: 2026-10-18
+Status: Phases 0–4 done · Date: 2026-10-18
 
 This plan moves the app from a single shared access secret with server-owned provider keys to:
 
@@ -580,6 +580,14 @@ Goal: get the risky refactors in while there's still one user.
 **Done when:** two test users can't see, change, download or run anything of each other's, and CI enforces it for new routes.
 
 ### Phase 4 — Bring your own key (L)
+
+**Status (2026-10-18): done.** Notes:
+- Gemini and DeepSeek keys are managed on `/keys`. New provider adapters remain in Phase 5.
+- Production compose mounts the versioned keyring as a Docker secret (`APP_ENCRYPTION_KEYS_FILE`); local development can use `APP_ENCRYPTION_KEYS`. Production startup requires encryption configuration and rejects dev server keys.
+- Credential resolution uses the authoritative report owner, caches decryption within the operation, and rechecks deletion, invalidation and replacement on each call. A 401/403 invalidates only the credential version that failed, without retries or fallback.
+- `/api/models` returns each caller's models and credential status. `/api/model-preferences` stores defaults and fallback on the account; server and report fallback settings no longer choose a key.
+- Scanned PDFs without an owned PDF-capable key are skipped with a visible note. Text PDFs keep working with either provider.
+- Token-event storage and usage dashboards remain in Phase 6; the existing per-report token summaries continue to capture adapter token counts.
 
 1. `app/services/crypto.py` (6.1) and the `provider_credentials` table.
 2. Credential routes in `app/routers/credentials.py` and the keys page (6.2, Section 8).

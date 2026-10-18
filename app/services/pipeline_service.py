@@ -12,7 +12,7 @@ from app.utils.report_paths import ReportPaths
 from app.services.executor_service import execute_script
 from app.services.llm.client import llm_operation_context
 from app.services.llm.components import generate_component_code, slot_by_artifact_id
-from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.errors import MissingCredentialError, PDFCredentialUnavailableError, LLMBudgetError, LLMContractError, LLMTimeoutError
 from app.services.llm.metrics import calculate_metric_value, dataframe_load_line
 from app.services.llm.planning import (
     generate_artifacts,
@@ -509,7 +509,7 @@ def run_pipeline(job_id: str):
     run_info = reserve_session_run(job_id, "pipeline")
     with serialized_pipeline(job_id, "pipeline"):
         session = get_session(job_id) or {}
-        with llm_operation_context(job_id=job_id, operation="pipeline", settings=session.get("settings")):
+        with llm_operation_context(job_id=job_id, user_id=get_report_owner(job_id), operation="pipeline", settings=session.get("settings")):
             _run_pipeline(job_id, run_info["run_id"])
 
 
@@ -584,7 +584,10 @@ def _run_pipeline(job_id: str, run_id: int):
                                 settings=session.get("settings"),
                                 job_id=job_id,
                             )
-                    except (LLMBudgetError, LLMTimeoutError):
+                    except PDFCredentialUnavailableError as exc:
+                        insights = {"summary": "", "key_points": [], "metrics": [], "warnings": [str(exc)]}
+                        add_log(job_id, str(exc))
+                    except (MissingCredentialError, LLMBudgetError, LLMTimeoutError):
                         raise
                     except Exception as exc:
                         logger.exception("Document extraction failed job_id=%s file=%s", job_id, source_name)
@@ -827,7 +830,7 @@ def _run_pipeline(job_id: str, run_id: int):
         if _ensure_current_run(job_id, run_id, "script"):
             run_script_generation(job_id, run_id=run_id)
 
-    except (LLMBudgetError, LLMTimeoutError) as e:
+    except (MissingCredentialError, LLMBudgetError, LLMTimeoutError) as e:
         logger.exception("LLM limit error in pipeline job_id=%s stage=%s", job_id, getattr(e, "operation", "pipeline"))
         error = e.as_error_dict()
         error["stage"] = error.get("stage") or (get_session(job_id) or {}).get("current_step", "pipeline")
@@ -855,7 +858,7 @@ def run_script_generation(job_id: str, run_id: int | None = None):
         run_id = reserve_session_run(job_id, "script")["run_id"]
     with serialized_pipeline(job_id, "renderizacao"):
         session = get_session(job_id) or {}
-        with llm_operation_context(job_id=job_id, operation="script", settings=session.get("settings")):
+        with llm_operation_context(job_id=job_id, user_id=get_report_owner(job_id), operation="script", settings=session.get("settings")):
             try:
                 _run_script_generation(job_id, run_id)
             except Exception as exc:

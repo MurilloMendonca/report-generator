@@ -11,10 +11,12 @@ services:
       - .env
     environment:
       APP_ENV: ${APP_ENV:-production}
+      APP_ENCRYPTION_KEYS_FILE: /run/secrets/provider_encryption_keys
+      APP_ENCRYPTION_ACTIVE_KEY: ${APP_ENCRYPTION_ACTIVE_KEY:-v1}
       # Links in emails point here.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://repgen.gengardev.com.br}
-      # `closed`: accounts only via `python -m app.cli create-user`. Switch to
-      # `open` once users bring their own provider keys (Phase 4).
+      # `closed`: accounts only via `python -m app.cli create-user`. Set `open`
+      # after configuring SMTP and Turnstile for public registration.
       PDF_REPORT_SIGNUP_MODE: ${PDF_REPORT_SIGNUP_MODE:-closed}
       # Set to 0 only when serving over plain HTTP on a non-localhost address.
       PDF_REPORT_COOKIE_SECURE: ${PDF_REPORT_COOKIE_SECURE:-1}
@@ -33,6 +35,8 @@ services:
     volumes:
       # Must be writable by APP_UID (chown it if an older root-run container created it).
       - ./workspace:/app/workspace
+    secrets:
+      - provider_encryption_keys
     read_only: true
     tmpfs:
       - /tmp
@@ -78,3 +82,7 @@ services:
 
 volumes:
   postgres-data:
+
+secrets:
+  provider_encryption_keys:
+    file: ${APP_ENCRYPTION_KEYS_PATH:-./secrets/provider-encryption-keys}

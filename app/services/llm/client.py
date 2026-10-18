@@ -17,8 +17,11 @@ from dotenv import load_dotenv
 from openai import APIConnectionError, APITimeoutError
 
 from app.services.session_manager import record_llm_usage
+from app.services import credential_service
+from app.services.redaction import redact
+from app.services.llm.credentials import invalidate_current_credential, operation_preferences, operation_user_id, resolve_api_key
 from app.utils.model_config import DEFAULT_MODEL_BY_PROVIDER, DEFAULT_MODEL_NAME, DEFAULT_PROVIDER, MODEL_CATALOG, current_model_name
-from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.errors import InvalidCredentialError, MissingCredentialError, PDFCredentialUnavailableError, LLMBudgetError, LLMContractError, LLMTimeoutError
 from app.services.llm.providers.base import GenerationRequest, GenerationResult
 from app.services.llm.providers.registry import get_adapter
 
@@ -33,6 +36,7 @@ LLM_OPERATION_CONTEXT: ContextVar[dict[str, Any] | None] = ContextVar("LLM_OPERA
 def llm_operation_context(
     *,
     job_id: str | None = None,
+    user_id: str | None = None,
     operation: str | None = None,
     settings: dict | None = None,
     provider: str | None = None,
@@ -47,13 +51,18 @@ def llm_operation_context(
     context = {
         **current,
         "job_id": job_id or current.get("job_id"),
+        "user_id": str(user_id) if user_id else current.get("user_id"),
         "operation": operation or current.get("operation"),
         "provider": provider or current.get("provider"),
         "model_name": model_name or current.get("model_name"),
         "settings": merged_settings,
         "call_count": int(current.get("call_count", 0) or 0),
         "attempt_count": int(current.get("attempt_count", 0) or 0),
+        "_credentials": current.get("_credentials", {}),
     }
+    if context["job_id"] != current.get("job_id") or (user_id and str(user_id) != current.get("user_id")):
+        context.pop("_preferences", None)
+        context.pop("_owner_job_id", None)
     token = LLM_OPERATION_CONTEXT.set(context)
     try:
         yield context
@@ -61,6 +70,8 @@ def llm_operation_context(
         if parent is not None:
             parent["call_count"] = context["call_count"]
             parent["attempt_count"] = context["attempt_count"]
+        else:
+            context["_credentials"].clear()
         LLM_OPERATION_CONTEXT.reset(token)
 
 
@@ -93,10 +104,21 @@ def _llm_call_budget(context: dict[str, Any]) -> int:
 
 
 def _llm_fallback(context: dict[str, Any]) -> tuple[str | None, str | None]:
-    settings = context.get("settings") or {}
-    fallback_provider = settings.get("llm_fallback_provider") or os.getenv("PDF_REPORT_LLM_FALLBACK_PROVIDER")
-    fallback_model = settings.get("llm_fallback_model_name") or os.getenv("PDF_REPORT_LLM_FALLBACK_MODEL_NAME")
+    try:
+        settings = operation_preferences(context)
+    except MissingCredentialError:
+        return None, None
+    fallback_provider = settings.get("llm_fallback_provider")
+    fallback_model = settings.get("llm_fallback_model_name")
     if fallback_provider:
+        if context.get("user_id"):
+            row = credential_service.get_credential(context["user_id"], fallback_provider)
+            if row is not None and row.status != "valid":
+                return None, None
+        try:
+            resolve_api_key(context.get("user_id"), str(fallback_provider))
+        except MissingCredentialError:
+            return None, None
         return str(fallback_provider), str(fallback_model) if fallback_model else None
     return None, None
 
@@ -125,7 +147,9 @@ def _alarm_timeout(seconds: int):
             signal.setitimer(signal.ITIMER_REAL, previous_timer[0], previous_timer[1])
 
 
-def model_catalog() -> dict:
+def model_catalog(user_id=None) -> dict:
+    if user_id is not None:
+        return credential_service.model_catalog(user_id)
     return {
         "default_provider": DEFAULT_PROVIDER,
         "default_model": DEFAULT_MODEL_NAME,
@@ -138,21 +162,19 @@ def normalize_gemini_model_name(model_name: str) -> str:
     return str(model_name or "").removeprefix("models/")
 
 
-def _client_from_env(provider: str):
-    # Phase 4 replaces this with the report owner's stored key.
+def _client_from_owner(provider: str):
     adapter = get_adapter(provider)
-    api_key = os.getenv(adapter.env_key)
-    if not api_key:
-        raise ValueError(f"{adapter.env_key} not found in environment.")
-    return adapter.build_client(api_key)
+    context = current_llm_context()
+    return adapter.build_client(resolve_api_key(context.get("user_id"), provider),
+                                timeout_seconds=_llm_timeout_seconds(context))
 
 
 def get_gemini_client():
-    return _client_from_env("gemini")
+    return _client_from_owner("gemini")
 
 
 def get_deepseek_client():
-    return _client_from_env("deepseek")
+    return _client_from_owner("deepseek")
 
 
 def get_provider_client(provider: str):
@@ -161,7 +183,7 @@ def get_provider_client(provider: str):
         return get_gemini_client()
     if provider == "deepseek":
         return get_deepseek_client()
-    return _client_from_env(provider)
+    return _client_from_owner(provider)
 
 
 def resolve_llm_config(provider: str = None, model_name: str = None) -> tuple[str, str]:
@@ -174,7 +196,11 @@ def resolve_llm_config(provider: str = None, model_name: str = None) -> tuple[st
     normalized_model = current_model_name(provider, model_name)
     allowed_models = {model["id"] for model in MODEL_CATALOG.get(provider, [])}
     if allowed_models and normalized_model not in allowed_models:
-        raise ValueError(f"Unknown model '{model_name}' for provider '{provider}'.")
+        context = current_llm_context()
+        user_id = operation_user_id(context, provider) if context.get("user_id") or context.get("job_id") else None
+        row = credential_service.get_credential(user_id, provider) if user_id else None
+        if row is None or normalized_model not in row.available_models:
+            raise ValueError(f"Unknown model '{model_name}' for provider '{provider}'.")
     model_name = normalized_model
     return provider, model_name
 
@@ -194,17 +220,34 @@ def _request_llm_content(provider, model_name, system_instruction, user_prompt, 
         result = get_adapter(provider).generate(client, request)
         if not isinstance(result.text, str) or not result.text.strip():
             raise LLMContractError("llm", "Model returned an empty response")
-        return result
+        keys = [cached["key"] for cached in current_llm_context().get("_credentials", {}).values()]
+        return GenerationResult(redact(result.text, keys), result.input_tokens, result.output_tokens)
+    except MissingCredentialError:
+        raise
+    except Exception as exc:
+        if get_adapter(provider).classify_error(exc) == "auth":
+            invalidate_current_credential(provider)
+            raise InvalidCredentialError(provider) from None
+        if isinstance(exc, (LLMContractError, TimeoutError, httpx.TimeoutException, APITimeoutError)):
+            raise
+        safe = RuntimeError(f"Falha ao consultar {provider} ({type(exc).__name__}).")
+        safe.status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+        safe.retryable = isinstance(exc, (httpx.TransportError, APIConnectionError))
+        raise safe from None
     finally:
         close = getattr(client, "close", None)
         if callable(close):
-            close()
+            try:
+                close()
+            except Exception:
+                logger.warning("Could not close provider client provider=%s", provider)
 
 
 def _retryable_llm_error(exc):
     status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
     return (
         isinstance(exc, (LLMTimeoutError, TimeoutError, httpx.TimeoutException, httpx.TransportError, APIConnectionError))
+        or getattr(exc, "retryable", False)
         or status in {408, 429, 500, 502, 503, 504}
     )
 
@@ -272,6 +315,9 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
                 delay *= 2
                 continue
             break
+        except MissingCredentialError:
+            # Missing/invalid keys never retry or switch providers.
+            raise
         except Exception as e:
             duration_ms = (time.perf_counter() - start_time) * 1000
             last_error = e
@@ -314,7 +360,7 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
             retries=max(1, retries - 1),
             delay=delay,
             timeout_seconds=timeout_seconds,
-            allow_fallback=False,
+            allow_fallback=False, _pdf_bytes=_pdf_bytes,
         )
 
     if last_error:
@@ -325,12 +371,17 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
 def _document_pdf_provider(provider: str = None, model_name: str = None, settings: dict = None) -> tuple[str, str]:
     settings = settings or {}
     resolved = resolve_llm_config(provider, model_name)
+    context = current_llm_context()
     if get_adapter(resolved[0]).supports_pdf(resolved[1]):
+        resolve_api_key(context.get("user_id"), resolved[0])
         return resolved
-
-    document_provider = settings.get("document_llm_provider") or os.getenv("PDF_REPORT_DOCUMENT_LLM_PROVIDER") or "gemini"
-    document_model = settings.get("document_llm_model_name") or os.getenv("PDF_REPORT_DOCUMENT_LLM_MODEL_NAME")
-    return resolve_llm_config(document_provider, document_model or DEFAULT_MODEL_BY_PROVIDER.get(document_provider))
+    user_id = operation_user_id(context, resolved[0])
+    catalog = credential_service.model_catalog(user_id)
+    for candidate in [resolved[0], *catalog["providers"]]:
+        for model in catalog["providers"][candidate]:
+            if get_adapter(candidate).supports_pdf(model["id"]):
+                return candidate, model["id"]
+    raise PDFCredentialUnavailableError()
 
 
 def call_llm_with_pdf(

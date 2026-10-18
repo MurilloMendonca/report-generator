@@ -141,7 +141,8 @@ class LlmContractTests(unittest.TestCase):
             models = FakeModels()
 
         try:
-            with patch("app.services.llm.client.get_gemini_client", return_value=FakeClient()):
+            with patch("app.services.llm.client.get_gemini_client", return_value=FakeClient()), \
+                 patch("app.services.llm.client._document_pdf_provider", return_value=("gemini", "gemini-3.8-flash")):
                 insights = generate_document_insights_from_pdf_file(
                     pdf_path,
                     '{"filename":"brief.pdf","type":"pdf","text_excerpt":""}',
@@ -367,14 +368,14 @@ class LlmContractTests(unittest.TestCase):
 
         with patch("app.services.llm.client.get_deepseek_client", return_value=FailingDeepseekClient()), \
              patch("app.services.llm.client.get_gemini_client", return_value=FakeGeminiClient()), \
+             patch("app.services.llm.client.operation_preferences", return_value={
+                 "llm_fallback_provider": "gemini", "llm_fallback_model_name": "gemini-2.5-flash",
+             }), \
+             patch("app.services.llm.client.resolve_api_key", return_value="fake-owned-key"), \
              patch("app.services.llm.client.record_llm_usage"):
             with llm_operation_context(
                 job_id="job-fallback",
                 operation="fallback_test",
-                settings={
-                    "llm_fallback_provider": "gemini",
-                    "llm_fallback_model_name": "gemini-2.5-flash",
-                },
             ):
                 self.assertEqual(
                     call_llm("deepseek", "deepseek-v4-flash", "sys", "user", retries=1),

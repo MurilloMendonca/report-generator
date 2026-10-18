@@ -20,6 +20,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app import db
 from app.models.db import Report
 from app.models.session import normalize_session
+from app.services.redaction import redact
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ def _mutate(job_id: str, change, missing=None):
         result = change(session)
         if result is _NO_WRITE:
             return missing
-        session = normalize_session(session, job_id)
+        session = redact(normalize_session(session, job_id))
         report.state = session
         flag_modified(report, "state")
         for column, value in report_columns(session).items():
@@ -102,7 +103,7 @@ def create_session(job_id: str, data: dict, owner_id: uuid.UUID):
     validate_job_id(job_id)
     if owner_id is None:
         raise ValueError("A report needs an owner")
-    data = normalize_session(data, job_id) or {}
+    data = redact(normalize_session(data, job_id) or {})
     values = {"id": job_id, "state": data, "owner_id": owner_id, **report_columns(data)}
     statement = pg_insert(Report).values(**values)
     statement = statement.on_conflict_do_update(

@@ -3,6 +3,31 @@
 from typing import Any
 
 
+class MissingCredentialError(RuntimeError):
+    code = "missing_provider_key"
+
+    def __init__(self, provider: str):
+        self.provider = provider
+        super().__init__(f"Adicione sua chave {provider} em Configurações → Chaves.")
+
+    def as_error_dict(self) -> dict[str, Any]:
+        return {"code": self.code, "message": str(self), "provider": self.provider,
+                "retryable": False, "settings_url": "/keys"}
+
+
+class InvalidCredentialError(MissingCredentialError):
+    code = "invalid_provider_key"
+
+    def __init__(self, provider: str):
+        super().__init__(provider)
+        self.args = (f"Sua chave {provider} não é válida. Atualize-a em Configurações → Chaves.",)
+
+
+class PDFCredentialUnavailableError(RuntimeError):
+    def __init__(self):
+        super().__init__("PDF digitalizado: adicione uma chave Gemini ou Anthropic para extrair conteúdo.")
+
+
 class LLMContractError(ValueError):
     def __init__(
         self,

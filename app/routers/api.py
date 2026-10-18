@@ -74,8 +74,8 @@ router = APIRouter()
 
 
 @router.get("/api/models")
-async def available_models():
-    return model_catalog()
+def available_models(request: Request):
+    return model_catalog(current_user(request).id)
 
 
 @router.get("/api/component-library")
@@ -123,7 +123,7 @@ async def start_session(
     model_name: str | None = Form(None)
 ):
     user = require_verified_user(request)
-    provider, model_name = validate_provider_model(provider, model_name)
+    provider, model_name = validate_provider_model(provider, model_name, user.id)
     await run_in_threadpool(quotas.check_daily_reports, user.id)
     await run_in_threadpool(quotas.check_storage, user.id, quotas.upload_size(files))
     job_id = str(uuid.uuid4())
@@ -365,7 +365,7 @@ async def update_settings(request: Request, job_id: str, background_tasks: Backg
     provider = submitted_settings.pop("provider", None)
     model_name = submitted_settings.pop("model_name", None)
     if provider or model_name:
-        provider, model_name = validate_provider_model(provider or session.get("provider"), model_name)
+        provider, model_name = validate_provider_model(provider or session.get("provider"), model_name, current_user(request).id)
     
     current_settings = dict(session.get('settings') or DEFAULT_SETTINGS.copy())
     merged_settings = {**current_settings, **submitted_settings}
@@ -438,7 +438,7 @@ async def regenerate_session(request: Request, job_id: str, background_tasks: Ba
         provider = submitted_settings.pop("provider", None)
         model_name = submitted_settings.pop("model_name", None)
         if provider or model_name:
-            provider, model_name = validate_provider_model(provider or session.get("provider"), model_name)
+            provider, model_name = validate_provider_model(provider or session.get("provider"), model_name, current_user(request).id)
         current_settings = dict(session.get("settings") or DEFAULT_SETTINGS.copy())
         settings_updates = {"settings": {**current_settings, **submitted_settings}}
         if provider:

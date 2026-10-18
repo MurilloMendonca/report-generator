@@ -34,6 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
 
     commands.add_parser("migrate", help="Bring the database schema up to date")
+    commands.add_parser("rewrap-keys", help="Re-wrap credential data keys under APP_ENCRYPTION_ACTIVE_KEY")
 
     admin = commands.add_parser("create-admin", help="Create an admin account, or make an existing account admin")
     admin.add_argument("--email", required=True)
@@ -64,6 +65,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "migrate":
             db.get_engine()  # migrates on first use
             print("Database schema is up to date.")
+
+        elif args.command == "rewrap-keys":
+            from app.services.credential_service import rewrap_keys
+            print(f"Re-wrapped {rewrap_keys()} credentials.")
 
         elif args.command in {"create-admin", "create-user"}:
             make_admin = args.command == "create-admin" or args.admin

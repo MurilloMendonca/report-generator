@@ -19,6 +19,7 @@ from app.services.llm.components import VISUAL_COMPONENT_TYPES
 from app.services.llm.errors import LLMContractError
 from app.services.llm.parsing import _parse_contract_json, _raw_excerpt, parse_llm_translation_payload, strip_code_fence
 from app.services.llm.prompts import load_prompt
+from app.services.session_manager import get_report_owner
 
 
 def validate_refinement_decision(payload: dict, session: dict) -> dict:
@@ -120,7 +121,8 @@ def classify_refinement(session: dict, prompt: str, job_id: str | None = None) -
 def translate_workspace(session: dict, target_lang: str, job_id: str | None = None) -> dict:
     provider = session.get('provider', DEFAULT_PROVIDER)
     model_name = session.get('model_name')
-    with llm_operation_context(job_id=job_id or session.get("job_id"), operation="workspace_translation", settings=session.get("settings"), provider=provider, model_name=model_name):
+    job_id = job_id or session.get("job_id")
+    with llm_operation_context(job_id=job_id, user_id=get_report_owner(job_id), operation="workspace_translation", settings=session.get("settings"), provider=provider, model_name=model_name):
         system_instruction = load_prompt("TRANSLATE_WORKSPACE.md")
 
         workspace_data = {
