@@ -138,18 +138,58 @@ def preserve_report_on_failure(refine):
     return guarded
 
 
-def append_exploration_turn(job_id: str, user_message: dict, assistant_message: dict):
-    """Append a complete explorer exchange without losing concurrent session updates."""
+EXPLORE_PENDING_MESSAGE = "Analisando os dados e preparando a resposta..."
+
+
+def has_pending_exploration(session: dict) -> bool:
+    return any(
+        message.get("role") == "assistant" and message.get("status") == "pending"
+        for message in (session or {}).get("explore_history", [])
+        if isinstance(message, dict)
+    )
+
+
+def begin_exploration_turn(job_id: str, user_message: dict, turn_id: str):
+    """Append a question with a pending answer. Returns None if the session is gone,
+    or False if another question is still pending."""
     with session_lock(job_id):
         path = get_session_path(job_id)
         if not os.path.exists(path):
             return None
         with open(path, encoding="utf-8") as session_file:
             session = normalize_session(json.load(session_file), job_id)
-        session["explore_history"] = [*session.get("explore_history", []), user_message, assistant_message]
+        if has_pending_exploration(session):
+            return False
+        placeholder = {
+            "role": "assistant", "content": EXPLORE_PENDING_MESSAGE, "turn_id": turn_id,
+            "charts": [], "status": "pending", "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        session["explore_history"] = [*session.get("explore_history", []), user_message, placeholder]
         session["updated_at"] = datetime.now(timezone.utc).isoformat()
         write_session_file(job_id, normalize_session(session, job_id))
         return session
+
+
+def finish_exploration_turn(job_id: str, turn_id: str, assistant_message: dict):
+    """Replace a turn's pending answer with the final one, keeping concurrent updates."""
+    with session_lock(job_id):
+        path = get_session_path(job_id)
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as session_file:
+            session = normalize_session(json.load(session_file), job_id)
+        history = list(session.get("explore_history", []))
+        for index, message in enumerate(history):
+            if isinstance(message, dict) and message.get("role") == "assistant" and message.get("turn_id") == turn_id:
+                history[index] = assistant_message
+                break
+        else:
+            return None
+        session["explore_history"] = history
+        session["updated_at"] = datetime.now(timezone.utc).isoformat()
+        write_session_file(job_id, normalize_session(session, job_id))
+        return session
+
 
 def list_recent_sessions(limit: int = 12) -> list:
     if not os.path.isdir(SESSION_DIR):
@@ -387,7 +427,19 @@ def recover_interrupted_sessions() -> list[str]:
         if not filename.endswith(".json") or not is_valid_job_id(job_id):
             continue
         session = get_session(job_id)
-        if not session or session.get("current_step", "") in TERMINAL_STEPS:
+        if not session:
+            continue
+        if has_pending_exploration(session):
+            explore_message = "A consulta foi interrompida porque o servidor reiniciou. Tente novamente."
+            history = [
+                {**message, "content": explore_message, "status": "error", "error_status": 503}
+                if isinstance(message, dict) and message.get("role") == "assistant" and message.get("status") == "pending"
+                else message
+                for message in session.get("explore_history", [])
+            ]
+            update_session(job_id, {"explore_history": history})
+            recovered.append(job_id)
+        if session.get("current_step", "") in TERMINAL_STEPS:
             continue
         update_session(job_id, {
             "current_step": "failed",
@@ -397,7 +449,8 @@ def recover_interrupted_sessions() -> list[str]:
             "error": {"code": "interrupted", "message": message, "stage": session.get("current_step", "")},
         })
         add_log(job_id, message)
-        recovered.append(job_id)
+        if job_id not in recovered:
+            recovered.append(job_id)
     if recovered:
         logger.warning("Recovered %d interrupted session(s): %s", len(recovered), ", ".join(recovered))
     return recovered

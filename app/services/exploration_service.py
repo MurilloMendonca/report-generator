@@ -9,7 +9,7 @@ from app.services.executor_service import SandboxUnavailableError, execute_scrip
 from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
 from app.services.llm.script import generate_exploration_script
 from app.services.pipeline_service import build_files_map, metadata_json, SCRIPT_DIR
-from app.services.session_manager import append_exploration_turn, fcntl, get_session
+from app.services.session_manager import begin_exploration_turn, fcntl, finish_exploration_turn, get_session
 from app.utils.exploration_charts import (
     MAX_ANSWER_CHARS, collect_exploration_charts, exploration_directory,
 )
@@ -50,28 +50,60 @@ def exploration_lock(job_id: str):
         lock.release()
 
 
-def run_exploration(job_id: str, prompt: str) -> dict:
-    prompt = prompt.strip()
+BUSY_MESSAGE = "Já existe uma consulta em andamento nesta sessão. Aguarde a resposta."
+
+
+def _exploration_running(job_id: str) -> bool:
+    with _locks_guard:
+        lock = _locks.get(job_id)
+    return bool(lock and lock.locked())
+
+
+def start_exploration(job_id: str, prompt: str) -> dict:
+    """Validate a question and record it with a pending answer. Raises ExplorationError."""
+    prompt = (prompt or "").strip()
     if not prompt or len(prompt) > 6000:
         raise ExplorationError("A consulta deve conter entre 1 e 6000 caracteres.", 400)
     turn_id = uuid.uuid4().hex
     try:
-        output_directory = exploration_directory(job_id, turn_id)
+        exploration_directory(job_id, turn_id)
     except ValueError as exc:
         raise ExplorationError("Sessão não encontrada.", 404) from exc
-    with exploration_lock(job_id):
-        session = get_session(job_id)
-        if not session:
-            raise ExplorationError("Sessão não encontrada.", 404)
-        created_at = datetime.now(timezone.utc).isoformat()
-        error = None
-        charts = []
-        try:
+    if _exploration_running(job_id):
+        raise ExplorationError(BUSY_MESSAGE, 409)
+    session = begin_exploration_turn(job_id, {
+        "role": "user", "content": prompt, "turn_id": turn_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }, turn_id)
+    if session is None:
+        raise ExplorationError("Sessão não encontrada.", 404)
+    if session is False:
+        raise ExplorationError(BUSY_MESSAGE, 409)
+    return {"turn_id": turn_id, "status": "pending", "history": session["explore_history"]}
+
+
+def complete_exploration(job_id: str, turn_id: str, prompt: str) -> dict:
+    """Run a started question and store its answer in place of the pending one.
+
+    Returns the response on success; raises ExplorationError (with the stored
+    history in its details) on failure. The stored turn is resolved either way.
+    """
+    output_directory = exploration_directory(job_id, turn_id)
+    answer, charts, error = "", [], None
+    try:
+        with exploration_lock(job_id):
+            session = get_session(job_id)
+            if not session:
+                raise ExplorationError("Sessão não encontrada.", 404)
+            history = [
+                message for message in session.get("explore_history", [])
+                if not (isinstance(message, dict) and message.get("turn_id") == turn_id)
+            ]
             output_directory.mkdir(parents=True, exist_ok=False)
             script = generate_exploration_script(
                 metadata_json(session), prompt, build_files_map(session),
                 session.get("provider"), session.get("model_name"),
-                history=session.get("explore_history", []), job_id=job_id,
+                history=history, job_id=job_id,
                 settings=session.get("settings"), output_directory=str(output_directory),
             )
             result = execute_script(script, os.path.join(SCRIPT_DIR, f"explore_{job_id}_{turn_id}.py"))
@@ -84,40 +116,54 @@ def run_exploration(job_id: str, prompt: str) -> dict:
             charts = collect_exploration_charts(job_id, turn_id)
             if not answer.strip() and not charts:
                 raise ValueError("Exploration produced no answer or charts")
-        except SandboxUnavailableError:
-            logger.error("Exploration blocked: sandbox unavailable job_id=%s", job_id)
-            error = ExplorationError("O ambiente seguro de execução não está disponível no servidor.", 503)
-        except LLMBudgetError:
-            error = ExplorationError("O limite de chamadas do modelo foi atingido. Revise as configurações e tente novamente.", 429)
-        except LLMTimeoutError:
-            error = ExplorationError("O modelo demorou demais para responder. Tente novamente ou simplifique a consulta.", 504)
-        except ExplorationError as exc:
-            error = exc
-        except (ValueError, OSError, LLMContractError) as exc:
-            logger.warning("Invalid exploration output job_id=%s turn_id=%s error=%s", job_id, turn_id, str(exc))
-            error = ExplorationError("A resposta ou o gráfico gerado não é válido. Tente reformular a consulta.", 422)
-        except Exception:
-            logger.exception("Exploration failed job_id=%s turn_id=%s", job_id, turn_id)
-            error = ExplorationError("Não foi possível concluir a consulta. Tente novamente.", 502)
-        if error:
-            answer, charts = str(error), []
-            # Only this turn's explicitly resolved output is discarded on failure.
-            from app.services.cleanup_service import safe_remove_path
-            safe_remove_path(str(output_directory))
-        assistant = {
-            "role": "assistant", "content": answer, "turn_id": turn_id,
-            "charts": charts, "status": "error" if error else "ok",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        updated = append_exploration_turn(job_id, {
-            "role": "user", "content": prompt, "turn_id": turn_id, "created_at": created_at,
-        }, assistant)
-        if not updated:
-            from app.services.cleanup_service import safe_remove_path
-            safe_remove_path(str(output_directory))
-            raise ExplorationError("A sessão foi removida durante a consulta.", 404)
-        response = {"answer": answer, "charts": charts, "turn_id": turn_id, "history": updated["explore_history"]}
-        if error:
-            error.details.update(response)
-            raise error
-        return response
+    except SandboxUnavailableError:
+        logger.error("Exploration blocked: sandbox unavailable job_id=%s", job_id)
+        error = ExplorationError("O ambiente seguro de execução não está disponível no servidor.", 503)
+    except LLMBudgetError:
+        error = ExplorationError("O limite de chamadas do modelo foi atingido. Revise as configurações e tente novamente.", 429)
+    except LLMTimeoutError:
+        error = ExplorationError("O modelo demorou demais para responder. Tente novamente ou simplifique a consulta.", 504)
+    except ExplorationError as exc:
+        error = exc
+    except (ValueError, OSError, LLMContractError) as exc:
+        logger.warning("Invalid exploration output job_id=%s turn_id=%s error=%s", job_id, turn_id, str(exc))
+        error = ExplorationError("A resposta ou o gráfico gerado não é válido. Tente reformular a consulta.", 422)
+    except Exception:
+        logger.exception("Exploration failed job_id=%s turn_id=%s", job_id, turn_id)
+        error = ExplorationError("Não foi possível concluir a consulta. Tente novamente.", 502)
+
+    from app.services.cleanup_service import safe_remove_path
+    if error:
+        answer, charts = str(error), []
+        # Only this turn's explicitly resolved output is discarded on failure.
+        safe_remove_path(str(output_directory))
+    assistant = {
+        "role": "assistant", "content": answer, "turn_id": turn_id,
+        "charts": charts, "status": "error" if error else "ok",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if error:
+        assistant["error_status"] = error.status_code
+    updated = finish_exploration_turn(job_id, turn_id, assistant)
+    if not updated:
+        safe_remove_path(str(output_directory))
+        raise ExplorationError("A sessão foi removida durante a consulta.", 404)
+    response = {"answer": answer, "charts": charts, "turn_id": turn_id, "history": updated["explore_history"]}
+    if error:
+        error.details.update(response)
+        raise error
+    return response
+
+
+def complete_exploration_job(job_id: str, turn_id: str, prompt: str) -> None:
+    """Background entry point: the outcome is stored in the session's explorer history."""
+    try:
+        complete_exploration(job_id, turn_id, prompt)
+    except ExplorationError:
+        pass
+
+
+def run_exploration(job_id: str, prompt: str) -> dict:
+    """Ask and answer a question synchronously (used by tests and scripts)."""
+    started = start_exploration(job_id, prompt)
+    return complete_exploration(job_id, started["turn_id"], (prompt or "").strip())

@@ -84,9 +84,15 @@ const App = {
         return match ? decodeURIComponent(match[1]) : null;
     },
 
+    hasPendingExploration(session) {
+        return (session?.explore_history || []).some(item => item && item.role === 'assistant' && item.status === 'pending');
+    },
+
     isTerminalSession(session) {
+        // Explorer answers arrive in the background; keep polling until they land.
+        if (this.hasPendingExploration(session)) return false;
         if (session && session.current_step) {
-            return ['completed', 'failed', 'awaiting_clarification'].includes(session.current_step);
+            return ['completed', 'failed', 'awaiting_clarification', 'translation_failed'].includes(session.current_step);
         }
         const status = String(session && session.status ? session.status : '');
         const normalizedStatus = status.toLowerCase();
@@ -587,19 +593,18 @@ const App = {
         const input = document.getElementById('explore-input');
         const q = input.value.trim();
         const jobId = this.currentSession?.job_id;
-        if (!q || !jobId || this.explorePending?.jobId === jobId) return;
+        if (!q || !jobId || this.explorePending?.jobId === jobId || this.hasPendingExploration(this.currentSession)) return;
         const request = { jobId, prompt: q, historyLength: this.currentSession.explore_history?.length || 0 };
         this.explorePending = request;
         input.value = '';
         UI.renderExploreChat(this.currentSession, request);
         try {
+            // The server stores the question with a pending answer and finishes it in
+            // the background; polling picks up the result.
             const data = await API.exploreData(jobId, q);
             if (this.currentSession?.job_id !== jobId || this.explorePending !== request) return;
-            this.currentSession.explore_history = Array.isArray(data.history) ? data.history : [
-                ...(this.currentSession.explore_history || []),
-                { role: 'user', content: q },
-                { role: 'assistant', content: data.answer || '', charts: data.charts || [], turn_id: data.turn_id, status: 'ok' }
-            ];
+            if (Array.isArray(data.history)) this.currentSession.explore_history = data.history;
+            this.startPolling();
         } catch (error) {
             if (this.currentSession?.job_id !== jobId || this.explorePending !== request) return;
             this.currentSession.explore_history = Array.isArray(error.details?.history) ? error.details.history : [

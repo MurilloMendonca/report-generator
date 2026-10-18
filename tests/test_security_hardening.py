@@ -103,6 +103,60 @@ class AdminAccessTests(unittest.TestCase):
         self.assertEqual(allowed.status_code, 200)
 
 
+class ClientIpTests(unittest.TestCase):
+    """Behind the Cloudflare Tunnel the peer is always cloudflared; the real
+    address comes from CF-Connecting-IP, but only from a trusted proxy."""
+
+    class Request:
+        def __init__(self, peer, headers=None):
+            self.client = type("Client", (), {"host": peer})()
+            self.headers = headers or {}
+
+    def key(self, peer, headers, trusted=("172.16.0.0/12",)):
+        with patch.object(security, "CLIENT_IP_HEADER", "CF-Connecting-IP"), \
+             patch.object(security, "TRUSTED_PROXIES", list(trusted)):
+            return security.client_key(self.Request(peer, headers))
+
+    def test_uses_header_from_trusted_proxy(self):
+        self.assertEqual(self.key("172.18.0.5", {"CF-Connecting-IP": "203.0.113.9"}), "203.0.113.9")
+
+    def test_ignores_header_from_untrusted_peer(self):
+        self.assertEqual(self.key("198.51.100.7", {"CF-Connecting-IP": "203.0.113.9"}), "198.51.100.7")
+
+    def test_ignores_malformed_header(self):
+        self.assertEqual(self.key("172.18.0.5", {"CF-Connecting-IP": "not-an-ip"}), "172.18.0.5")
+
+    def test_trusts_proxy_by_hostname(self):
+        with patch.object(security, "_resolve_host", return_value={"172.18.0.9"}):
+            self.assertEqual(self.key("172.18.0.9", {"CF-Connecting-IP": "2001:db8::1"}, trusted=("cloudflared",)), "2001:db8::1")
+            self.assertEqual(self.key("172.18.0.10", {"CF-Connecting-IP": "2001:db8::1"}, trusted=("cloudflared",)), "172.18.0.10")
+
+    def test_header_ignored_when_not_configured(self):
+        with patch.object(security, "CLIENT_IP_HEADER", ""), patch.object(security, "TRUSTED_PROXIES", ["0.0.0.0/0"]):
+            self.assertEqual(security.client_key(self.Request("172.18.0.5", {"CF-Connecting-IP": "203.0.113.9"})), "172.18.0.5")
+
+    def test_rate_limit_is_per_real_client(self):
+        security.login_rate_limiter.reset()
+        self.addCleanup(security.login_rate_limiter.reset)
+        with patch.object(security, "CLIENT_IP_HEADER", "CF-Connecting-IP"), \
+             patch.object(security, "_is_trusted_proxy", return_value=True), TestClient(app) as client:
+            attacker = {"CF-Connecting-IP": "203.0.113.66"}
+            for _ in range(security.LOGIN_MAX_FAILURES):
+                client.post("/api/auth/login", json={"secret": "wrong"}, headers=attacker)
+            self.assertEqual(client.post("/api/auth/login", json={"secret": "wrong"}, headers=attacker).status_code, 429)
+            ok = client.post("/api/auth/login", json={"secret": security.APP_ACCESS_SECRET}, headers={"CF-Connecting-IP": "203.0.113.7"})
+        self.assertEqual(ok.status_code, 200)
+
+
+class CacheHeaderTests(unittest.TestCase):
+    def test_api_and_session_pages_are_never_cached(self):
+        headers = {"x-access-token": security.create_session_token()}
+        with TestClient(app) as client:
+            self.assertEqual(client.get("/api/auth/check", headers=headers).headers["cache-control"], "private, no-store")
+            self.assertEqual(client.get("/api/sessions", headers=headers).headers["cache-control"], "private, no-store")
+            self.assertNotIn("no-store", client.get("/static/css/styles.css").headers.get("cache-control", ""))
+
+
 class SecurityHeaderTests(unittest.TestCase):
     def test_script_policy_disallows_inline_scripts(self):
         with TestClient(app) as client:

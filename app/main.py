@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.routers.api import router as api_router
-from app.security import PUBLIC_API_PATHS, add_security_headers, request_has_valid_auth
+from app.security import PUBLIC_API_PATHS, add_cache_headers, add_security_headers, request_has_valid_auth
 from app.services.executor_service import sandbox_status
 from app.services.pipeline_service import FILTERED_DIR, REPORT_DIR, SCRIPT_DIR
 from app.services.session_manager import recover_interrupted_sessions
@@ -54,6 +54,7 @@ async def require_api_access(request: Request, call_next):
             return response
     response = await call_next(request)
     add_security_headers(response)
+    add_cache_headers(request.url.path, response)
     return response
 
 

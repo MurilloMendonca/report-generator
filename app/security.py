@@ -2,9 +2,11 @@
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
+import socket
 import threading
 import time
 import uuid
@@ -214,9 +216,56 @@ class LoginRateLimiter:
 login_rate_limiter = LoginRateLimiter(LOGIN_MAX_FAILURES, LOGIN_WINDOW_SECONDS)
 
 
+CLIENT_IP_HEADER = os.getenv("PDF_REPORT_CLIENT_IP_HEADER", "").strip()
+TRUSTED_PROXIES = [entry.strip() for entry in os.getenv("PDF_REPORT_TRUSTED_PROXIES", "").split(",") if entry.strip()]
+_HOST_CACHE_SECONDS = 60
+_resolved_hosts: dict[str, tuple[float, set[str]]] = {}
+
+
+def _resolve_host(hostname: str) -> set[str]:
+    cached = _resolved_hosts.get(hostname)
+    if cached and cached[0] > time.time():
+        return cached[1]
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(hostname, None)}
+    except OSError:
+        addresses = set()
+    _resolved_hosts[hostname] = (time.time() + _HOST_CACHE_SECONDS, addresses)
+    return addresses
+
+
+def _is_trusted_proxy(peer: str, trusted: list[str]) -> bool:
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    for entry in trusted:
+        try:
+            if peer_ip in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            # Not an address or network: a hostname such as the cloudflared service.
+            if peer in _resolve_host(entry):
+                return True
+    return False
+
+
 def client_key(request: Request | None) -> str:
+    """The client's address, taken from the proxy header only when a trusted proxy sent it.
+
+    Behind the Cloudflare Tunnel every request comes from cloudflared, so the real
+    address is in CF-Connecting-IP; trusting that header from anyone else would let
+    clients pick their own address and dodge rate limits.
+    """
     client = getattr(request, "client", None)
-    return getattr(client, "host", None) or "unknown"
+    peer = getattr(client, "host", None) or ""
+    if CLIENT_IP_HEADER and peer and _is_trusted_proxy(peer, TRUSTED_PROXIES):
+        forwarded = str(getattr(request, "headers", {}).get(CLIENT_IP_HEADER, "")).split(",")[0].strip()
+        try:
+            return str(ipaddress.ip_address(forwarded))
+        except ValueError:
+            pass
+    return peer or "unknown"
 
 
 def require_admin(request: Request) -> None:
@@ -228,6 +277,15 @@ def require_admin(request: Request) -> None:
         return
     if not IS_DEV_ENV:
         raise HTTPException(status_code=403, detail="Admin endpoints are disabled; configure APP_ADMIN_SECRET")
+
+
+PRIVATE_PATH_PREFIXES = ("/api/", "/session/")
+
+
+def add_cache_headers(path: str, response: Response):
+    """Keep authenticated responses out of shared caches such as Cloudflare's edge."""
+    if path.startswith(PRIVATE_PATH_PREFIXES):
+        response.headers.setdefault("Cache-Control", "private, no-store")
 
 
 def add_security_headers(response: Response):

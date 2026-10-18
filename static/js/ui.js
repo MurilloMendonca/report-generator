@@ -136,13 +136,14 @@ const UI = {
     renderExploreChat(session, pending = null) {
         const chat = document.getElementById('explore-chat');
         if (!chat || !session) return;
+        const history = Array.isArray(session.explore_history) ? session.explore_history : [];
+        const busy = Boolean(pending) || history.some(item => item && item.role === 'assistant' && item.status === 'pending');
         const submit = document.getElementById('explore-submit');
         if (submit) {
-            submit.disabled = Boolean(pending);
-            submit.textContent = pending ? 'Consultando...' : 'Consultar';
+            submit.disabled = busy;
+            submit.textContent = busy ? 'Consultando...' : 'Consultar';
         }
-        chat.setAttribute('aria-busy', pending ? 'true' : 'false');
-        const history = Array.isArray(session.explore_history) ? session.explore_history : [];
+        chat.setAttribute('aria-busy', busy ? 'true' : 'false');
         const signature = JSON.stringify([session.job_id, history, pending?.prompt || null]);
         if (chat.dataset.signature === signature) return;
         const stickToBottom = !chat.dataset.signature || chat.scrollTop + chat.clientHeight >= chat.scrollHeight - 48;

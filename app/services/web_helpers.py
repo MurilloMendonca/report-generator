@@ -12,7 +12,7 @@ from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT
 from app.services.llm.client import llm_operation_context, resolve_llm_config
 from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
 from app.services.llm.metrics import dataframe_load_line
-from app.services.llm.refinement import classify_refinement, refine_session_modular
+from app.services.llm.refinement import classify_refinement, refine_session_modular, translate_workspace
 from app.services.pipeline_service import (
     add_log,
     build_files_map as pipeline_build_files_map,
@@ -172,6 +172,38 @@ def process_chat_refinement(job_id: str, prompt: str):
         })
         add_log(job_id, f"Falha no refinamento: {str(exc)}")
         append_refinement_message(job_id, "assistant", "Não consegui aplicar o refinamento. O relatório foi preservado; veja os logs para o erro exato.", "error")
+
+
+def translate_then_continue(job_id: str, target_lang: str, follow_up, drop_component_ids=()):
+    """Background job: translate the workspace, then run the follow-up render step.
+
+    Translation can take longer than Cloudflare's ~100 s request limit, so the
+    settings endpoint queues this instead of waiting.
+    """
+    session = get_session(job_id)
+    if not session:
+        return
+    try:
+        translated = translate_workspace(session, target_lang, job_id=job_id)
+    except Exception as exc:
+        error = exc.as_error_dict() if hasattr(exc, "as_error_dict") else {
+            "code": "translation_error", "message": str(exc), "stage": "translation", "retryable": True,
+        }
+        update_session(job_id, {
+            "error": error,
+            "status": "Falha na tradução do workspace",
+            "current_step": "translation_failed",
+            "progress": 100,
+        })
+        add_log(job_id, f"Falha na tradução do workspace: {exc}")
+        return
+    if translated:
+        dropped = set(drop_component_ids)
+        update_session(job_id, {
+            "artifacts": translated["artifacts"],
+            "components": {key: code for key, code in translated["components"].items() if key not in dropped},
+        })
+    follow_up(job_id)
 
 
 def validate_upload(file: UploadFile) -> str:

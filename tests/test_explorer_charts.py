@@ -32,6 +32,26 @@ print(f'Total revenue: {totals.sum():.0f}')
 """
 
 
+class StoredExploreResult:
+    """A background explorer answer read back from the session, shaped like the
+    old synchronous response so the assertions below stay the same."""
+
+    def __init__(self, session, turn_id):
+        history = session["explore_history"]
+        turn = next(m for m in history if m.get("role") == "assistant" and m.get("turn_id") == turn_id)
+        body = {"answer": turn["content"], "charts": turn.get("charts", []), "turn_id": turn_id, "history": history}
+        if turn["status"] == "error":
+            self.status_code = turn["error_status"]
+            self._json = {"detail": {"message": turn["content"], **body}}
+        else:
+            self.status_code = 200
+            self._json = body
+        self.text = json.dumps(self._json)
+
+    def json(self):
+        return self._json
+
+
 class ExplorerChartTests(unittest.TestCase):
     def setUp(self):
         self.job_ids = []
@@ -71,9 +91,18 @@ class ExplorerChartTests(unittest.TestCase):
     def endpoint(self):
         return f"/api/sessions/{self.job_id}/explore"
 
+    def post_question(self, prompt):
+        """POST a question; the test client runs the background answer before returning."""
+        response = self.client.post(self.endpoint(), data={"prompt": prompt}, headers=self.headers)
+        if response.status_code != 202:
+            return response
+        self.assertEqual(response.json()["status"], "pending")
+        self.assertEqual(response.json()["history"][-1]["status"], "pending")
+        return StoredExploreResult(get_session(self.job_id), response.json()["turn_id"])
+
     def ask(self, script, prompt="Show a revenue chart"):
         with patch("app.services.llm.client.call_llm", return_value=script) as model:
-            response = self.client.post(self.endpoint(), data={"prompt": prompt}, headers=self.headers)
+            response = self.post_question(prompt)
         model.assert_called_once()
         return response
 
@@ -128,7 +157,7 @@ class ExplorerChartTests(unittest.TestCase):
     def test_follow_up_has_chart_descriptions_not_paths_and_recomputes(self):
         first = self.ask(BAR_SCRIPT).json()
         with patch("app.services.llm.client.call_llm", return_value="print(dataframes['sales.csv']['revenue'].mean())") as model:
-            response = self.client.post(self.endpoint(), data={"prompt": "Now show the mean instead"}, headers=self.headers)
+            response = self.post_question("Now show the mean instead")
         self.assertEqual(response.status_code, 200, response.text)
         context = model.call_args.args[3]
         self.assertIn("Revenue by region", context)
@@ -154,14 +183,14 @@ class ExplorerChartTests(unittest.TestCase):
         for failure, status in ((LLMTimeoutError("exploration_script", 45), 504), (LLMBudgetError("exploration_script", 1), 429)):
             before = get_session(self.job_id)
             with patch("app.services.llm.client.call_llm", side_effect=failure):
-                response = self.client.post(self.endpoint(), data={"prompt": "Show a chart"}, headers=self.headers)
+                response = self.post_question("Show a chart")
             self.assertEqual(response.status_code, status)
             self.assertEqual(response.json()["detail"]["history"][-1]["status"], "error")
             self.assert_report_unchanged(before)
 
     def test_concurrent_request_returns_conflict_without_model_call(self):
         with explorer.exploration_lock(self.job_id), patch("app.services.llm.client.call_llm") as model:
-            response = self.client.post(self.endpoint(), data={"prompt": "Show a chart"}, headers=self.headers)
+            response = self.post_question("Show a chart")
         self.assertEqual(response.status_code, 409)
         self.assertEqual(get_session(self.job_id)["explore_history"], [])
         model.assert_not_called()
@@ -169,7 +198,7 @@ class ExplorerChartTests(unittest.TestCase):
     def test_empty_or_large_query_is_rejected_before_model(self):
         with patch("app.services.llm.client.call_llm") as model:
             for prompt in ("   ", "x" * 6001):
-                response = self.client.post(self.endpoint(), data={"prompt": prompt}, headers=self.headers)
+                response = self.post_question(prompt)
                 self.assertEqual(response.status_code, 400)
         model.assert_not_called()
 
@@ -178,7 +207,7 @@ class ExplorerChartTests(unittest.TestCase):
             update_session(self.job_id, {"calculated_metrics": {"new_metric": 123}, "logs": ["Concurrent update"]})
             return "print('answer')"
         with patch.object(explorer, "generate_exploration_script", side_effect=generate), patch.object(explorer, "execute_script", return_value={"success": True, "stdout": "answer\n"}):
-            response = self.client.post(self.endpoint(), data={"prompt": "Question"}, headers=self.headers)
+            response = self.post_question("Question")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(get_session(self.job_id)["calculated_metrics"], {"new_metric": 123})
         self.assertEqual(get_session(self.job_id)["logs"], ["Concurrent update"])

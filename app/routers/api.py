@@ -27,11 +27,9 @@ from app.services.cleanup_service import (
     safe_remove_path,
 )
 from app.services.executor_service import execute_script
-from app.services.exploration_service import ExplorationError, run_exploration
+from app.services.exploration_service import ExplorationError, complete_exploration_job, start_exploration
 from app.services.job_runner import run_job
 from app.services.llm.client import model_catalog
-from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
-from app.services.llm.refinement import translate_workspace
 from app.services.llm.script import assemble_script
 from app.utils.model_config import DEFAULT_PROVIDER
 from app.services.pipeline_service import (
@@ -61,6 +59,7 @@ from app.services.web_helpers import (
     process_chat_refinement,
     refinement_message,
     require_session,
+    translate_then_continue,
     save_uploaded_files,
     validate_component_code,
     validate_provider_model,
@@ -141,7 +140,7 @@ async def visual_component_preset_preview(preset_id: str, theme: str | None = No
         path = await run_in_threadpool(component_preview_image_path, preset_id, theme, style)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -420,63 +419,25 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
     if model_name:
         session_updates["model_name"] = model_name
 
-    if old_lang and new_lang and old_lang != new_lang:
-        add_log(job_id, f"Mudança de idioma detectada: {old_lang} -> {new_lang}. Traduzindo workspace...")
-        translation_session = session.copy()
-        translation_session["settings"] = merged_settings
-        if provider:
-            translation_session["provider"] = provider
-        if model_name:
-            translation_session["model_name"] = model_name
-        try:
-            translated = await run_in_threadpool(translate_workspace, translation_session, new_lang, job_id=job_id)
-            if translated:
-                session_updates.update({
-                    "artifacts": translated['artifacts'],
-                    "components": translated['components'],
-                })
-        except (LLMBudgetError, LLMTimeoutError) as exc:
-            update_session(job_id, {
-                **session_updates,
-                "error": exc.as_error_dict(),
-                "status": "Falha na tradução do workspace",
-                "current_step": "translation_failed",
-                "progress": 100,
-            })
-            add_log(job_id, f"Falha de limite LLM na tradução do workspace: {str(exc)}")
-            raise HTTPException(status_code=429 if isinstance(exc, LLMBudgetError) else 504, detail=str(exc)) from exc
-        except LLMContractError as exc:
-            update_session(job_id, {
-                **session_updates,
-                "error": exc.as_error_dict(),
-                "status": "Falha na tradução do workspace",
-                "current_step": "translation_failed",
-                "progress": 100,
-            })
-            add_log(job_id, f"Falha de contrato LLM na tradução do workspace: {str(exc)}")
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-        update_session(job_id, session_updates)
-    else:
-        update_session(job_id, session_updates)
-    
+    language_changed = bool(old_lang and new_lang and old_lang != new_lang)
+    update_session(job_id, session_updates)
+
+    follow_up = run_script_generation
+    drop_component_ids: set = set()
     if new_template_id and old_template_id != new_template_id:
         add_log(job_id, "Template de layout alterado. Regenerando relatório para ajustar componentes...")
-        template_updates = {
-            "settings": merged_settings,
+        update_session(job_id, {
             "artifacts": [],
             "template": [],
             "components": {},
-            "calculated_metrics": {}
-        }
-        if provider:
-            template_updates["provider"] = provider
-        if model_name:
-            template_updates["model_name"] = model_name
-        update_session(job_id, template_updates)
-        background_tasks.add_task(run_job, run_pipeline, job_id)
+            "calculated_metrics": {},
+        })
+        follow_up = run_pipeline
+        # The pipeline regenerates everything in the new language; nothing to translate.
+        language_changed = False
     elif old_chart_style_id != new_chart_style_id or old_visual_instructions != new_visual_instructions:
         add_log(job_id, "Estilo visual alterado. Regenerando componentes gráficos...")
-        visual_ids = {
+        drop_component_ids = {
             artifact.get("id")
             for artifact in session.get("artifacts", [])
             if artifact.get("type") in VISUAL_TYPES and artifact.get("id")
@@ -484,13 +445,19 @@ async def update_settings(job_id: str, background_tasks: BackgroundTasks, settin
         components = {
             component_id: code
             for component_id, code in session.get("components", {}).items()
-            if component_id not in visual_ids
+            if component_id not in drop_component_ids
         }
-        update_session(job_id, {"settings": merged_settings, "components": components})
-        background_tasks.add_task(run_job, run_pipeline, job_id)
+        update_session(job_id, {"components": components})
+        follow_up = run_pipeline
     else:
         add_log(job_id, "Configurações do relatório atualizadas. Re-renderizando...")
-        background_tasks.add_task(run_job, run_script_generation, job_id)
+
+    if language_changed:
+        add_log(job_id, f"Mudança de idioma detectada: {old_lang} -> {new_lang}. Traduzindo workspace...")
+        update_session(job_id, {"current_step": "translating", "progress": 5, "error": {}})
+        background_tasks.add_task(run_job, translate_then_continue, job_id, new_lang, follow_up, drop_component_ids)
+        return {"status": "queued", "translating": True}
+    background_tasks.add_task(run_job, follow_up, job_id)
     return {"status": "OK"}
 
 
@@ -629,13 +596,20 @@ async def preview_component(job_id: str, component_id: str):
     return FileResponse(output_pdf_path, media_type="application/pdf", headers={"Cache-Control": "no-store"})
 
 
-@router.post("/api/sessions/{job_id}/explore")
-async def explore_data(job_id: str, prompt: str = Form(...)):
+@router.post("/api/sessions/{job_id}/explore", status_code=202)
+async def explore_data(job_id: str, background_tasks: BackgroundTasks, prompt: str = Form(...)):
+    """Record the question and answer it in the background; the UI polls the session.
+
+    Answering can take longer than Cloudflare's ~100 s request limit, so it never
+    happens inside the request.
+    """
     require_session(job_id)
     try:
-        return await run_in_threadpool(run_exploration, job_id, prompt)
+        started = await run_in_threadpool(start_exploration, job_id, prompt)
     except ExplorationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.details) from exc
+    background_tasks.add_task(run_job, complete_exploration_job, job_id, started["turn_id"], prompt.strip())
+    return started
 
 
 @router.get("/api/sessions/{job_id}/explore/{turn_id}/charts/{chart_id}")
