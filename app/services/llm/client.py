@@ -14,11 +14,13 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from openai import APIConnectionError, APITimeoutError, OpenAI
+from openai import APIConnectionError, APITimeoutError
 
 from app.services.session_manager import record_llm_usage
 from app.utils.model_config import DEFAULT_MODEL_BY_PROVIDER, DEFAULT_MODEL_NAME, DEFAULT_PROVIDER, MODEL_CATALOG, current_model_name
 from app.services.llm.errors import LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.providers.base import GenerationRequest, GenerationResult
+from app.services.llm.providers.registry import get_adapter
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -136,22 +138,30 @@ def normalize_gemini_model_name(model_name: str) -> str:
     return str(model_name or "").removeprefix("models/")
 
 
-def get_gemini_client():
-    api_key = os.getenv("GEMINI_API_KEY")
+def _client_from_env(provider: str):
+    # Phase 4 replaces this with the report owner's stored key.
+    adapter = get_adapter(provider)
+    api_key = os.getenv(adapter.env_key)
     if not api_key:
-        raise ValueError("GEMINI_API_KEY not found in environment.")
-    try:
-        from google import genai
-    except ImportError as exc:
-        raise ImportError("google-genai is required for Gemini. Install dependencies with `pip install -r requirements.txt`.") from exc
-    return genai.Client(api_key=api_key)
+        raise ValueError(f"{adapter.env_key} not found in environment.")
+    return adapter.build_client(api_key)
+
+
+def get_gemini_client():
+    return _client_from_env("gemini")
 
 
 def get_deepseek_client():
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise ValueError("DEEPSEEK_API_KEY not found in environment.")
-    return OpenAI(api_key=api_key, base_url="https://api.deepseek.com", max_retries=0)
+    return _client_from_env("deepseek")
+
+
+def get_provider_client(provider: str):
+    """The SDK client for one call. Tests patch the per-provider helpers above."""
+    if provider == "gemini":
+        return get_gemini_client()
+    if provider == "deepseek":
+        return get_deepseek_client()
+    return _client_from_env(provider)
 
 
 def resolve_llm_config(provider: str = None, model_name: str = None) -> tuple[str, str]:
@@ -169,52 +179,22 @@ def resolve_llm_config(provider: str = None, model_name: str = None) -> tuple[st
     return provider, model_name
 
 
-def _request_llm_content(provider, model_name, system_instruction, user_prompt, timeout_seconds, pdf_bytes=None):
+def _request_llm_content(provider, model_name, system_instruction, user_prompt, timeout_seconds, pdf_bytes=None) -> GenerationResult:
     client = None
-    operation = current_llm_context().get("operation")
-    object_output = operation in {
-        "document_extraction", "document_extraction_pdf", "data_preprocessing",
-        "text_generation", "text_condensation", "workspace_translation",
-    }
+    request = GenerationRequest(
+        model=model_name,
+        system=system_instruction,
+        user=user_prompt,
+        timeout_seconds=timeout_seconds,
+        operation=current_llm_context().get("operation") or "",
+        pdf_bytes=pdf_bytes,
+    )
     try:
-        if provider == "gemini":
-            client = get_gemini_client()
-            contents = user_prompt
-            if pdf_bytes is not None:
-                from google.genai import types
-                contents = [user_prompt, types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")]
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config={
-                    "system_instruction": system_instruction,
-                    **({"response_mime_type": "application/json"} if (object_output or operation == "artifact_plan") and not model_name.startswith("gemma-") else {}),
-                    "http_options": {
-                        "timeout": timeout_seconds * 1000,
-                        "retry_options": {"attempts": 1},
-                    },
-                },
-            )
-            text = response.text
-        else:
-            client = get_deepseek_client()
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": system_instruction},
-                    {"role": "user", "content": user_prompt},
-                ],
-                stream=False,
-                timeout=timeout_seconds,
-                **({"response_format": {"type": "json_object"}} if object_output else {}),
-            )
-            choice = response.choices[0]
-            if getattr(choice, "finish_reason", None) == "length":
-                raise LLMContractError("llm", "Model output was truncated; reduce the requested output size")
-            text = choice.message.content
-        if not isinstance(text, str) or not text.strip():
+        client = get_provider_client(provider)
+        result = get_adapter(provider).generate(client, request)
+        if not isinstance(result.text, str) or not result.text.strip():
             raise LLMContractError("llm", "Model returned an empty response")
-        return text
+        return result
     finally:
         close = getattr(client, "close", None)
         if callable(close):
@@ -246,9 +226,10 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
         start_time = time.perf_counter()
         try:
             with _alarm_timeout(timeout_seconds):
-                text = _request_llm_content(
+                result = _request_llm_content(
                     provider, model_name, system_instruction, user_prompt, timeout_seconds, _pdf_bytes,
                 )
+            text = result.text
 
             duration_ms = (time.perf_counter() - start_time) * 1000
             if job_id:
@@ -262,6 +243,8 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
                     status="ok",
                     prompt_chars=prompt_chars,
                     response_chars=len(text or ""),
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
                 )
             context["call_count"] = int(context.get("call_count", 0) or 0) + 1
             context["attempt_count"] = int(context.get("attempt_count", 0) or 0) + 1
@@ -341,11 +324,9 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
 
 def _document_pdf_provider(provider: str = None, model_name: str = None, settings: dict = None) -> tuple[str, str]:
     settings = settings or {}
-    requested_provider = provider or DEFAULT_PROVIDER
-    if requested_provider == "gemini":
-        resolved = resolve_llm_config(provider, model_name)
-        if not resolved[1].startswith("gemma-"):
-            return resolved
+    resolved = resolve_llm_config(provider, model_name)
+    if get_adapter(resolved[0]).supports_pdf(resolved[1]):
+        return resolved
 
     document_provider = settings.get("document_llm_provider") or os.getenv("PDF_REPORT_DOCUMENT_LLM_PROVIDER") or "gemini"
     document_model = settings.get("document_llm_model_name") or os.getenv("PDF_REPORT_DOCUMENT_LLM_MODEL_NAME")
@@ -364,7 +345,7 @@ def call_llm_with_pdf(
     settings: dict = None,
 ):
     provider, model_name = _document_pdf_provider(provider, model_name, settings)
-    if provider != "gemini":
+    if not get_adapter(provider).supports_pdf(model_name):
         raise ValueError(f"Provider '{provider}' does not support PDF document extraction.")
 
     with open(pdf_path, "rb") as pdf_file:

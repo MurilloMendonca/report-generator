@@ -298,6 +298,8 @@ def record_llm_usage(
     response_chars: int = 0,
     error: str | None = None,
     cache_hit: bool = False,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
 ):
     with session_lock(job_id):
         path = get_session_path(job_id)
@@ -316,7 +318,11 @@ def record_llm_usage(
         usage.setdefault("by_operation", {})
         usage.setdefault("history", [])
         usage.setdefault("cache_hits", 0)
+        usage.setdefault("input_tokens", 0)
+        usage.setdefault("output_tokens", 0)
         usage["calls"] += 1
+        usage["input_tokens"] += int(input_tokens or 0)
+        usage["output_tokens"] += int(output_tokens or 0)
         usage["attempts"] += int(attempt)
         usage["duration_ms"] = round(float(usage["duration_ms"]) + float(duration_ms), 1)
         usage["by_provider"][provider] = usage["by_provider"].get(provider, 0) + 1
@@ -339,6 +345,8 @@ def record_llm_usage(
             "status": status,
             "prompt_chars": int(prompt_chars),
             "response_chars": int(response_chars),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
             "cache_hit": bool(cache_hit),
             "error": error or "",
             "timestamp": datetime.now(timezone.utc).isoformat(),
