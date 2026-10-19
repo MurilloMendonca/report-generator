@@ -84,6 +84,7 @@ app/
 alembic/                     Database migrations (alembic.ini at the root)
 scripts/backup.sh            Database and workspace backup
 prompts/                     System prompts used for each LLM task
+templates/layout_templates.json  Versioned catalog of 11 reusable report layouts
 static/
   index.html                 Main browser workspace
   auth.html, account.html    Sign-in pages and account settings
@@ -113,6 +114,17 @@ list_models.py               List models for any supported provider with an expl
 ```
 
 The `workspace/` directories are created automatically when the app starts. Session state, layout templates and revoked logins live in Postgres.
+
+The reusable layout catalog is versioned in [`templates/layout_templates.json`](templates/layout_templates.json). It includes the three built-in layouts plus the current text-focused, two-column, hero-chart, narrative/evidence, four-quadrant, two-page, chart-first and single-story layouts. It contains layout definitions only; runtime workspace files remain ignored by Git.
+
+To load the catalog into an existing account on a fresh setup, configure `DATABASE_URL` and run:
+
+```bash
+python -m app.cli import-legacy --owner you@example.com --workspace templates --dry-run
+python -m app.cli import-legacy --owner you@example.com --workspace templates
+```
+
+The account must already exist. This uses the existing template importer: the three built-ins remain shared, additional layouts belong to the selected account, and existing custom template IDs are skipped. Saving edits in the browser changes Postgres; update the versioned JSON separately when you want those edits included in Git.
 
 ## Setup
 
