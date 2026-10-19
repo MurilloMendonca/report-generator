@@ -84,7 +84,7 @@ app/
 alembic/                     Database migrations (alembic.ini at the root)
 scripts/backup.sh            Database and workspace backup
 prompts/                     System prompts used for each LLM task
-templates/layout_templates.json  Versioned catalog of 11 reusable report layouts
+templates/layout_templates.json  Versioned catalog of 19 reusable report layouts
 static/
   index.html                 Main browser workspace
   auth.html, account.html    Sign-in pages and account settings
@@ -115,7 +115,15 @@ list_models.py               List models for any supported provider with an expl
 
 The `workspace/` directories are created automatically when the app starts. Session state, layout templates and revoked logins live in Postgres.
 
-The reusable layout catalog is versioned in [`templates/layout_templates.json`](templates/layout_templates.json). It includes the three built-in layouts plus the current text-focused, two-column, hero-chart, narrative/evidence, four-quadrant, two-page, chart-first and single-story layouts. It contains layout definitions only; runtime workspace files remain ignored by Git.
+The reusable layout catalog is versioned in [`templates/layout_templates.json`](templates/layout_templates.json). It contains 19 layouts: the three original built-ins, eight saved layouts, and eight additional built-in designs. It contains layout definitions only; runtime workspace files remain ignored by Git.
+
+The eight additional designs appear automatically in the template library: **Comparativo lado a lado**, **Evolução no tempo**, **Panorama regional**, **Portfólio de produtos**, **Painel operacional**, **Riscos e pontos de atenção**, **Pesquisa com apêndice analítico** (two pages), and **Memorando de decisão**. Each defines named text/visual slots with guidance for the report planner. Their positions stay within the A4 content area and reserve space for the report title. The catalog marks these additional shared designs with `"builtin": true`; unmarked saved layouts are imported into an account. Docker images include this catalog.
+
+See the [PDF preview of the eight additional layouts](docs/layout-template-previews.pdf). These diagrams show slot positions with illustrative bars and text lines. Regenerate the preview without provider calls or report data:
+
+```bash
+python scripts/preview-layout-templates.py --output docs/layout-template-previews.pdf
+```
 
 To load the catalog into an existing account on a fresh setup, configure `DATABASE_URL` and run:
 
@@ -124,7 +132,7 @@ python -m app.cli import-legacy --owner you@example.com --workspace templates --
 python -m app.cli import-legacy --owner you@example.com --workspace templates
 ```
 
-The account must already exist. This uses the existing template importer: the three built-ins remain shared, additional layouts belong to the selected account, and existing custom template IDs are skipped. Saving edits in the browser changes Postgres; update the versioned JSON separately when you want those edits included in Git.
+The account must already exist. This uses the existing template importer: built-ins remain shared, saved layouts belong to the selected account, and existing custom template IDs are skipped. Saving edits in the browser changes Postgres; update the versioned JSON separately when you want those edits included in Git. Saving an edited built-in creates a personal copy.
 
 ## Setup
 

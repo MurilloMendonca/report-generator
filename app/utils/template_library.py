@@ -1,4 +1,6 @@
+import json
 import uuid
+from pathlib import Path
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -17,6 +19,7 @@ from app.utils.layout import (
 
 # Where templates lived before Postgres; read only by `app.cli import-legacy`.
 LEGACY_TEMPLATE_LIBRARY_PATH = "workspace/layout_templates.json"
+BUNDLED_TEMPLATE_LIBRARY_PATH = Path(__file__).resolve().parents[2] / "templates" / "layout_templates.json"
 GRID_MM = 1
 
 BLUEPRINTS = {
@@ -124,6 +127,19 @@ def _default_templates() -> list:
             "description": blueprint["description"],
             "slots": slots,
         })
+    # Only explicitly bundled designs become shared defaults. The catalog also
+    # contains saved personal layouts, whose ownership must remain unchanged.
+    existing_ids = {template["id"] for template in templates}
+    for template in json.loads(BUNDLED_TEMPLATE_LIBRARY_PATH.read_text(encoding="utf-8")):
+        if template.get("builtin") is not True or template["id"] in existing_ids:
+            continue
+        slots = sanitize_template_slots(template["slots"])
+        templates.append({
+            "id": template["id"], "name": template["name"],
+            "description": template.get("description", ""), "slots": slots,
+            "page_count": max(template.get("page_count", 1), max(slot["page"] for slot in slots)),
+        })
+        existing_ids.add(template["id"])
     return templates
 
 

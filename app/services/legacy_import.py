@@ -232,6 +232,9 @@ def _import_templates(owner: User, workspace: Path, dry_run: bool) -> int:
         for template in templates:
             if not isinstance(template, dict) or not template.get("id"):
                 continue
+            # The versioned catalog marks shared starters for the app loader;
+            # ownership still comes from the known default IDs, never this flag.
+            template = {key: value for key, value in template.items() if key != "builtin"}
             template_id = str(template["id"])
             if template_id in defaults:
                 # An edited built-in: keep the edit, still shared by everyone.

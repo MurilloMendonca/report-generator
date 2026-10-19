@@ -27,6 +27,7 @@ COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini .
 COPY prompts ./prompts
+COPY templates ./templates
 COPY static ./static
 COPY list_models.py .
 

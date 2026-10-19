@@ -751,5 +751,605 @@
         "h": 40
       }
     ]
+  },
+  {
+    "id": "comparison_split",
+    "name": "Comparativo lado a lado",
+    "description": "Duas alternativas com o mesmo espaço visual, análise de diferenças e recomendação comum. Ideal para produtos, períodos ou segmentos.",
+    "builtin": true,
+    "page_count": 1,
+    "slots": [
+      {
+        "slot_id": "compare_intro",
+        "name": "Resumo da comparação",
+        "description": "Defina as alternativas, o recorte e os critérios comuns de comparação.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 30,
+        "w": 190,
+        "h": 35
+      },
+      {
+        "slot_id": "compare_left",
+        "name": "Evidências da alternativa A",
+        "description": "Visualize a primeira alternativa com métricas e escalas comparáveis à alternativa B.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 75,
+        "w": 90,
+        "h": 90
+      },
+      {
+        "slot_id": "compare_right",
+        "name": "Evidências da alternativa B",
+        "description": "Visualize a segunda alternativa com o mesmo critério e a mesma escala da alternativa A.",
+        "type": "graphic",
+        "page": 1,
+        "x": 110,
+        "y": 75,
+        "w": 90,
+        "h": 90
+      },
+      {
+        "slot_id": "compare_analysis_a",
+        "name": "Leitura da alternativa A",
+        "description": "Explique os pontos fortes e limitações da primeira alternativa com base nos dados.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 175,
+        "w": 90,
+        "h": 50
+      },
+      {
+        "slot_id": "compare_analysis_b",
+        "name": "Leitura da alternativa B",
+        "description": "Explique os pontos fortes e limitações da segunda alternativa com base nos dados.",
+        "type": "text",
+        "page": 1,
+        "x": 110,
+        "y": 175,
+        "w": 90,
+        "h": 50
+      },
+      {
+        "slot_id": "compare_conclusion",
+        "name": "Conclusão e recomendação",
+        "description": "Sintetize as diferenças relevantes e recomende uma decisão sustentada pelas evidências.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 235,
+        "w": 190,
+        "h": 50
+      }
+    ]
+  },
+  {
+    "id": "time_series_focus",
+    "name": "Evolução no tempo",
+    "description": "Uma série temporal em destaque, dois recortes de apoio e interpretação dos movimentos. Para dados com uma coluna temporal real.",
+    "builtin": true,
+    "page_count": 1,
+    "slots": [
+      {
+        "slot_id": "trend_intro",
+        "name": "Resumo do período",
+        "description": "Apresente a janela temporal, a unidade de medida e a principal mudança observada.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 30,
+        "w": 190,
+        "h": 35
+      },
+      {
+        "slot_id": "trend_main",
+        "name": "Evolução principal",
+        "description": "Mostre a evolução da métrica principal por uma coluna temporal válida, sem inventar datas ou preencher lacunas sem justificativa.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 75,
+        "w": 190,
+        "h": 90
+      },
+      {
+        "slot_id": "trend_segments",
+        "name": "Evolução por segmento",
+        "description": "Compare segmentos na mesma janela temporal e unidade de medida.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 175,
+        "w": 110,
+        "h": 60
+      },
+      {
+        "slot_id": "trend_change",
+        "name": "Variação entre períodos",
+        "description": "Destaque variações absolutas ou percentuais calculadas a partir dos períodos disponíveis.",
+        "type": "graphic",
+        "page": 1,
+        "x": 130,
+        "y": 175,
+        "w": 70,
+        "h": 60
+      },
+      {
+        "slot_id": "trend_conclusion",
+        "name": "Conclusão sobre a evolução",
+        "description": "Interprete tendência, oscilações e lacunas; diferencie mudança observada de explicação causal.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 245,
+        "w": 190,
+        "h": 40
+      }
+    ]
+  },
+  {
+    "id": "regional_analysis",
+    "name": "Panorama regional",
+    "description": "Ranking territorial em uma coluna ampla, contexto ao lado e uma síntese das diferenças. Para estados, países, cidades ou regiões.",
+    "builtin": true,
+    "page_count": 1,
+    "slots": [
+      {
+        "slot_id": "region_intro",
+        "name": "Resumo territorial",
+        "description": "Defina a unidade geográfica e o indicador analisado.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 30,
+        "w": 190,
+        "h": 35
+      },
+      {
+        "slot_id": "region_ranking",
+        "name": "Ranking por localidade",
+        "description": "Compare localidades em um ranking ou tabela; não assuma que identificadores geográficos sejam medidas.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 75,
+        "w": 120,
+        "h": 120
+      },
+      {
+        "slot_id": "region_context",
+        "name": "Contexto e cobertura",
+        "description": "Explique cobertura, unidades e diferenças de base; compare totais e taxas apenas quando disponíveis.",
+        "type": "text",
+        "page": 1,
+        "x": 140,
+        "y": 75,
+        "w": 60,
+        "h": 120
+      },
+      {
+        "slot_id": "region_distribution",
+        "name": "Distribuição entre regiões",
+        "description": "Mostre como o indicador se distribui entre grupos territoriais válidos.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 205,
+        "w": 120,
+        "h": 80
+      },
+      {
+        "slot_id": "region_conclusion",
+        "name": "Conclusão regional",
+        "description": "Sintetize concentrações e diferenças com ressalvas sobre comparabilidade.",
+        "type": "text",
+        "page": 1,
+        "x": 140,
+        "y": 205,
+        "w": 60,
+        "h": 80
+      }
+    ]
+  },
+  {
+    "id": "portfolio_review",
+    "name": "Portfólio de produtos",
+    "description": "Composição do portfólio, ranking de itens e evidências de preço, estoque ou avaliação. Adequado a catálogos JSON e dados comerciais.",
+    "builtin": true,
+    "page_count": 1,
+    "slots": [
+      {
+        "slot_id": "portfolio_intro",
+        "name": "Resumo do portfólio",
+        "description": "Apresente o universo de itens importados e as métricas realmente disponíveis.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 30,
+        "w": 190,
+        "h": 35
+      },
+      {
+        "slot_id": "portfolio_mix",
+        "name": "Composição por categoria",
+        "description": "Mostre a composição do catálogo pelas categorias presentes nos dados.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 75,
+        "w": 90,
+        "h": 65
+      },
+      {
+        "slot_id": "portfolio_distribution",
+        "name": "Distribuição da métrica",
+        "description": "Mostre a distribuição de preço, estoque, avaliação ou outra medida válida.",
+        "type": "graphic",
+        "page": 1,
+        "x": 110,
+        "y": 75,
+        "w": 90,
+        "h": 65
+      },
+      {
+        "slot_id": "portfolio_ranking",
+        "name": "Itens em destaque",
+        "description": "Apresente um ranking ou tabela de itens com o critério de ordenação explícito.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 150,
+        "w": 120,
+        "h": 90
+      },
+      {
+        "slot_id": "portfolio_interpretation",
+        "name": "Leitura do portfólio",
+        "description": "Explique concentração, dispersão e lacunas; não confunda preço ou estoque com receita.",
+        "type": "text",
+        "page": 1,
+        "x": 140,
+        "y": 150,
+        "w": 60,
+        "h": 90
+      },
+      {
+        "slot_id": "portfolio_conclusion",
+        "name": "Conclusão e oportunidades",
+        "description": "Recomende próximos passos compatíveis com a cobertura dos dados, sem inventar vendas ou demanda.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 250,
+        "w": 190,
+        "h": 35
+      }
+    ]
+  },
+  {
+    "id": "operations_scorecard",
+    "name": "Painel operacional",
+    "description": "Quatro visuais compactos para volume, situação, distribuição e desempenho, acompanhados de síntese e prioridades.",
+    "builtin": true,
+    "page_count": 1,
+    "slots": [
+      {
+        "slot_id": "ops_intro",
+        "name": "Resumo operacional",
+        "description": "Defina processo, período e principais indicadores operacionais disponíveis.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 30,
+        "w": 190,
+        "h": 35
+      },
+      {
+        "slot_id": "ops_volume",
+        "name": "Volume por responsável ou grupo",
+        "description": "Compare o volume de registros por uma dimensão operacional válida.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 75,
+        "w": 90,
+        "h": 60
+      },
+      {
+        "slot_id": "ops_status",
+        "name": "Situação e conclusão",
+        "description": "Mostre a composição por status, conclusão ou outra dimensão de situação disponível.",
+        "type": "graphic",
+        "page": 1,
+        "x": 110,
+        "y": 75,
+        "w": 90,
+        "h": 60
+      },
+      {
+        "slot_id": "ops_distribution",
+        "name": "Distribuição operacional",
+        "description": "Explore a distribuição de duração, quantidade ou outra medida; não crie SLA ou meta ausente.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 145,
+        "w": 90,
+        "h": 60
+      },
+      {
+        "slot_id": "ops_performance",
+        "name": "Desempenho por segmento",
+        "description": "Compare uma medida operacional entre segmentos com bases e unidades explícitas.",
+        "type": "graphic",
+        "page": 1,
+        "x": 110,
+        "y": 145,
+        "w": 90,
+        "h": 60
+      },
+      {
+        "slot_id": "ops_conclusion",
+        "name": "Conclusão e prioridades",
+        "description": "Conecte os quatro visuais às prioridades de acompanhamento e ressalvas dos dados.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 215,
+        "w": 190,
+        "h": 70
+      }
+    ]
+  },
+  {
+    "id": "risk_review",
+    "name": "Riscos e pontos de atenção",
+    "description": "Texto de contexto, evidência central e leituras paralelas de exposição e ações. Para outliers, exceções e qualidade de dados.",
+    "builtin": true,
+    "page_count": 1,
+    "slots": [
+      {
+        "slot_id": "risk_intro",
+        "name": "Resumo dos pontos de atenção",
+        "description": "Defina os critérios observáveis de exceção, risco ou qualidade; não atribua causalidade sem evidência.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 30,
+        "w": 190,
+        "h": 40
+      },
+      {
+        "slot_id": "risk_evidence",
+        "name": "Evidência principal",
+        "description": "Mostre exceções, valores extremos, lacunas ou categorias de atenção com um critério reproduzível.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 80,
+        "w": 190,
+        "h": 85
+      },
+      {
+        "slot_id": "risk_exposure",
+        "name": "Exposição e limitações",
+        "description": "Descreva o alcance dos achados, a qualidade da base e as limitações de interpretação.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 175,
+        "w": 90,
+        "h": 60
+      },
+      {
+        "slot_id": "risk_actions",
+        "name": "Ações sugeridas",
+        "description": "Proponha verificações e ações proporcionais às evidências, distinguindo observação de hipótese.",
+        "type": "text",
+        "page": 1,
+        "x": 110,
+        "y": 175,
+        "w": 90,
+        "h": 60
+      },
+      {
+        "slot_id": "risk_conclusion",
+        "name": "Conclusão e acompanhamento",
+        "description": "Priorize os pontos de atenção e defina o que precisa ser validado posteriormente.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 245,
+        "w": 190,
+        "h": 40
+      }
+    ]
+  },
+  {
+    "id": "research_brief",
+    "name": "Pesquisa com apêndice analítico",
+    "description": "Duas páginas para pergunta de pesquisa, evidências, leitura detalhada e limitações. A segunda página acomoda análise e tabelas de apoio.",
+    "builtin": true,
+    "page_count": 2,
+    "slots": [
+      {
+        "slot_id": "research_intro",
+        "name": "Resumo e pergunta de pesquisa",
+        "description": "Apresente a pergunta, a fonte e o recorte analítico sem extrapolar a base.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 30,
+        "w": 190,
+        "h": 40
+      },
+      {
+        "slot_id": "research_main",
+        "name": "Evidência principal",
+        "description": "Selecione o visual que melhor responde à pergunta de pesquisa.",
+        "type": "graphic",
+        "page": 1,
+        "x": 10,
+        "y": 80,
+        "w": 120,
+        "h": 105
+      },
+      {
+        "slot_id": "research_method",
+        "name": "Método e cobertura",
+        "description": "Explique unidades, filtros, cobertura e limitações metodológicas relevantes.",
+        "type": "text",
+        "page": 1,
+        "x": 140,
+        "y": 80,
+        "w": 60,
+        "h": 105
+      },
+      {
+        "slot_id": "research_findings",
+        "name": "Principais achados",
+        "description": "Sintetize os resultados observáveis e diferencie descrição de inferência causal.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 195,
+        "w": 190,
+        "h": 90
+      },
+      {
+        "slot_id": "research_detail",
+        "name": "Análise detalhada",
+        "description": "Desenvolva a interpretação com evidências e ressalvas, sem repetir apenas os títulos dos gráficos.",
+        "type": "text",
+        "page": 2,
+        "x": 10,
+        "y": 30,
+        "w": 90,
+        "h": 150
+      },
+      {
+        "slot_id": "research_support",
+        "name": "Evidência complementar",
+        "description": "Apresente uma comparação ou distribuição que complemente a evidência principal.",
+        "type": "graphic",
+        "page": 2,
+        "x": 110,
+        "y": 30,
+        "w": 90,
+        "h": 90
+      },
+      {
+        "slot_id": "research_table",
+        "name": "Tabela de apoio",
+        "description": "Mostre valores ou grupos relevantes em uma tabela legível baseada nos dados.",
+        "type": "graphic",
+        "page": 2,
+        "x": 110,
+        "y": 130,
+        "w": 90,
+        "h": 100
+      },
+      {
+        "slot_id": "research_caveats",
+        "name": "Limitações e próximos passos",
+        "description": "Enumere limitações de cobertura, questões em aberto e verificações necessárias.",
+        "type": "text",
+        "page": 2,
+        "x": 10,
+        "y": 190,
+        "w": 90,
+        "h": 95
+      },
+      {
+        "slot_id": "research_conclusion",
+        "name": "Conclusão da pesquisa",
+        "description": "Responda à pergunta inicial com o grau de certeza sustentado pelas evidências.",
+        "type": "text",
+        "page": 2,
+        "x": 110,
+        "y": 240,
+        "w": 90,
+        "h": 45
+      }
+    ]
+  },
+  {
+    "id": "decision_brief",
+    "name": "Memorando de decisão",
+    "description": "Narrativa ampla para contexto e análise, evidências compactas ao lado e uma recomendação final. Para decisões com apoio de dados.",
+    "builtin": true,
+    "page_count": 1,
+    "slots": [
+      {
+        "slot_id": "decision_intro",
+        "name": "Resumo da decisão",
+        "description": "Defina a decisão, os critérios e o recorte dos dados analisados.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 30,
+        "w": 190,
+        "h": 35
+      },
+      {
+        "slot_id": "decision_context",
+        "name": "Contexto e alternativas",
+        "description": "Descreva o problema e as alternativas documentadas, sem inventar cenários ou restrições.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 75,
+        "w": 115,
+        "h": 75
+      },
+      {
+        "slot_id": "decision_primary",
+        "name": "Evidência para a decisão",
+        "description": "Mostre a comparação ou medida mais relevante para a decisão.",
+        "type": "graphic",
+        "page": 1,
+        "x": 135,
+        "y": 75,
+        "w": 65,
+        "h": 75
+      },
+      {
+        "slot_id": "decision_analysis",
+        "name": "Análise e implicações",
+        "description": "Discuta vantagens, limites e implicações com base nas evidências disponíveis.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 160,
+        "w": 115,
+        "h": 75
+      },
+      {
+        "slot_id": "decision_secondary",
+        "name": "Evidência complementar",
+        "description": "Acrescente um recorte complementar sem duplicar o visual principal.",
+        "type": "graphic",
+        "page": 1,
+        "x": 135,
+        "y": 160,
+        "w": 65,
+        "h": 75
+      },
+      {
+        "slot_id": "decision_conclusion",
+        "name": "Conclusão e recomendação",
+        "description": "Apresente a recomendação, sua justificativa e as verificações necessárias antes da decisão.",
+        "type": "text",
+        "page": 1,
+        "x": 10,
+        "y": 245,
+        "w": 190,
+        "h": 40
+      }
+    ]
   }
 ]
