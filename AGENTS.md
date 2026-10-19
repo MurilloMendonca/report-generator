@@ -63,6 +63,12 @@ python list_models.py
 
 Lists Gemini and DeepSeek models available to the configured keys.
 
+```bash
+sh scripts/load-check.sh 10
+```
+
+Runs the automated Docker capacity check with 5–10 test users. The runner owns a unique Compose project with its own Postgres and workspace, requires bubblewrap and cleans up on exit. It uses no live provider keys. Do not replace its isolated volumes/database with production resources.
+
 ## Coding Style & Naming Conventions
 
 Use 4-space indentation for Python and keep functions small enough to match the existing service-oriented layout. Prefer `snake_case` for Python functions, variables, and JSON session keys. Frontend code uses plain JavaScript objects such as `App`, `API`, `UI`, and `Utils`; keep new browser behavior in the matching file.

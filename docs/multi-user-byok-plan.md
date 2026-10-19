@@ -1,6 +1,6 @@
 # Plan: User Accounts and Bring-Your-Own-Key
 
-Status: Phases 0–4 and 6 implemented; Phase 5 live runs and Phase 7 deployment gates pending · Date: 2026-10-18
+Status: Phases 0–6 implemented; operator confirms other deployment checks, Mac mini load check pending · Date: 2026-10-18
 
 This plan moves the app from a single shared access secret with server-owned provider keys to:
 
@@ -610,13 +610,13 @@ Goal: get the risky refactors in while there's still one user.
 
 ### Phase 5 — New providers (M)
 
-**Status (2026-10-18): implementation complete; live canonical validation pending keys.**
+**Status (2026-10-18): implemented; operator confirms live provider report checks passed.**
 - Anthropic, OpenAI and OpenRouter adapters, credential cards and model pickers are implemented. Anthropic uses the pinned 1.15.0 SDK, including its own httpx2-backed error classes, PDF limits, non-retryable refusals, and the opt-out server-side fallback preference. The serving model is recorded and shown when fallback runs.
 - Defaults: `claude-opus-5-5`, `gpt-6.1-sol`, `openai/gpt-6.1-sol`. The OpenAI and OpenRouter entries were checked against current official catalogs. Existing Gemini and DeepSeek defaults are unchanged.
 - OpenRouter verifies keys with authenticated `GET /key` before listing models, and sends both the legacy `X-Title` and current `X-OpenRouter-Title` attribution headers alongside `HTTP-Referer` when `PUBLIC_BASE_URL` is configured.
 - Anthropic structured output is used for the closed preprocessing contract. Dynamic text maps, artifact lists and refinement payloads retain prompt contracts and strict parsers. Native PDF input is implemented for Anthropic and Gemini; other providers use extracted text or skip scanned-PDF insights with the Phase 4 note.
 - Mock SDK tests cover each adapter's contracts and failures. Each new provider also generates an actual sandboxed PDF in tests using only that owner's encrypted key and mocked SDK responses.
-- The canonical runner now accepts `--provider`, `--model`, `--owner-email`, and `--env-file`, uses per-owner report folders, and validates actual derived paths. Live runs for the three new providers require keys that were not configured in the implementation environment.
+- The canonical runner now accepts `--provider`, `--model`, `--owner-email`, and `--env-file`, uses per-owner report folders, and validates actual derived paths. Keys were unavailable in the implementation environment; the operator subsequently confirmed testing real reports with the new providers.
 
 1. `anthropic.py` adapter (6.5), including PDF support, refusal handling and server-side fallback.
 2. `openai_compatible.py` instances for OpenAI and OpenRouter. For OpenRouter, send the optional `HTTP-Referer` / `X-Title` headers from `PUBLIC_BASE_URL`.
@@ -643,15 +643,16 @@ Goal: get the risky refactors in while there's still one user.
 
 ### Phase 7 — Hardening and launch (M)
 
-**Status (2026-10-18): application hardening and local drills implemented; deployment launch gates pending host access.**
+**Status (2026-10-18): implemented; Mac mini load check pending, other deployment checks confirmed by the operator.**
 - Security coverage includes route ownership, credential redaction, CSRF, cookie flags, rate limits, account enumeration and a network namespace test with the Python guard disabled. Production refuses unsafe sandbox configuration and requires SMTP plus Turnstile for open signup.
 - Production cannot mount shared legacy folders. `migrate-storage --dry-run` / `migrate-storage` copy and rewrite DB reports under row locks without deleting originals. `launch-check` reports local readiness. Development/test legacy fixtures remain until deployment import completion is confirmed.
 - File downloads use open directory/file descriptors with `O_NOFOLLOW`, so link substitution cannot redirect them to another owner's file. Generated symlinks/special files are removed and the run fails; cleanup cannot traverse linked parent folders.
 - `docs/launch-checklist.md` covers Cloudflare, SMTP send-only permissions, host power/startup settings, capacity tuning, off-machine recovery and final legacy-folder retirement. README, AGENTS.md and all five provider key-help links are updated.
 - Local ten-user load rehearsal: **10/10 PDFs**, peak **2** jobs with **2** configured slots, **2.49 s** total (deterministic rendering without live provider calls). This is a Linux development result; the Mac mini capacity and live provider latency still need measurement.
-- Local restore rehearsal: an ephemeral, network-isolated Postgres restored **1 user, 1 report, 1 usage event** and checked **3 artifacts** with none missing. `scripts/restore-drill.py` accepts a downloaded DB/workspace backup pair and never modifies the live workspace or database. Recovery from the actual off-machine destination and the separately stored KEK still need the deployment drill.
+- The one-command Docker runner was also verified locally: **10/10 PDFs**, peak **2** jobs, **4.87 s** measured execution. Success and deliberately failed runs both removed their test containers, database/workspace volumes and network; the backend suite still passes **409 tests**. The runner uses simple PDFs and does not measure HTTP traffic, live provider latency or heavy report workloads.
+- Local restore rehearsal: an ephemeral, network-isolated Postgres restored **1 user, 1 report, 1 usage event** and checked **3 artifacts** with none missing. `scripts/restore-drill.py` accepts a downloaded DB/workspace backup pair and never modifies the live workspace or database. The operator subsequently confirmed actual off-machine recovery using the separately saved KEK.
 - Validation: **409 backend tests** passed with bubblewrap required; **39 focused regression tests** passed after the final changes. JavaScript specs, both keys and usage/admin Chromium checks (desktop/mobile), compilation and dependency checks passed. A fresh production-mode sandbox probe is covered, along with preprocessed-file preview/download and path-replacement attacks. The local `launch-check` correctly reports not ready while production SMTP, Turnstile and Access settings are absent.
-- Still required on the deployment host: verify Cloudflare ingress/cache/WAF/Turnstile/Access policy, real email delivery and permission scope, Mac load/power/reboot/tunnel alerts, an off-machine restore with the separately recovered KEK, and confirmation before removing original flat folders. Do not open signup until those gates and the Phase 5 live provider runs pass.
+- Operator confirmation: Access and SMTP work, live provider reports were tested, and the backup/recovery, legacy migration and host checks are complete. The remaining deployment check is the 5–10-user run on the Mac mini. `sh scripts/load-check.sh 10` automates it using isolated Docker resources with automatic cleanup. Results from that host are still needed before marking Phase 7 complete.
 
 1. **Security review checklist:**
    - every route has an ownership check;

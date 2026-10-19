@@ -59,18 +59,39 @@ describes the issuer certificate endpoint and audience validation used here.
 
 ## Capacity and Mac host
 
-Run this inside the same Linux VM/container image as production, against a
-**disposable** database and workspace. The test DB is emptied at process startup.
-Do not point the command at production and do not run it alongside unit tests.
+From the project directory on the Mac host, run:
+
+```bash
+sh scripts/load-check.sh 10
+```
+
+The runner builds the application image, starts a private Postgres and workspace
+in a unique Compose project, runs the check, and removes its containers, volumes
+and network on success, failure or interruption. It mounts the test files read-only
+because production images do not contain them. It does not load production
+credentials, publish ports, or connect to the production database/workspace.
+It uses the configured job slots and Postgres pool sizes from `.env` (or their
+defaults). Build/download time is excluded from the measured execution time.
+Use `5` instead of `10` for a smaller run.
+
+A successful result includes `"passed": true`, `"successes": 10`, and
+`"peak_jobs"` no greater than `"configured_slots"`. A failure exits nonzero.
+Save the final JSON output as the Mac capacity-check evidence.
+
+For direct execution in an already prepared Linux test environment:
 
 ```bash
 APP_ENV=test MPLBACKEND=Agg PDF_REPORT_REQUIRE_BWRAP=1 python -m tests.load_check --users 10
 ```
 
+Direct execution empties its `_test` database at process startup. Use a disposable
+database/workspace and do not run it alongside unit tests on that same database.
+
 It starts 5–10 distinct owners simultaneously, uses the real job slots, writes
 Postgres session state, and generates sandboxed PDFs without billable API calls.
-Record elapsed time, peak jobs, failure count and VM memory. Then run live
-canonical jobs to measure actual provider latency and report complexity.
+The workload renders simple PDFs; it checks job admission, Postgres and sandbox
+execution. Record elapsed time, peak jobs, failure count and VM memory. Live
+provider latency, HTTP traffic and large real-world reports need separate measurements.
 
 - [ ] Verify bubblewrap inside the Mac's Linux container.
 - [ ] Start with `PDF_REPORT_MAX_CONCURRENT_JOBS=2` and
@@ -138,6 +159,7 @@ confirmed import completion; it is unreachable by production sandboxes.
 ## Evidence recorded in this checkout
 
 Implementation tests and local drills are recorded in the plan's Phase 6/7 notes.
-The Mac mini load run, Cloudflare dashboard settings, actual SMTP permission scope,
-downloaded off-machine restore and final legacy-folder retirement require host
-access and remain release gates until an operator records their results here.
+The operator subsequently confirmed all deployment checks except the Mac mini
+load run, including live provider reports, Access/SMTP, recovery, migration and
+host settings. Run `sh scripts/load-check.sh 10` on that Mac and record its final
+JSON result to finish the remaining check.

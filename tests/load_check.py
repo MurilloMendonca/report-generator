@@ -1,7 +1,8 @@
 """Deterministic capacity check with real jobs, database writes and sandboxed PDFs.
 
-Run in a disposable test DB/workspace, including on the Mac inside the app
-container: APP_ENV=test MPLBACKEND=Agg python -m tests.load_check --users 10
+On the Mac host: sh scripts/load-check.sh 10 (isolates and cleans up Docker data).
+Direct execution needs a disposable test DB/workspace:
+APP_ENV=test MPLBACKEND=Agg python -m tests.load_check --users 10
 No live provider calls; use canonical sessions separately for provider latency.
 """
 import argparse
@@ -10,7 +11,6 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 from sqlalchemy import delete
 
@@ -69,8 +69,9 @@ def main():
         result = {"users": args.users, "successes": sum(value is True for value in results), "peak_jobs": peak,
                   "configured_slots": job_runner.MAX_CONCURRENT_JOBS, "elapsed_seconds": round(time.perf_counter() - start, 2),
                   "max_user_seconds": round(max(latencies), 2), "mean_user_seconds": round(sum(latencies) / len(latencies), 2)}
+        result["passed"] = all(value is True for value in results) and peak <= job_runner.MAX_CONCURRENT_JOBS
         print(json.dumps(result, indent=2))
-        return 0 if all(value is True for value in results) and peak <= job_runner.MAX_CONCURRENT_JOBS else 1
+        return 0 if result["passed"] else 1
     finally:
         for job, _ in reports:
             delete_entire_session(job)

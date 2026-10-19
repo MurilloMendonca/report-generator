@@ -341,6 +341,8 @@ docker compose up -d
 
 Follow the [production launch and recovery checklist](docs/launch-checklist.md) before opening registration. It includes Cloudflare Access, cache/WAF/Turnstile settings, SMTP permissions, Mac settings, capacity measurement, a safe restore drill and legacy storage retirement. `python -m app.cli launch-check` reports local readiness without printing secrets.
 
+Run the automated ten-user capacity check on the Mac host with `sh scripts/load-check.sh 10`. It builds the app, uses a separate temporary Postgres/workspace, generates sandboxed PDFs without model calls, prints a JSON result, and automatically removes its test containers and volumes. `"passed": true` means all users completed within the configured job-slot limit. This checks simple PDF rendering and concurrency; it does not measure live provider latency or HTTP load.
+
 Run `cloudflared` on the host as usual, pointing at `http://localhost:8000` (or your `HOST_PORT`). Compose doesn't start a tunnel.
 
 Cloudflare's real client address arrives in `CF-Connecting-IP`, and compose tells the app to trust it from Docker's gateway networks, which is where a host `cloudflared` connects from (`PDF_REPORT_TRUSTED_PROXIES`). Login rate limits are then per visitor, not per tunnel. Authenticated responses send `Cache-Control: private, no-store`; also add a Cloudflare cache rule that bypasses the cache for `/api/*` and `/session/*`.
