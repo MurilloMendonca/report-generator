@@ -36,7 +36,7 @@ from app.utils.template_library import (
     select_layout_template,
     template_constraints,
 )
-from app.utils.tabular import load_tabular_dataframes
+from app.utils.tabular import TABULAR_EXTENSIONS, load_tabular_dataframes
 
 FILTERED_DIR = "workspace/filtered"
 SCRIPT_DIR = "workspace/scripts"
@@ -317,11 +317,11 @@ def metadata_json(session: dict, include_samples: bool = False) -> str:
     return json.dumps(artifacts, indent=2, ensure_ascii=False)
 
 
-def pdf_files(files: list) -> list:
+def document_files(files: list) -> list:
     return [
         file_info for file_info in files or []
-        if (file_info.get("artifact") or {}).get("type") == "pdf"
-        or os.path.splitext(file_info.get("path", ""))[1].lower() == ".pdf"
+        if (file_info.get("artifact") or {}).get("type") in {"pdf", "text"}
+        or os.path.splitext(file_info.get("path", ""))[1].lower() in {".pdf", ".txt"}
     ]
 
 
@@ -330,7 +330,7 @@ def has_tabular_files(files: list) -> bool:
 
 
 def is_document_only_session(files: list) -> bool:
-    return bool(files) and bool(pdf_files(files)) and not has_tabular_files(files)
+    return bool(files) and bool(document_files(files)) and not has_tabular_files(files)
 
 
 def document_metrics_from_insights(document_insights: dict) -> dict:
@@ -373,7 +373,7 @@ def has_data_filter_decision(data_filter: dict | None) -> bool:
 
 
 def supported_tabular_path(path: str) -> bool:
-    return os.path.splitext(path)[1].lower() in {".csv", ".xls", ".xlsx"}
+    return os.path.splitext(path)[1].lower() in TABULAR_EXTENSIONS
 
 
 def read_tabular_preview(path: str) -> tuple[int, set]:
@@ -546,22 +546,22 @@ def _run_pipeline(job_id: str, run_id: int):
         should_filter = has_tabular_files(files)
 
         document_insights = dict(session.get("document_insights") or {})
-        pdfs_needing_insights = [
+        documents_needing_insights = [
             (index, file_info)
             for index, file_info in enumerate(files)
-            if (file_info.get("artifact") or {}).get("type") == "pdf"
+            if (file_info.get("artifact") or {}).get("type") in {"pdf", "text"}
             and not (file_info.get("artifact") or {}).get("document_insights")
         ]
-        if pdfs_needing_insights:
+        if documents_needing_insights:
             with tracked_stage(job_id, "document_extraction", 18, provider, model_name):
                 if not _ensure_current_run(job_id, run_id, "document_extraction"):
                     return
-                for index, file_info in pdfs_needing_insights:
+                for index, file_info in documents_needing_insights:
                     artifact = file_info.get("artifact") or {}
-                    source_name = file_info.get("original_filename") or artifact.get("filename") or f"pdf_{index}"
+                    source_name = file_info.get("original_filename") or artifact.get("filename") or f"document_{index}"
                     try:
-                        add_log(job_id, f"Extraindo métricas e achados do PDF: {source_name}")
-                        if str(artifact.get("text_excerpt") or "").strip():
+                        add_log(job_id, f"Extraindo métricas e achados do documento: {source_name}")
+                        if artifact.get("type") == "text" or str(artifact.get("text_excerpt") or "").strip():
                             insights = generate_document_insights(
                                 json.dumps(artifact, indent=2, ensure_ascii=False),
                                 filter_prompt,
@@ -596,7 +596,7 @@ def _run_pipeline(job_id: str, run_id: int):
                             "metrics": [],
                             "warnings": [f"Falha na extração documental: {str(exc)[:180]}"],
                         }
-                        add_log(job_id, "Falha ao extrair métricas do PDF; seguindo sem insights desse documento.")
+                        add_log(job_id, "Falha ao extrair métricas do documento; seguindo sem insights desse documento.")
                     artifact["document_insights"] = insights
                     files[index]["artifact"] = artifact
                     document_insights[source_name] = insights

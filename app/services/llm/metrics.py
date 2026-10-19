@@ -13,12 +13,13 @@ from app.services.llm.errors import MissingCredentialError, ModelRefusalError, L
 from app.services.llm.parsing import extract_json_objects, normalize_metric_value, strip_code_fence
 from app.services.llm.prompts import load_prompt
 from app.utils.report_paths import ReportPaths
+from app.utils.tabular import TABULAR_EXTENSIONS
 logger = logging.getLogger(__name__)
 
 
 def dataframe_load_line(original_name: str, path: str, indent: str = "") -> str:
     ext = os.path.splitext(path)[1].lower()
-    if ext in {'.csv', '.xls', '.xlsx'}:
+    if ext in TABULAR_EXTENSIONS:
         return (
             f"{indent}from pdf_report_data import load_tabular_dataframes\n"
             f"{indent}dataframes.update(load_tabular_dataframes({original_name!r}, {path!r}))"

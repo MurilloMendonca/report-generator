@@ -34,6 +34,7 @@ from app.services.pipeline_service import (
 )
 from app.services.session_manager import (
     add_log,
+    append_session_files,
     create_session,
     get_session,
     is_valid_job_id,
@@ -51,7 +52,7 @@ from app.services.web_helpers import (
     refinement_message,
     require_session,
     translate_then_continue,
-    save_uploaded_files,
+    save_data_sources,
     validate_component_code,
     validate_provider_model,
 )
@@ -118,10 +119,12 @@ async def read_session_workspace(request: Request, job_id: str):
 async def start_session(
     request: Request,
     background_tasks: BackgroundTasks,
-    files: List[UploadFile] = File(...),
+    files: List[UploadFile] | None = File(None),
     prompt: str = Form(""),
     provider: str = Form(DEFAULT_PROVIDER),
-    model_name: str | None = Form(None)
+    model_name: str | None = Form(None),
+    api_url: str = Form(""),
+    api_records_path: str = Form("")
 ):
     user = require_verified_user(request)
     provider, model_name = validate_provider_model(provider, model_name, user.id)
@@ -129,7 +132,9 @@ async def start_session(
     await run_in_threadpool(quotas.check_storage, user.id, quotas.upload_size(files))
     job_id = str(uuid.uuid4())
     report_paths = ReportPaths.for_new_report(job_id, str(user.id)).ensure()
-    session_files = await run_in_threadpool(save_uploaded_files, files, report_paths.uploads)
+    session_files = await run_in_threadpool(
+        save_data_sources, files, api_url, api_records_path, report_paths.uploads, user.id
+    )
     now = datetime.now(timezone.utc).isoformat()
     user_prompt = (prompt or "").strip()
     effective_prompt = user_prompt or DEFAULT_EXPLORATORY_PROMPT
@@ -183,20 +188,32 @@ async def add_files_to_session(
     request: Request,
     job_id: str,
     background_tasks: BackgroundTasks,
-    files: List[UploadFile] = File(...)
+    files: List[UploadFile] | None = File(None),
+    api_url: str = Form(""),
+    api_records_path: str = Form("")
 ):
     session = require_session(job_id, request)
     
     session_files = session.get("files", [])
     existing_names = {file["original_filename"].casefold() for file in session_files}
-    if any(str(file.filename or "").casefold() in existing_names for file in files):
+    if any(str(file.filename or "").casefold() in existing_names for file in files or []):
         raise HTTPException(status_code=400, detail="A file with this name already exists in the session")
     await run_in_threadpool(quotas.check_storage, current_user(request).id, quotas.upload_size(files))
-    session_files.extend(await run_in_threadpool(save_uploaded_files, files, ReportPaths.from_session(session).uploads))
-    
-    update_session(job_id, {"files": session_files})
+    saved = await run_in_threadpool(
+        save_data_sources, files, api_url, api_records_path,
+        ReportPaths.from_session(session).uploads, current_user(request).id,
+    )
+    try:
+        if not append_session_files(job_id, saved):
+            raise HTTPException(status_code=404)
+    except Exception as exc:
+        for item in saved:
+            safe_remove_path(item["path"])
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise
     await run_in_threadpool(quotas.refresh_storage, job_id)
-    add_log(job_id, f"Adicionados {len(files)} novos arquivos.")
+    add_log(job_id, f"Adicionados {len(saved)} novos arquivos.")
     background_tasks.add_task(run_job, run_pipeline, job_id)
     return {"status": "OK"}
 

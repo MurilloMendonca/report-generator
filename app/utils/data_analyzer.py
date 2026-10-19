@@ -4,7 +4,8 @@ from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
-from app.utils.tabular import read_csv_with_detection
+from app.utils.tabular import JSON_EXTENSIONS, read_csv_with_detection, read_json_with_detection
+from app.utils.text_files import extract_text_metadata
 
 
 MAX_PDF_TEXT_PAGES = 20
@@ -175,7 +176,7 @@ def dataframe_metadata(df: pd.DataFrame, display_name: str, sheet_name: str = No
 
 def extract_metadata(file_path: str, original_filename: str = None) -> dict:
     """
-    Reads a CSV, Excel, or PDF file and returns metadata summarizing its structure and content.
+    Reads a CSV, Excel, JSON, JSON Lines, or PDF file and summarizes it.
     """
     ext = os.path.splitext(file_path)[1].lower()
     display_name = original_filename or os.path.basename(file_path)
@@ -183,6 +184,9 @@ def extract_metadata(file_path: str, original_filename: str = None) -> dict:
     try:
         if ext == '.csv':
             df, parser = read_csv_with_detection(file_path)
+            return dataframe_metadata(df, display_name, parser=parser)
+        elif ext in JSON_EXTENSIONS:
+            df, parser = read_json_with_detection(file_path)
             return dataframe_metadata(df, display_name, parser=parser)
         elif ext in ['.xls', '.xlsx']:
             sheets = {name: df.rename(columns=str) for name, df in pd.read_excel(file_path, sheet_name=None).items()}
@@ -220,6 +224,8 @@ def extract_metadata(file_path: str, original_filename: str = None) -> dict:
             })
         elif ext == '.pdf':
             return extract_pdf_metadata(file_path, display_name)
+        elif ext == '.txt':
+            return extract_text_metadata(file_path, display_name)
         else:
             return {"error": f"Formato de arquivo '{ext}' não suportado."}
         

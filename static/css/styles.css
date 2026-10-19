@@ -678,6 +678,7 @@ textarea {
 select:focus-visible,
 input[type="file"]:focus-visible,
 input[type="text"]:focus-visible,
+input[type="url"]:focus-visible,
 input[type="password"]:focus-visible,
 input[type="email"]:focus-visible,
 textarea:focus-visible,
@@ -731,7 +732,7 @@ label {
     color: var(--md-sys-color-on-surface-variant);
 }
 
-select, input[type="file"], input[type="text"], input[type="email"], textarea {
+select, input[type="file"], input[type="text"], input[type="url"], input[type="email"], textarea {
     width: 100%;
     padding: 0.6rem;
     border: 1px solid var(--md-sys-color-outline);
@@ -745,6 +746,22 @@ select, input[type="file"], input[type="text"], input[type="email"], textarea {
     color: #7a4f00;
     font-size: 0.78rem;
     line-height: 1.35;
+}
+
+.api-source-details {
+    margin-top: 0.7rem;
+    font-size: 0.85rem;
+}
+
+.api-source-details summary {
+    cursor: pointer;
+    padding: 0.4rem 0;
+}
+
+.api-source-details form {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
 }
 
 textarea {

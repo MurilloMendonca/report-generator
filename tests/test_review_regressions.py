@@ -232,7 +232,7 @@ class ApiRegressionTests(unittest.TestCase):
             headers = {"Cookie": f"pdf_report_session={token}; {anonymous['Cookie']}", "X-CSRF-Token": anonymous["X-CSRF-Token"]}
             catalog = client.get("/api/models", headers=headers).json()
             self.assertEqual(catalog["default_model"], "deepseek-flash")
-            with patch.object(api, "save_uploaded_files", return_value=[]), \
+            with patch.object(api, "save_data_sources", return_value=[]), \
                  patch.object(api, "create_session") as create, patch.object(api, "run_pipeline"):
                 response = client.post("/api/sessions", data={"provider": "gemini"}, files={"files": ("data.csv", b"a\n1\n", "text/csv")}, headers=headers)
             self.assertEqual(response.status_code, 200, response.text)

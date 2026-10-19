@@ -20,6 +20,7 @@ from app.services.llm.errors import LLMContractError
 from app.services.llm.parsing import _parse_contract_json, _raw_excerpt, parse_llm_translation_payload, strip_code_fence
 from app.services.llm.prompts import load_prompt
 from app.services.session_manager import get_report_owner
+from app.utils.tabular import TABULAR_EXTENSIONS
 
 
 def validate_refinement_decision(payload: dict, session: dict) -> dict:
@@ -52,7 +53,7 @@ def validate_refinement_decision(payload: dict, session: dict) -> dict:
             if not (0 <= block["x"] <= 210 - block["w"] and 30 <= block["y"] <= 285 - block["h"]):
                 raise ValueError("Layout update extends outside the printable page")
     if decision["intent"] == "data" and not any(
-        os.path.splitext(file.get("path", ""))[1].lower() in {".csv", ".xls", ".xlsx"}
+        os.path.splitext(file.get("path", ""))[1].lower() in TABULAR_EXTENSIONS
         for file in session.get("files", [])
     ):
         raise ValueError("Data preprocessing requires a tabular source")

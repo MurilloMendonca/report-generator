@@ -256,7 +256,7 @@ const UI = {
 
     fileKind(filename) {
         const ext = String(filename || '').split('.').pop().toLowerCase();
-        if (['csv', 'xls', 'xlsx', 'ods'].includes(ext)) return 'data';
+        if (['csv', 'xls', 'xlsx', 'ods', 'json', 'jsonl', 'ndjson'].includes(ext)) return 'data';
         if (['pdf'].includes(ext)) return 'pdf';
         if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) return 'image';
         if (['txt', 'md', 'json', 'py', 'js', 'css', 'html', 'log'].includes(ext)) return 'text';

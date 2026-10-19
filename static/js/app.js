@@ -222,6 +222,7 @@ const App = {
 
     setupEventListeners() {
         document.getElementById('upload-form').onsubmit = (e) => this.handleStartSession(e);
+        document.getElementById('api-source-form').onsubmit = (e) => this.handleApiImport(e);
         document.getElementById('chat-form').onsubmit = (e) => this.handleChat(e);
         document.getElementById('explore-form').onsubmit = (e) => this.handleExplore(e);
         document.getElementById('modal-form').onsubmit = (e) => this.handleSaveIndicator(e);
@@ -431,6 +432,9 @@ const App = {
         button.textContent = 'Enviando arquivos...';
         this.showNotice('');
         try {
+            const files = document.getElementById('file').files;
+            const apiUrl = document.getElementById('api-url').value.trim();
+            if (!files.length && !apiUrl) throw new Error('Envie um arquivo ou informe uma API JSON pública.');
             const data = await API.startSession(new FormData(e.target));
             this.currentSession = { job_id: data.job_id };
             window.history.replaceState({}, '', `/session/${data.job_id}`);
@@ -656,6 +660,27 @@ const App = {
         this.startPolling();
     },
 
+    async handleApiImport(event) {
+        event.preventDefault();
+        if (!this.currentSession?.job_id) return;
+        const form = event.target;
+        const button = form.querySelector('button[type="submit"]');
+        if (button.disabled) return;
+        button.disabled = true;
+        button.textContent = 'Importando...';
+        this.showNotice('');
+        try {
+            await API.addFiles(this.currentSession.job_id, new FormData(form));
+            form.reset();
+            this.startPolling();
+        } catch (error) {
+            this.showNotice(error.message);
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Importar dados';
+        }
+    },
+
     async previewFile(index) {
         return this.previewFileVariant(index, 'original');
     },
@@ -729,7 +754,9 @@ const App = {
                     this.renderMetadataPreview(content, file, 'Planilhas podem ser baixadas ou usadas pelo gerador, mas nao abrem como texto no navegador.');
                     return;
                 }
-                const text = await blob.text();
+                const sourceEncoding = isPreprocessed ? 'utf-8' : (file.validation?.encoding || file.artifact?.encoding || 'utf-8');
+                const encoding = sourceEncoding === 'utf-8-sig' ? 'utf-8' : sourceEncoding;
+                const text = encoding === 'utf-8' ? await blob.text() : new TextDecoder(encoding).decode(await blob.arrayBuffer());
                 UI.clearElement(content);
                 const pre = document.createElement('pre');
                 pre.className = 'preview-text';

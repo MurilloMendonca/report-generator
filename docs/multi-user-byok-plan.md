@@ -1,6 +1,6 @@
 # Plan: User Accounts and Bring-Your-Own-Key
 
-Status: Phases 0–6 implemented; operator confirms other deployment checks, Mac mini load check pending · Date: 2026-10-18
+Status: Phases 0–7 complete, with deployment checks confirmed by the operator · Date: 2026-10-19 UTC
 
 This plan moves the app from a single shared access secret with server-owned provider keys to:
 
@@ -643,16 +643,17 @@ Goal: get the risky refactors in while there's still one user.
 
 ### Phase 7 — Hardening and launch (M)
 
-**Status (2026-10-18): implemented; Mac mini load check pending, other deployment checks confirmed by the operator.**
+**Status (2026-10-19 UTC): complete.** The operator confirmed the deployment checks and supplied a passing Mac mini load-test result.
 - Security coverage includes route ownership, credential redaction, CSRF, cookie flags, rate limits, account enumeration and a network namespace test with the Python guard disabled. Production refuses unsafe sandbox configuration and requires SMTP plus Turnstile for open signup.
 - Production cannot mount shared legacy folders. `migrate-storage --dry-run` / `migrate-storage` copy and rewrite DB reports under row locks without deleting originals. `launch-check` reports local readiness. Development/test legacy fixtures remain until deployment import completion is confirmed.
 - File downloads use open directory/file descriptors with `O_NOFOLLOW`, so link substitution cannot redirect them to another owner's file. Generated symlinks/special files are removed and the run fails; cleanup cannot traverse linked parent folders.
 - `docs/launch-checklist.md` covers Cloudflare, SMTP send-only permissions, host power/startup settings, capacity tuning, off-machine recovery and final legacy-folder retirement. README, AGENTS.md and all five provider key-help links are updated.
-- Local ten-user load rehearsal: **10/10 PDFs**, peak **2** jobs with **2** configured slots, **2.49 s** total (deterministic rendering without live provider calls). This is a Linux development result; the Mac mini capacity and live provider latency still need measurement.
+- Local ten-user load rehearsal: **10/10 PDFs**, peak **2** jobs with **2** configured slots, **2.49 s** total (deterministic rendering without live provider calls). The Mac mini result is recorded below.
 - The one-command Docker runner was also verified locally: **10/10 PDFs**, peak **2** jobs, **4.87 s** measured execution. Success and deliberately failed runs both removed their test containers, database/workspace volumes and network; the backend suite still passes **409 tests**. The runner uses simple PDFs and does not measure HTTP traffic, live provider latency or heavy report workloads.
 - Local restore rehearsal: an ephemeral, network-isolated Postgres restored **1 user, 1 report, 1 usage event** and checked **3 artifacts** with none missing. `scripts/restore-drill.py` accepts a downloaded DB/workspace backup pair and never modifies the live workspace or database. The operator subsequently confirmed actual off-machine recovery using the separately saved KEK.
 - Validation: **409 backend tests** passed with bubblewrap required; **39 focused regression tests** passed after the final changes. JavaScript specs, both keys and usage/admin Chromium checks (desktop/mobile), compilation and dependency checks passed. A fresh production-mode sandbox probe is covered, along with preprocessed-file preview/download and path-replacement attacks. The local `launch-check` correctly reports not ready while production SMTP, Turnstile and Access settings are absent.
-- Operator confirmation: Access and SMTP work, live provider reports were tested, and the backup/recovery, legacy migration and host checks are complete. The remaining deployment check is the 5–10-user run on the Mac mini. `sh scripts/load-check.sh 10` automates it using isolated Docker resources with automatic cleanup. Results from that host are still needed before marking Phase 7 complete.
+- Operator confirmation: Access and SMTP work, live provider reports were tested, and the backup/recovery, legacy migration and host checks are complete.
+- **Mac mini load check passed (2026-10-19 00:08 UTC):** `sh scripts/load-check.sh 10` completed **10/10 PDFs**, with **2** peak jobs and **2** configured slots. Total execution and maximum user time were **2.33 s**; mean user time was **1.43 s**. The result reported `passed: true`, the load-check process exited with code 0, and both containers, both data volumes and the test network were removed. This completes the planned simple-PDF concurrency check; large-report resource use, HTTP traffic and live model latency are outside this workload.
 
 1. **Security review checklist:**
    - every route has an ownership check;

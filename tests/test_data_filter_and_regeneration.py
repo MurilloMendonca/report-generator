@@ -42,20 +42,31 @@ class DataFilterTests(unittest.TestCase):
         }))
 
     def test_applies_preprocessing_once_and_preserves_original_upload(self):
-        source_path = f"workspace/uploads/filter_test_{uuid.uuid4().hex}.csv"
-        pd.DataFrame({
+        self.check_preprocessing(".csv")
+
+    def test_applies_json_preprocessing_in_the_sandbox(self):
+        self.check_preprocessing(".json")
+
+    def check_preprocessing(self, extension):
+        filename = f"pokemon{extension}"
+        source_path = f"workspace/uploads/filter_test_{uuid.uuid4().hex}{extension}"
+        dataframe = pd.DataFrame({
             "name": ["Pikachu", "Alolan Raichu", "Bulbasaur"],
             "variant": ["base", "regional", "base"],
             "value": [1, 2, 3],
-        }).to_csv(source_path, index=False)
+        })
+        if extension == ".json":
+            dataframe.to_json(source_path, orient="records")
+        else:
+            dataframe.to_csv(source_path, index=False)
         self.created_paths.append(source_path)
 
         session = {
             "files": [{
-                "original_filename": "pokemon.csv",
+                "original_filename": filename,
                 "path": source_path,
-                "raw_artifact": {"filename": "pokemon.csv"},
-                "artifact": {"filename": "pokemon.csv"},
+                "raw_artifact": {"filename": filename},
+                "artifact": {"filename": filename},
             }]
         }
         data_filter = {
@@ -88,7 +99,7 @@ class DataFilterTests(unittest.TestCase):
         self.assertEqual(files[0]["preprocessing_impact"]["rows_before"], 3)
         self.assertEqual(files[0]["preprocessing_impact"]["rows_after"], 2)
         self.assertEqual(files[0]["preprocessing_impact"]["columns_added"], ["value_doubled"])
-        self.assertEqual(data_filter["impact"]["pokemon.csv"]["rows_removed"], 1)
+        self.assertEqual(data_filter["impact"][filename]["rows_removed"], 1)
         processed = pd.read_csv(filtered_path)
         self.assertEqual(processed["name"].tolist(), ["Pikachu", "Bulbasaur"])
         self.assertEqual(processed["value_doubled"].tolist(), [2, 6])

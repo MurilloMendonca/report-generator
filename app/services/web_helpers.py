@@ -1,4 +1,5 @@
 import ast
+import io
 import mimetypes
 import os
 import uuid
@@ -7,6 +8,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, UploadFile
 
+from app.services.cleanup_service import safe_remove_path
 from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT
 from app.services.llm.client import llm_operation_context, resolve_llm_config
 from app.services.llm.errors import MissingCredentialError, LLMBudgetError, LLMContractError, LLMTimeoutError
@@ -30,9 +32,11 @@ from app.services.session_manager import (
     update_session,
 )
 from app.utils.layout import normalize_template
+from app.utils.tabular import JSON_EXTENSIONS, read_json_with_detection
+from app.utils.text_files import read_text_file
 
 UPLOAD_DIR = "workspace/uploads"
-ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".xls", ".xlsx", ".pdf"}
+ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".xls", ".xlsx", ".pdf", ".txt"} | JSON_EXTENSIONS
 MAX_UPLOAD_BYTES = int(os.getenv("PDF_REPORT_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 # Total per request; Cloudflare's free plan rejects bodies over 100 MB before they reach the app.
 MAX_REQUEST_UPLOAD_BYTES = int(os.getenv("PDF_REPORT_MAX_REQUEST_UPLOAD_BYTES", str(90 * 1024 * 1024)))
@@ -268,6 +272,14 @@ def validate_saved_upload(path: str, file_ext: str, file_name: str | None = None
                 except UnicodeDecodeError as exc:
                     raise HTTPException(status_code=400, detail="CSV file encoding is not supported") from exc
             diagnostics["format"] = "csv"
+        elif file_ext in JSON_EXTENSIONS:
+            dataframe, parser = read_json_with_detection(path)
+            diagnostics.update(parser)
+            diagnostics["rows"] = len(dataframe)
+            diagnostics["columns"] = len(dataframe.columns)
+        elif file_ext == ".txt":
+            text, encoding = read_text_file(path)
+            diagnostics.update(format="text", encoding=encoding, characters=len(text))
     except HTTPException:
         raise
     except Exception as exc:
@@ -332,6 +344,43 @@ def save_uploaded_files(files: list[UploadFile], destination_dir: str | os.PathL
             "artifact": None
         })
     return saved_files
+
+
+def save_data_sources(files, api_url, api_records_path, destination_dir, owner_id):
+    """Save uploaded files and an optional API snapshot as one bounded import."""
+    from app.services import quotas
+    from app.services.api_sources import fetch_json_snapshot
+
+    api_url = api_url.strip() if isinstance(api_url, str) else ""
+    api_records_path = api_records_path.strip() if isinstance(api_records_path, str) else ""
+    uploads = [file for file in files or [] if file.filename]
+    snapshot = None
+    source = None
+    if api_url:
+        body, hostname = fetch_json_snapshot(api_url, api_records_path)
+        snapshot = UploadFile(filename=f"api_{uuid.uuid4().hex[:12]}.json", file=io.BytesIO(body))
+        uploads.append(snapshot)
+        # Persist no URL/query string, which might contain a credential.
+        source = {"type": "api_snapshot", "hostname": hostname, "records_path": api_records_path,
+                  "fetched_at": datetime.now(timezone.utc).isoformat()}
+    if not uploads:
+        raise HTTPException(400, "Upload at least one file or enter a public JSON API URL")
+    if api_records_path and not api_url:
+        raise HTTPException(400, "An API URL is required when using a records path")
+    saved = []
+    try:
+        saved = save_uploaded_files(uploads, destination_dir)
+        quotas.check_storage(owner_id, sum(item["size_bytes"] for item in saved))
+        if source:
+            saved[-1]["source"] = source
+        return saved
+    except Exception:
+        for item in saved:
+            safe_remove_path(item["path"])
+        raise
+    finally:
+        if snapshot:
+            snapshot.file.close()
 
 
 def get_session_file(session: dict, file_index: int) -> dict:

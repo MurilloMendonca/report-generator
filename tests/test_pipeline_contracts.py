@@ -203,8 +203,19 @@ class PipelineContractTests(unittest.TestCase):
         self.assertTrue(os.path.exists(f"{session['pdf_path']}.manifest.json"))
 
     def test_document_only_pipeline_uses_text_template_and_document_metrics(self):
+        self.check_document_only_pipeline(".pdf")
+
+    def test_txt_only_pipeline_uses_document_insights_and_text_template(self):
+        self.check_document_only_pipeline(".txt")
+
+    def test_txt_with_blank_excerpt_is_not_sent_to_pdf_reader(self):
+        self.check_document_only_pipeline(".txt", excerpt="   ")
+
+    def check_document_only_pipeline(self, extension, excerpt="O orçamento aprovado foi de 10 milhões de euros em 2024."):
         job_id = self.new_job_id()
-        upload_path = f"workspace/uploads/{uuid.uuid4().hex}.pdf"
+        filename = f"brief{extension}"
+        document_type = "text" if extension == ".txt" else "pdf"
+        upload_path = f"workspace/uploads/{uuid.uuid4().hex}{extension}"
         with open(upload_path, "wb") as f:
             f.write(b"%PDF-1.3\n% test\n")
         self.created_paths.append(upload_path)
@@ -214,20 +225,20 @@ class PipelineContractTests(unittest.TestCase):
             "initial_prompt": "Resuma o documento e destaque métricas relevantes",
             "current_goal": "Resuma o documento e destaque métricas relevantes",
             "files": [{
-                "original_filename": "brief.pdf",
+                "original_filename": filename,
                 "path": upload_path,
                 "raw_artifact": {
-                    "filename": "brief.pdf",
-                    "type": "pdf",
+                    "filename": filename,
+                    "type": document_type,
                     "pages": 1,
-                    "text_excerpt": "O orçamento aprovado foi de 10 milhões de euros em 2024.",
+                    "text_excerpt": excerpt,
                     "text_preview": ["O orçamento aprovado foi de 10 milhões de euros em 2024."],
                 },
                 "artifact": {
-                    "filename": "brief.pdf",
-                    "type": "pdf",
+                    "filename": filename,
+                    "type": document_type,
                     "pages": 1,
-                    "text_excerpt": "O orçamento aprovado foi de 10 milhões de euros em 2024.",
+                    "text_excerpt": excerpt,
                     "text_preview": ["O orçamento aprovado foi de 10 milhões de euros em 2024."],
                 },
             }],
@@ -273,14 +284,15 @@ class PipelineContractTests(unittest.TestCase):
                 "value": 10,
                 "unit": "milhões de euros",
                 "period": "2024",
-                "source": "brief.pdf",
+                "source": filename,
                 "confidence": "high",
                 "evidence": "orçamento aprovado foi de 10 milhões de euros em 2024",
             }],
             "warnings": [],
         }
 
-        with patch("app.services.pipeline_service.generate_document_insights", return_value=insights), \
+        with patch("app.services.pipeline_service.generate_document_insights", return_value=insights) as extract_text, \
+             patch("app.services.pipeline_service.generate_document_insights_from_pdf_file") as extract_pdf, \
              patch("app.services.pipeline_service.generate_artifacts", return_value=artifacts), \
              patch("app.services.pipeline_service.generate_report_title", return_value="Relatório Documental"), \
              patch("app.services.pipeline_service.generate_all_texts", return_value=text_map), \
@@ -288,10 +300,13 @@ class PipelineContractTests(unittest.TestCase):
              patch("app.services.pipeline_service.validate_report_plan", side_effect=lambda plan, *args, **kwargs: (plan, [])):
             run_pipeline(job_id)
 
+        extract_text.assert_called_once()
+        extract_pdf.assert_not_called()
         session = get_session(job_id)
         self.assertEqual(session["current_step"], "completed")
         self.assertEqual(session["settings"]["selected_template_id"], "document_text_only")
         self.assertEqual(session["calculated_metrics"]["m_budget"]["source_type"], "document")
+        self.assertEqual(session["document_insights"][filename]["extraction_source"], "extracted_text")
 
     def test_document_only_pipeline_sends_unusable_pdf_to_document_model(self):
         job_id = self.new_job_id()

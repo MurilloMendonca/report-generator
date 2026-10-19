@@ -34,7 +34,18 @@
                 <div class="file-tray" id="file-tray"></div>
                 <button class="btn btn-outline add-file-btn" type="button" data-action="trigger-add-file">+ Adicionar Dados</button>
             </div>
-            <input type="file" id="add-file-input" accept=".csv,.xls,.xlsx,.pdf" style="display:none" multiple>
+            <input type="file" id="add-file-input" accept=".csv,.xls,.xlsx,.json,.jsonl,.ndjson,.txt,.pdf" style="display:none" multiple>
+            <details class="api-source-details">
+                <summary>Importar API JSON</summary>
+                <form id="api-source-form">
+                    <label for="add-api-url">URL pública HTTPS:</label>
+                    <input id="add-api-url" name="api_url" type="url" placeholder="https://example.com/api/data" required>
+                    <label for="add-api-records-path">Caminho dos registros (opcional):</label>
+                    <input id="add-api-records-path" name="api_records_path" type="text" placeholder="/data/items">
+                    <small>Importa uma resposta como arquivo JSON. Sem autenticação ou paginação automática.</small>
+                    <button type="submit" class="btn btn-outline">Importar dados</button>
+                </form>
+            </details>
         </div>
 
         <div class="chat-history" id="chat-history">
@@ -65,8 +76,15 @@
                 </div>
                 <div class="form-group">
                     <label>Arquivos de dados e contexto:</label>
-                    <input type="file" id="file" name="files" accept=".csv,.xls,.xlsx,.pdf" multiple required>
-                    <small>CSV, Excel (.xls e .xlsx) e PDF. Use nomes diferentes para cada arquivo.</small>
+                    <input type="file" id="file" name="files" accept=".csv,.xls,.xlsx,.json,.jsonl,.ndjson,.txt,.pdf" multiple>
+                    <small>CSV, Excel, JSON, JSON Lines, TXT e PDF. Use nomes diferentes para cada arquivo.</small>
+                </div>
+                <div class="form-group">
+                    <label for="api-url">Ou API JSON pública (HTTPS):</label>
+                    <input id="api-url" name="api_url" type="url" placeholder="https://example.com/api/data">
+                    <label for="api-records-path">Caminho dos registros (opcional):</label>
+                    <input id="api-records-path" name="api_records_path" type="text" placeholder="/data/items">
+                    <small>Usa uma resposta como snapshot. Sem autenticação ou paginação automática. Envie arquivos, uma API, ou ambos.</small>
                 </div>
                 <div class="form-group">
                     <label>Objetivo do Relatório (opcional):</label>

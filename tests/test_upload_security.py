@@ -2,6 +2,8 @@ import io
 import os
 import uuid
 import unittest
+import tempfile
+from unittest.mock import patch
 
 import pandas as pd
 from fastapi import HTTPException, Response, UploadFile
@@ -49,6 +51,49 @@ class UploadSecurityTests(unittest.TestCase):
 
         self.assertEqual(error.exception.status_code, 400)
         self.assertIn("Invalid CSV", error.exception.detail)
+
+    def test_json_and_text_uploads_are_validated_and_failed_batches_are_removed(self):
+        invalid = [
+            ("bad.json", b'{"rows": [}'),
+            ("empty.json", b'[]'),
+            ("scalar.json", b'123'),
+            ("duplicate.json", b'{"a": 1, "a": 2}'),
+            ("nan.json", b'[{"value": NaN}]'),
+            ("overflow.json", b'[{"value": 1e999}]'),
+            ("nested.json", b'[{"value":' + b'[' * 40 + b'1' + b']' * 40 + b'}]'),
+            ("bad.jsonl", b'{"a": 1}\ninvalid\n'),
+            ("binary.txt", b'hello\x00world'),
+            ("empty.txt", b' \n\t'),
+        ]
+        with tempfile.TemporaryDirectory(dir=web_helpers.UPLOAD_DIR) as directory:
+            for name, content in invalid:
+                with self.subTest(name=name), self.assertRaises(HTTPException) as error:
+                    web_helpers.save_uploaded_files([
+                        self.upload("valid.csv", b'a\n1\n'), self.upload(name, content)
+                    ], directory)
+                self.assertEqual(error.exception.status_code, 400)
+                self.assertEqual(os.listdir(directory), [])
+
+    def test_accepts_json_json_lines_and_plain_text(self):
+        with tempfile.TemporaryDirectory(dir=web_helpers.UPLOAD_DIR) as directory:
+            saved = web_helpers.save_uploaded_files([
+                self.upload("data.JSON", b'{"results":[{"region":"Sul","total":12}]}'),
+                self.upload("events.jsonl", b'{"value":1}\n{"value":2}\n'),
+                self.upload("events.ndjson", b'{"value":3}\n'),
+                self.upload("brief.txt", 'Orçamento: 10 milhões de euros.'.encode("cp1252")),
+            ], directory)
+            self.assertEqual([item["validation"]["format"] for item in saved], ["json", "jsonl", "jsonl", "text"])
+            self.assertEqual(saved[0]["validation"]["records_path"], "/results")
+            self.assertEqual(saved[1]["validation"]["rows"], 2)
+
+    def test_api_snapshot_storage_quota_failure_cleans_up_all_sources(self):
+        with tempfile.TemporaryDirectory(dir=web_helpers.UPLOAD_DIR) as directory, \
+             patch("app.services.api_sources.fetch_json_snapshot", return_value=(b'[{"a":1}]', "example.com")), \
+             patch("app.services.quotas.check_storage", side_effect=HTTPException(413, "storage quota")):
+            with self.assertRaises(HTTPException):
+                web_helpers.save_data_sources([self.upload("data.csv", b'a\n1\n')],
+                                             "https://example.com", "", directory, uuid.uuid4())
+            self.assertEqual(os.listdir(directory), [])
 
     def test_rejects_excel_workbooks_with_too_many_sheets(self):
         path = os.path.join(web_helpers.UPLOAD_DIR, f"test_upload_security_many_sheets_{uuid.uuid4().hex}.xlsx")

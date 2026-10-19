@@ -1,5 +1,9 @@
 # Production launch and operations
 
+Status: the operator confirmed the deployment checks and supplied the passing
+Mac mini result recorded below. The checklist remains a reusable runbook for
+future deployments and recovery drills.
+
 Run the host checks on the Mac mini. Local tests do not establish that DNS,
 Cloudflare policies, email delivery, power settings or off-machine backups work.
 Keep registration closed until all launch gates below have evidence.
@@ -159,7 +163,24 @@ confirmed import completion; it is unreachable by production sandboxes.
 ## Evidence recorded in this checkout
 
 Implementation tests and local drills are recorded in the plan's Phase 6/7 notes.
-The operator subsequently confirmed all deployment checks except the Mac mini
-load run, including live provider reports, Access/SMTP, recovery, migration and
-host settings. Run `sh scripts/load-check.sh 10` on that Mac and record its final
-JSON result to finish the remaining check.
+The operator confirmed the deployment checks, including live provider reports,
+Access/SMTP, recovery, migration and host settings. On 2026-10-19 at 00:08 UTC,
+the Mac mini completed `sh scripts/load-check.sh 10` with this result:
+
+```json
+{
+  "users": 10,
+  "successes": 10,
+  "peak_jobs": 2,
+  "configured_slots": 2,
+  "elapsed_seconds": 2.33,
+  "max_user_seconds": 2.33,
+  "mean_user_seconds": 1.43,
+  "passed": true
+}
+```
+
+The supplied log shows exit code 0 and successful removal of both test
+containers, both data volumes and the network. All planned launch checks are
+recorded as complete. These timings apply to the simple PDF workload described
+above; they do not establish capacity for large reports or live provider/HTTP traffic.

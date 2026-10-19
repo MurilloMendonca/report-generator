@@ -33,6 +33,7 @@ async function main() {
 
     const button = element('submit');
     const event = { preventDefault() {}, target: { querySelector: () => button } };
+    element('file').files = [{ name: 'data.json' }];
     let rejectUpload;
     let uploadCalls = 0;
     api.startSession = () => { uploadCalls += 1; return new Promise((_resolve, reject) => { rejectUpload = reject; }); };
@@ -43,6 +44,15 @@ async function main() {
     await upload;
     assert.strictEqual(button.disabled, false);
     assert.strictEqual(element('workspace-notice').textContent, 'Unsupported file');
+
+    element('file').files = [];
+    await app.handleStartSession(event);
+    assert.strictEqual(uploadCalls, 1, 'empty imports must be rejected before making a request');
+    assert(element('workspace-notice').textContent.includes('API JSON'));
+    element('api-url').value = 'https://example.com/data';
+    api.startSession = async () => { throw new Error('API unavailable'); };
+    await app.handleStartSession(event);
+    assert.strictEqual(element('workspace-notice').textContent, 'API unavailable', 'API-only reports can be submitted');
 
     const session = { job_id: 'one', status: 'Working', settings: {}, artifacts: [], files: [] };
     app.currentSession = session;

@@ -225,6 +225,17 @@ def update_session(job_id: str, updates: dict):
     return _mutate(job_id, change)
 
 
+def append_session_files(job_id: str, files: list):
+    """Append sources under the row lock, preserving concurrent additions."""
+    def change(session):
+        existing = {item["original_filename"].casefold() for item in session.get("files", [])}
+        names = [item["original_filename"].casefold() for item in files]
+        if len(names) != len(set(names)) or existing.intersection(names):
+            raise ValueError("A file with this name already exists in the session")
+        session.setdefault("files", []).extend(files)
+    return _mutate(job_id, change)
+
+
 def preserve_report_on_failure(refine):
     """Keep the last usable report when a refinement fails before a new PDF exists."""
     @wraps(refine)

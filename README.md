@@ -1,6 +1,6 @@
 # Report Generator
 
-FastAPI application that uses LLMs to turn uploaded CSV, Excel, and PDF context files into analytical PDF reports. The app provides a browser workspace where users can upload and inspect files, optionally preprocess data, generate report components, edit indicators and layout, refine the report through chat, ask ad-hoc questions about the data, inspect generated Python, and download the final PDF.
+FastAPI application that uses LLMs to turn CSV, Excel, JSON, JSON Lines, TXT and PDF files, plus snapshots from public JSON APIs, into analytical PDF reports. The app provides a browser workspace where users can upload and inspect files, optionally preprocess data, generate report components, edit indicators and layout, refine the report through chat, ask ad-hoc questions about the data, inspect generated Python, and download the final PDF.
 
 The current UI text is mostly Portuguese, and the default report language is Portuguese.
 
@@ -204,6 +204,7 @@ All settings are environment variables (`.env` is loaded automatically).
 | `PDF_REPORT_RECOVER_SESSIONS_ON_START` | `1` (`0` when `APP_ENV=test`) | Mark sessions interrupted by a restart as failed on startup. |
 | `PDF_REPORT_MAX_UPLOAD_BYTES` | `52428800` (50 MB) | Per-file upload limit. |
 | `PDF_REPORT_MAX_REQUEST_UPLOAD_BYTES` | `94371840` (90 MB) | Total size of all files in one upload request. Cloudflare's free plan rejects bodies over 100 MB. |
+| `PDF_REPORT_MAX_API_BYTES` | `10485760` (10 MB) | Maximum JSON API response size; upload and account storage limits also apply. |
 | `PDF_REPORT_MAX_EXCEL_SHEETS` | `20` | Sheets allowed per Excel workbook. |
 | `PDF_REPORT_CLIENT_IP_HEADER` | unset (compose: `CF-Connecting-IP`) | Header holding the real client address behind a proxy. Used only for requests from a trusted proxy. |
 | `PDF_REPORT_TRUSTED_PROXIES` | unset (compose: Docker's gateway networks) | Comma-separated hostnames, IPs or CIDR ranges whose `PDF_REPORT_CLIENT_IP_HEADER` is believed. |
@@ -373,6 +374,12 @@ The pipeline starts from `POST /api/sessions` and runs in a FastAPI background t
 
 Preprocessed files are treated as the analytical input for all metrics and components, while the original upload remains available in the file workspace.
 
+JSON (`.json`) accepts an array of objects, a single object, or an API envelope containing one unambiguous record array (for example `{"data":{"items":[{"sales":12}]},"total":1}`). Nested object keys become dotted columns such as `customer.region`; lists inside records remain JSON text, preserving one row per record. JSON Lines (`.jsonl` / `.ndjson`) accepts one object per nonblank line. JSON must be UTF-8. Empty datasets, scalar arrays, duplicate keys, conflicting flattened columns, excessive nesting and non-finite numbers are rejected. Multiple record arrays require selecting one through the API records path or uploading that array separately. Metadata, preprocessing, metrics, charts and the explorer use the same loader.
+
+TXT files provide document context like PDFs, supporting document-only narrative reports and evidence-backed document insights. UTF-8 and Windows-1252 are supported; empty files and binary control characters are rejected. Document context uses the first 20,000 characters and records a truncation warning; the full original remains downloadable. TXT files are not treated as tables.
+
+To import an API, enter a public HTTPS URL when starting a report or use **Importar API JSON** in an existing report. An optional JSON Pointer such as `/data/items` selects records from the response. Each import performs one GET and saves a JSON snapshot in that report's uploads, so subsequent report generation does not depend on the remote API. Only public addresses on port 443 are allowed; connections pin a validated IP while verifying the original TLS hostname. Redirects and compressed responses are rejected, and requests have a 20-second network time budget. APIs must return `application/json` or an `application/*+json` content type. There is no authentication, automatic pagination or scheduled refresh. Only the source hostname, records path and import time are stored as provenance; the request URL and query string are not persisted.
+
 If the server restarts mid-job, the job is lost; on the next startup that session is marked `failed` with error code `interrupted` so the UI stops waiting and the user can retry.
 
 ## LLM Package
@@ -425,14 +432,16 @@ Reports:
 - `GET /api/component-library/previews`: preview images for presets, given a `theme` and `style`.
 - `GET /api/component-library/presets/{preset_id}/preview`: one preset's preview image.
 - `POST /api/sessions`: starts a report job. Form fields:
-  - `files`: one or more CSV/Excel/PDF files.
+  - `files`: optional CSV/Excel/JSON/JSON Lines/TXT/PDF files. Supply files, an API URL, or both.
+  - `api_url`: optional public HTTPS JSON API URL.
+  - `api_records_path`: optional JSON Pointer (for example `/data/items`) selecting records from the API response.
   - `prompt`: report objective. Blank means exploratory report.
   - `provider`: `gemini`, `deepseek`, `anthropic`, `openai` or `openrouter`; default `deepseek`.
   - `model_name`: provider model name.
 - `GET /api/sessions`: returns recent sessions.
 - `GET /api/sessions/{job_id}`: returns the full session state.
 - `DELETE /api/sessions/{job_id}`: deletes the session's database row and all its files.
-- `POST /api/sessions/{job_id}/files`: adds more files and reruns the pipeline.
+- `POST /api/sessions/{job_id}/files`: adds files and/or an API snapshot using the same `files`, `api_url` and `api_records_path` fields, then reruns the pipeline.
 - `GET /api/sessions/{job_id}/files/{file_index}/preview`: previews an uploaded file. Use `?variant=preprocessed` when available.
 - `GET /api/sessions/{job_id}/files/{file_index}/download`: downloads an uploaded file. Use `?variant=preprocessed` when available.
 - `DELETE /api/sessions/{job_id}/files/{file_index}`: removes a file from the session and reruns when files remain.
