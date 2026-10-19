@@ -1,6 +1,7 @@
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from app.utils.visual_contracts import VisualOptions
 
 
 HexColor = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
@@ -20,21 +21,8 @@ class SettingsChanges(BaseModel):
     chart_palette: list[HexColor] | None = Field(default=None, max_length=12)
 
 
-class VisualOptionsChanges(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    color: HexColor | None = None
-    line_color: HexColor | None = None
-    bar_color: HexColor | None = None
-    orientation: Literal["horizontal", "vertical"] | None = None
-    show_values: bool | None = None
-    show_labels: bool | None = None
-    show_markers: bool | None = None
-    show_trendline: bool | None = None
-    hide_x_label: bool | None = None
-    labels: dict[str, str] | None = None
-    top_n: int | None = Field(default=None, ge=1, le=100)
-    max_points: int | None = Field(default=None, ge=10, le=10000)
+class VisualOptionsChanges(VisualOptions):
+    """Refinement uses the same options as planning and rendering."""
 
 
 class LayoutChanges(BaseModel):

@@ -1,5 +1,6 @@
 import re
 from collections import Counter
+from pydantic import ValidationError
 
 from app.utils.component_library import (
     get_preset,
@@ -8,6 +9,7 @@ from app.utils.component_library import (
 )
 from app.utils.component_renderers import supports_library_renderer
 from app.utils.tabular import metadata_tables
+from app.utils.visual_contracts import DataBinding
 
 VISUAL_TYPES = {"graphic", "bar", "line", "pie", "scatter", "table", "chart", "radial", "donut", "gauge"}
 ALLOWED_TYPES = VISUAL_TYPES | {"metric", "text"}
@@ -137,9 +139,7 @@ def role_candidate_columns(columns: list[str], role: dict, metadata_items: list)
 
 def normalize_binding_column(value: str, source: str | None = None) -> str:
     filename, column = split_column_reference(value)
-    if source and filename == source:
-        return column
-    return column
+    return value if filename and source and filename != source else column
 
 
 def binding_reference(source: str | None, column: str) -> str:
@@ -159,22 +159,29 @@ def infer_data_binding(artifact: dict, preset: dict, metadata_items: list) -> di
 
     roles = {}
     used = set()
+    aggregation = (artifact.get("data_binding") or {}).get("aggregation") or (artifact.get("visual_options") or {}).get("aggregation")
     for role in preset.get("data_roles", []):
-        candidates = role_candidate_columns(columns, role, metadata_items)
+        candidates = [item for item in columns if item not in used and role_accepts_binding(
+            role, column_kind(column_profile(item, metadata_items)), aggregation
+        )]
+        if not candidates and role.get("required"):
+            candidates = role_candidate_columns(columns, role, metadata_items)
         candidate = next((item for item in candidates if item not in used), None)
         if not candidate:
             continue
-        used.add(candidate)
-        roles[role["name"]] = normalize_binding_column(candidate, first_source)
+        chosen = [item for item in candidates if item not in used] if role.get("multiple") else [candidate]
+        used.update(chosen)
+        values = [normalize_binding_column(item, first_source) for item in chosen]
+        roles[role["name"]] = values if len(values) > 1 else values[0]
 
     options = artifact.get("visual_options") or {}
     return {
         "source": first_source,
         "roles": roles,
         "aggregation": options.get("aggregation") or "sum",
-        "sort": options.get("sort") or ("desc" if preset.get("family") in {"bar", "table"} else "none"),
+        "sort": options.get("sort") or (("desc" if options.get("sort_desc", True) else "asc") if preset.get("family") in {"bar", "table"} else "none"),
         "filters": [],
-        "limit": options.get("top_n") or options.get("limit"),
+        "limit": options.get("limit"),
     }
 
 
@@ -185,7 +192,12 @@ def normalize_data_binding(artifact: dict, preset: dict, metadata_items: list, i
         binding = inferred_binding
     else:
         binding = dict(binding)
-        binding["roles"] = dict(binding.get("roles") or {})
+        if not isinstance(binding.get("roles", {}), dict):
+            issues.append({"severity": "warning", "code": "invalid_data_binding", "id": artifact.get("id"),
+                           "field": "roles", "message": "Data binding roles must be an object"})
+        binding["roles"] = dict(binding.get("roles") or {}) if isinstance(binding.get("roles", {}), dict) else {}
+        binding.setdefault("sort", inferred_binding["sort"])
+        binding.setdefault("aggregation", inferred_binding["aggregation"])
         inferred_roles = inferred_binding.get("roles") or {}
         for role in preset.get("data_roles", []):
             role_name = role.get("name")
@@ -211,6 +223,12 @@ def normalize_data_binding(artifact: dict, preset: dict, metadata_items: list, i
                 source = candidate_source
                 binding["source"] = source
                 break
+        if not source and len(sources) == 1:
+            source = next(iter(sources))
+            binding["source"] = source
+        elif not source:
+            issues.append({"severity": "warning", "code": "data_binding_source_missing", "id": artifact.get("id"),
+                           "message": "Choose an explicit source for a visual with multiple datasets"})
 
     visual_warnings = []
     normalized_roles = {}
@@ -233,47 +251,56 @@ def normalize_data_binding(artifact: dict, preset: dict, metadata_items: list, i
                 })
             continue
 
-        value = normalize_binding_column(str(value), source)
-        reference = binding_reference(source, value)
-        profile = column_profile(reference, metadata_items)
-        kind = column_kind(profile)
-        if not profile:
-            visual_warnings.append(f"coluna `{reference}` não encontrada")
-            issues.append({
-                "severity": "warning",
-                "code": "data_binding_column_missing",
-                "id": artifact.get("id"),
-                "role": role_name,
-                "column": reference,
-                "message": "Data binding role references a column that was not found",
-            })
-        elif not role_accepts_binding(role, kind, binding.get("aggregation")):
-            visual_warnings.append(f"`{reference}` não parece compatível com `{role_name}`")
-            issues.append({
-                "severity": "warning",
-                "code": "data_binding_role_mismatch",
-                "id": artifact.get("id"),
-                "role": role_name,
-                "column": reference,
-                "expected_kind": role.get("kind"),
-                "actual_kind": kind,
-                "message": "Data binding role uses a column with an incompatible type",
-            })
-        normalized_roles[role_name] = value
+        values = value if isinstance(value, list) else [value]
+        normalized_values = []
+        if isinstance(value, list) and not role.get("multiple"):
+            issues.append({"severity": "warning", "code": "data_binding_role_mismatch", "id": artifact.get("id"),
+                           "role": role_name, "message": "This visual role requires a single column"})
+        for item in values:
+            if not isinstance(item, str):
+                issues.append({"severity": "warning", "code": "invalid_data_binding", "id": artifact.get("id"),
+                               "role": role_name, "message": "Column roles must contain column names"})
+                continue
+            column = normalize_binding_column(item.strip(), source)
+            normalized_values.append(column)
+            reference = binding_reference(source, column)
+            profile = column_profile(reference, metadata_items)
+            kind = column_kind(profile)
+            if split_column_reference(column)[0] not in {None, source} or not profile:
+                visual_warnings.append(f"coluna `{reference}` não encontrada na fonte selecionada")
+                issues.append({"severity": "warning", "code": "data_binding_column_missing", "id": artifact.get("id"),
+                               "role": role_name, "column": reference, "message": "Column was not found in the selected source"})
+            elif not role_accepts_binding(role, kind, binding.get("aggregation")):
+                visual_warnings.append(f"`{reference}` não parece compatível com `{role_name}`")
+                issues.append({"severity": "warning", "code": "data_binding_role_mismatch", "id": artifact.get("id"),
+                               "role": role_name, "column": reference, "expected_kind": role.get("kind"),
+                               "actual_kind": kind, "message": "Column has an incompatible type for this role"})
+        normalized_roles[role_name] = normalized_values if isinstance(value, list) else next(iter(normalized_values), "")
 
     binding["roles"] = normalized_roles
     binding["aggregation"] = str(binding.get("aggregation") or "sum")
     binding["sort"] = str(binding.get("sort") or "none")
     filters = binding.get("filters")
-    binding["filters"] = filters if isinstance(filters, list) else []
-    if binding.get("limit") in {"", None}:
+    binding["filters"] = [] if filters is None else filters
+    if binding.get("limit") == "" or binding.get("limit") is None:
         binding["limit"] = None
+    try:
+        binding = DataBinding.model_validate(binding).model_dump()
+    except ValidationError as exc:
+        for error in exc.errors():
+            issues.append({"severity": "warning", "code": "invalid_data_binding", "id": artifact.get("id"),
+                           "field": ".".join(map(str, error["loc"])), "message": "Invalid data binding type or value"})
     artifact["visual_warnings"] = visual_warnings
     return binding
 
 
 def normalize_render_mode(artifact: dict, issues: list, preset: dict | None = None) -> str:
-    requested = str(artifact.get("render_mode") or "generated_code").lower()
+    eligible = supports_library_renderer((preset or {}).get("id")) and not any(
+        issue.get("id") == artifact.get("id") and (
+            issue.get("code", "").startswith("data_binding_") or issue.get("code") == "invalid_data_binding"
+        ) for issue in issues
+    )
+    requested = str(artifact.get("render_mode") or ("library" if eligible else "generated_code")).lower()
     if requested not in {"generated_code", "library", "hybrid"}:
         issues.append({
             "severity": "warning",
@@ -399,7 +426,24 @@ def validate_report_plan(artifacts: list, metadata_items: list, template_context
 
             if preset:
                 artifact["sub_type"] = artifact.get("sub_type") or preset.get("family")
-                artifact["visual_options"] = normalize_visual_options(preset, artifact.get("visual_options"))
+                options = artifact.get("visual_options") or {}
+                binding = artifact.get("data_binding") or {}
+                if not isinstance(options, dict):
+                    issues.append({"severity": "warning", "code": "invalid_visual_options", "id": artifact_id,
+                                   "message": "Visual options must be an object"})
+                    options = {}
+                if not isinstance(binding, dict):
+                    issues.append({"severity": "warning", "code": "invalid_data_binding", "id": artifact_id,
+                                   "message": "Data binding must be an object"})
+                    binding = {}
+                options, binding = dict(options), dict(binding)
+                # Older plans put calculation settings in visual_options. Move
+                # them to the authoritative binding before validating options.
+                for field in ("aggregation", "sort", "filters", "limit"):
+                    if field in options:
+                        binding.setdefault(field, options.pop(field))
+                artifact["data_binding"] = binding
+                artifact["visual_options"] = normalize_visual_options(preset, options, issues, artifact_id)
                 artifact["data_binding"] = normalize_data_binding(artifact, preset, metadata_items, issues)
                 artifact["render_mode"] = normalize_render_mode(artifact, issues, preset)
                 validate_preset_roles(artifact, preset, metadata_items, issues)
@@ -438,9 +482,9 @@ def validate_report_plan(artifacts: list, metadata_items: list, template_context
         graphic_limit = int(template_context.get("graphic_slots") or 0)
         text_count = sum(1 for item in validated if item.get("type") == "text")
         graphic_count = sum(1 for item in validated if item.get("type") in VISUAL_TYPES)
-        if text_limit and text_count > text_limit:
-            issues.append({"severity": "info", "code": "text_template_limit", "message": f"Plan has {text_count} text artifacts for {text_limit} text slots"})
-        if graphic_limit and graphic_count > graphic_limit:
-            issues.append({"severity": "info", "code": "graphic_template_limit", "message": f"Plan has {graphic_count} visual artifacts for {graphic_limit} graphic slots"})
+        if text_count > text_limit:
+            issues.append({"severity": "info", "code": "text_template_limit", "message": f"Plan has {text_count} text artifacts for {text_limit} text slots; overflow will use additional pages"})
+        if graphic_count > graphic_limit:
+            issues.append({"severity": "info", "code": "graphic_template_limit", "message": f"Plan has {graphic_count} visual artifacts for {graphic_limit} graphic slots; overflow will use additional pages"})
 
     return validated, issues

@@ -464,7 +464,7 @@ class PipelineContractTests(unittest.TestCase):
 
         session = get_session(job_id)
         artifact = next(item for item in session["artifacts"] if item["id"] == "g_top_pokemon_table")
-        self.assertEqual(artifact["data_binding"]["roles"]["dimensions"], "name")
+        self.assertEqual(artifact["data_binding"]["roles"]["dimensions"], ["name", "type_1"])
         self.assertEqual(artifact["data_binding"]["roles"]["metrics"], "base_stat_total")
         self.assertEqual(artifact["visual_warnings"], [])
         self.assertIn("from pdf_report_renderers.runtime import", session["script"])

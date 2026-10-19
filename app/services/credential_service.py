@@ -141,6 +141,7 @@ def delete_credential(user_id, provider, ip=None):
 
 
 def rewrap_keys() -> int:
+    from app.services.source_service import rewrap_source_keys
     _, active = crypto.keyring()
     count = 0
     with transaction() as tx:
@@ -149,6 +150,7 @@ def rewrap_keys() -> int:
                 setattr(row, name, value)
             row.updated_at = _now()
             count += 1
+        count += rewrap_source_keys(tx, active)
         audit("credential_keys_rewrapped", tx=tx, count=count)
     return count
 

@@ -107,6 +107,8 @@ class ReportSession(BaseModel):
     run_history: list[dict[str, Any]] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
     files: list[SessionFile] = Field(default_factory=list)
+    source_import: dict[str, Any] = Field(default_factory=dict)
+    source_snapshot_history: list[dict[str, Any]] = Field(default_factory=list)
     initial_prompt: str = ""
     current_goal: str = ""
     is_exploratory: bool = False
@@ -115,6 +117,7 @@ class ReportSession(BaseModel):
     pending_refinement: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     artifact_validation: list[dict[str, Any]] = Field(default_factory=list)
+    render_summary: dict[str, Any] = Field(default_factory=dict)
     template: list[dict[str, Any]] = Field(default_factory=list)
     components: dict[str, str] = Field(default_factory=dict)
     calculated_metrics: dict[str, Any] = Field(default_factory=dict)
@@ -167,6 +170,9 @@ class ReportSession(BaseModel):
     @model_validator(mode="after")
     def migrate_session(self):
         self.schema_version = CURRENT_SESSION_SCHEMA_VERSION
+        for artifact in self.artifacts:
+            if artifact.get('id') in self.components and artifact.get('type') not in {'metric', 'text'} and not artifact.get('render_mode'):
+                artifact['render_mode'] = 'generated_code'
         if not self.current_goal:
             self.current_goal = self.initial_prompt
         if not self.refinement_messages and self.refinement_history:

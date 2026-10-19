@@ -351,7 +351,7 @@ const UI = {
             title.className = 'file-title';
             const name = document.createElement('span');
             name.className = 'file-name';
-            name.textContent = filename;
+            name.textContent = f.source?.dataset_name || filename;
             title.appendChild(name);
             if (hasPreprocessed) {
                 const badge = document.createElement('span');
@@ -365,7 +365,7 @@ const UI = {
             const meta = document.createElement('div');
             meta.className = 'file-meta';
             const metaText = document.createElement('span');
-            metaText.textContent = metadata;
+            metaText.textContent = f.source?.type === 'saved_dataset' ? `${f.source.row_count} linhas · ${new Date(f.source.fetched_at).toLocaleString('pt-BR')}` : metadata;
             meta.appendChild(metaText);
             if (size) {
                 const sizeEl = document.createElement('span');
@@ -782,8 +782,10 @@ const UI = {
         );
         UI.appendInfoList(body, 'Usar para', preset.best_for || []);
         UI.appendInfoList(body, 'Evitar em', preset.avoid_when || []);
-        UI.appendInfoList(body, 'Papéis exigidos', preset.required_roles || []);
-        UI.appendInfoList(body, 'Opções', preset.common_options || []);
+        UI.appendInfoList(body, 'Papéis exigidos', (preset.data_roles || []).filter(role => role.required)
+            .map(role => `${role.name}${role.multiple ? ' (uma ou mais colunas)' : ''}`));
+        UI.appendInfoList(body, 'Opções', Object.keys((preset.options_schema || {}).properties || {})
+            .length ? Object.keys(preset.options_schema.properties) : (preset.common_options || []));
         if (theme || style) {
             const context = document.createElement('p');
             context.className = 'visual-context-note';
@@ -793,13 +795,13 @@ const UI = {
         if (renderModeSelect) {
             const mode = document.createElement('p');
             mode.className = 'visual-context-note';
-            mode.textContent = `Modo de renderização: ${renderModeSelect.value || 'generated_code'}.`;
+            mode.textContent = `Modo de renderização: ${renderModeSelect.value || 'automático'}.`;
             body.appendChild(mode);
         }
         if (dataBindingInput && dataBindingInput.value.trim()) {
             try {
                 const binding = JSON.parse(dataBindingInput.value);
-                const roles = binding && binding.roles ? Object.entries(binding.roles).map(([role, column]) => `${role}: ${column}`) : [];
+                const roles = binding && binding.roles ? Object.entries(binding.roles).map(([role, column]) => `${role}: ${Array.isArray(column) ? column.join(', ') : column}`) : [];
                 UI.appendInfoList(body, 'Data binding', roles);
             } catch (error) {
                 const warning = document.createElement('p');

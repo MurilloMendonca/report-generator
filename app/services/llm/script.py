@@ -57,6 +57,8 @@ def assemble_script(
     script = [
         "import os", "os.environ.setdefault('MPLCONFIGDIR', '/tmp/matplotlib')",
         "import json",
+        "import inspect",
+        "import time",
         "import pandas as pd", "import numpy as np", "import matplotlib as mpl", "import matplotlib.pyplot as plt", "import seaborn as sns",
         "from fpdf import FPDF, XPos, YPos", "import tempfile", "import textwrap", "",
         "CHART_TITLE_FONTSIZE = 9",
@@ -93,6 +95,7 @@ def assemble_script(
         "import pdf_report_renderers.runtime as render_runtime",
         "from pdf_report_renderers.runtime import (",
         "    configure_visual_runtime, render_visual_component, render_bar_chart,",
+        "    begin_component_render, component_render_outcome,",
         "    render_line_chart, render_scatter_plot, render_donut_chart, render_gauge_chart,",
         "    render_summary_table, render_detail_table, _resolved_chart_theme,",
         "    _chart_colors, _apply_chart_theme, _format_compact_number,",
@@ -251,17 +254,26 @@ def assemble_script(
     script.append("    ensure_page(1)")
     for item in template:
         page = item.get("page", 1)
+        render_mode = str((artifacts_by_id.get(str(item['id'])) or {}).get('render_mode') or 'generated_code')
         script.append(f"    ensure_page({page})")
+        script.append("    component_started = time.perf_counter()")
+        script.append(f"    begin_component_render({render_mode!r})")
         script.append(f"    try:")
         script.append(f"        # Provide a default 'df' for backward compatibility with older prompts/scripts")
         script.append(f"        primary_df = list(dataframes.values())[0] if dataframes else None")
         script.append(f"        try:")
-        script.append(f"            render_{item['id']}(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']}, df=primary_df)")
-        script.append(f"        except TypeError:")
-        script.append(f"            render_{item['id']}(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']})")
-        script.append(f"        component_manifest.append({{'id': {json.dumps(item['id'])}, 'status': 'rendered'}})")
+        script.append(f"            inspect.signature(render_{item['id']}).bind(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']}, df=primary_df)")
+        script.append("            accepts_df = True")
+        script.append("        except (TypeError, ValueError):")
+        script.append("            accepts_df = False")
+        script.append("        if accepts_df:")
+        script.append(f"            component_result = render_{item['id']}(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']}, df=primary_df)")
+        script.append("        else:")
+        script.append(f"            component_result = render_{item['id']}(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']})")
+        preset_id = (artifacts_by_id.get(str(item['id'])) or {}).get('component_preset_id')
+        script.append(f"        component_manifest.append({{**component_render_outcome(component_result), 'id': {json.dumps(item['id'])}, 'preset_id': {preset_id!r}, 'duration_ms': (time.perf_counter() - component_started) * 1000}})")
         script.append(f"    except Exception as e: ")
-        script.append(f"        component_manifest.append({{'id': {json.dumps(item['id'])}, 'status': 'failed', 'error': str(e)}})")
+        script.append(f"        component_manifest.append({{**component_render_outcome(), 'id': {json.dumps(item['id'])}, 'preset_id': {preset_id!r}, 'status': getattr(e, 'render_status', 'failed'), 'error': str(e), 'duration_ms': (time.perf_counter() - component_started) * 1000}})")
         script.append(f"        logging.getLogger(__name__).exception('Erro no componente {json.dumps(item['id'])}')")
     script.append(f"    manifest_path = {str(output_pdf_path + '.manifest.json')!r}")
     script.append("    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:")

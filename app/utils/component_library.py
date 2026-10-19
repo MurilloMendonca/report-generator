@@ -3,13 +3,22 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from functools import lru_cache
+import threading
+
+from pydantic import ValidationError
 
 from app.utils.component_renderers import SUPPORTED_LIBRARY_RENDER_PRESETS
+from app.utils.visual_contracts import (
+    COMMON_VISUAL_OPTIONS, PRESET_VISUAL_OPTIONS, DataBinding, VisualOptions,
+    VisualRole, visual_options_schema,
+)
 
 
 VISUAL_FAMILIES = {"bar", "line", "scatter", "radial", "donut", "gauge", "table", "pie", "chart", "graphic"}
-PREVIEW_CATALOG_VERSION = "2026-06-04.1"
+PREVIEW_CATALOG_VERSION = "2026-10-18.1"
 COMPONENT_PREVIEW_DIR = Path("workspace/component_previews")
+_PREVIEW_LOCK = threading.RLock()
 
 CHART_STYLES = {
     "modern": {
@@ -251,8 +260,8 @@ COMPONENT_PRESETS = {
         "allowed_types": ["graphic", "table", "chart"],
         "description": "Tabela agregada curta com ranking ou resumo executivo.",
         "data_roles": [
-            {"name": "dimensions", "kind": "categorical", "required": True},
-            {"name": "metrics", "kind": "numeric", "required": True},
+            {"name": "dimensions", "kind": "categorical", "required": True, "multiple": True},
+            {"name": "metrics", "kind": "numeric", "required": True, "multiple": True},
         ],
         "default_options": {"top_n": 8, "show_totals": False, "striped_rows": True},
         "compact_guidance": "Use no máximo 5 linhas e 4 colunas em blocos compactos.",
@@ -265,7 +274,7 @@ COMPONENT_PRESETS = {
         "allowed_types": ["graphic", "table", "chart"],
         "description": "Mostra linhas selecionadas ou top N registros relevantes.",
         "data_roles": [
-            {"name": "columns", "kind": "any", "required": True},
+            {"name": "columns", "kind": "any", "required": True, "multiple": True},
         ],
         "default_options": {"top_n": 10, "striped_rows": True, "sort_desc": True},
         "compact_guidance": "Evite mais de 4 colunas em blocos estreitos.",
@@ -446,6 +455,8 @@ def _enrich_preset(preset: dict) -> dict:
     enriched["required_roles"] = _required_roles(enriched)
     enriched["optional_roles"] = _optional_roles(enriched)
     enriched["common_options"] = list((enriched.get("default_options") or {}).keys())
+    enriched["options_schema"] = visual_options_schema(enriched["id"])
+    enriched["binding_schema"] = DataBinding.model_json_schema()
     enriched["preview_image_url"] = _preview_url(enriched["id"])
     enriched["supported_render_modes"] = ["generated_code"]
     if enriched["id"] in SUPPORTED_LIBRARY_RENDER_PRESETS:
@@ -494,16 +505,25 @@ def infer_preset_id(artifact: dict) -> str:
     return DEFAULT_PRESET_BY_TYPE.get(artifact_type, "bar_ranked")
 
 
-def normalize_visual_options(preset: dict | None, options: dict | None) -> dict:
+def normalize_visual_options(preset: dict | None, options: dict | None, issues: list | None = None, artifact_id=None) -> dict:
     normalized = dict((preset or {}).get("default_options") or {})
     if isinstance(options, dict):
+        options = dict(options)
+        if "granularity" in options and "date_granularity" not in options:
+            options["date_granularity"] = options.pop("granularity")
+        allowed = COMMON_VISUAL_OPTIONS | PRESET_VISUAL_OPTIONS.get((preset or {}).get("id"), set())
         for key, value in options.items():
-            if key in normalized or key in {
-                "title", "sort_by", "format", "target", "max_value",
-                "labels", "axis_labels", "legend_title",
-                "color", "line_color", "bar_color",
-            }:
-                normalized[key] = value
+            if key not in allowed:
+                if issues is not None:
+                    issues.append({"severity": "warning", "code": "invalid_visual_options", "id": artifact_id,
+                                   "field": key, "message": "Option is not supported by this visual preset"})
+                continue
+            try:
+                normalized.update(VisualOptions.model_validate({key: value}).model_dump(exclude_none=True))
+            except ValidationError:
+                if issues is not None:
+                    issues.append({"severity": "warning", "code": "invalid_visual_options", "id": artifact_id,
+                                   "field": key, "message": "Visual option has an invalid type or value"})
     return normalized
 
 
@@ -528,6 +548,10 @@ def presets_prompt_summary() -> list[dict]:
             "allowed_types": item["allowed_types"],
             "description": item["description"],
             "best_for": item["prompt_contract"],
+            "data_roles": [VisualRole.model_validate(role).model_dump() for role in item["data_roles"]],
+            "default_options": item["default_options"],
+            "options_schema": visual_options_schema(item["id"]),
+            "supported_render_modes": _enrich_preset(item)["supported_render_modes"],
         }
         for item in COMPONENT_PRESETS.values()
     ]
@@ -545,6 +569,12 @@ def component_preview_matrix(theme_id: str = "executive_clean", style_id: str = 
     ]
 
 
+@lru_cache(maxsize=1)
+def _preview_renderer_signature() -> str:
+    from app.utils.component_renderers import sandbox_runtime_source
+    return hashlib.sha256(sandbox_runtime_source().encode("utf-8")).hexdigest()
+
+
 def component_preview_image_path(preset_id: str, theme_id: str | None = None, style_id: str | None = None) -> str:
     preset = COMPONENT_PRESETS.get(str(preset_id or ""))
     if not preset:
@@ -556,10 +586,10 @@ def component_preview_image_path(preset_id: str, theme_id: str | None = None, st
 
     signature = {
         "version": PREVIEW_CATALOG_VERSION,
-        "preset": preset["id"],
-        "theme": theme["id"],
-        "style": style["id"],
-        "palette": theme.get("palette", []),
+        "renderer": _preview_renderer_signature(),
+        "preset": preset,
+        "theme": theme,
+        "style": style,
     }
     digest = hashlib.sha1(json.dumps(signature, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     filename = f"{preset['id']}__{theme['id']}__{style['id']}__{digest}.png"
@@ -569,149 +599,64 @@ def component_preview_image_path(preset_id: str, theme_id: str | None = None, st
     return str(path)
 
 
+@lru_cache(maxsize=1)
+def _preview_runtime():
+    # Execute only our bundled renderer source, never report-controlled code.
+    from app.utils.component_renderers import sandbox_runtime_source
+    from types import ModuleType
+    import sys
+
+    module = ModuleType("pdf_report_preview_runtime")
+    sys.modules[module.__name__] = module
+    exec(sandbox_runtime_source(), module.__dict__)
+    return module
+
+
 def _render_component_preview(path: Path, preset: dict, theme: dict, style: dict) -> None:
+    import shutil
+    import tempfile
+    import pandas as pd
+
     mpl_config_dir = COMPONENT_PREVIEW_DIR / "matplotlib_config"
     mpl_config_dir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", str(mpl_config_dir))
-
-    import matplotlib
-
-    matplotlib.use("Agg", force=True)
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import Wedge
-
-    palette = theme.get("palette") or ["#2563eb", "#16a34a", "#f59e0b"]
-    fig, ax = plt.subplots(figsize=(4.8, 2.7), dpi=120)
-    fig.patch.set_facecolor(theme.get("figure_facecolor", "#ffffff"))
-    ax.set_facecolor(theme.get("axes_facecolor", "#ffffff"))
-
-    preset_id = preset["id"]
-    if preset_id == "bar_grouped":
-        _preview_bar_grouped(ax, palette)
-    elif preset_id == "line_timeseries":
-        _preview_line(ax, palette, style)
-    elif preset_id == "scatter_relationship":
-        _preview_scatter(ax, palette, style)
-    elif preset_id == "radial_donut":
-        _preview_donut(ax, palette, theme)
-    elif preset_id == "radial_gauge":
-        _preview_gauge(ax, palette, theme, Wedge)
-    elif preset_id in {"table_summary", "table_detail"}:
-        _preview_table(ax, theme)
-    else:
-        _preview_bar_ranked(ax, palette)
-
-    if preset_id not in {"radial_donut", "radial_gauge", "table_summary", "table_detail"}:
-        _style_preview_axes(ax, theme, style)
-
-    title = preset.get("name", preset_id)
-    ax.set_title(title, loc="left", fontsize=9, color=theme.get("text_color", "#111827"), pad=8, fontweight="bold")
-    fig.tight_layout(pad=0.8)
-    fig.savefig(path, format="png", bbox_inches="tight", facecolor=fig.get_facecolor())
-    plt.close(fig)
-
-
-def _style_preview_axes(ax, theme: dict, style: dict) -> None:
-    text_color = theme.get("text_color", "#111827")
-    muted = theme.get("muted_text_color", "#6b7280")
-    grid = theme.get("grid_color", "#e5e7eb")
-    style_id = style.get("id")
-
-    ax.tick_params(colors=muted, labelsize=7)
-    ax.xaxis.label.set_color(text_color)
-    ax.yaxis.label.set_color(text_color)
-    if style_id == "minimal":
-        ax.grid(False)
-    else:
-        ax.grid(True, color=grid, alpha=0.6, linewidth=0.8)
-    for spine in ax.spines.values():
-        spine.set_color(grid)
-        spine.set_linewidth(0.8)
-    if style_id == "dense_dashboard":
-        ax.tick_params(labelsize=6)
-
-
-def _preview_bar_ranked(ax, palette: list[str]) -> None:
-    categories = ["Norte", "Sul", "Leste", "Oeste", "Centro"]
-    values = [142, 118, 96, 82, 63]
-    ax.barh(categories, values, color=palette[: len(categories)])
-    ax.invert_yaxis()
-    ax.set_xlabel("Receita")
-
-
-def _preview_bar_grouped(ax, palette: list[str]) -> None:
-    categories = ["Norte", "Sul", "Leste"]
-    q1 = [82, 64, 58]
-    q2 = [96, 76, 71]
-    x = list(range(len(categories)))
-    width = 0.34
-    ax.bar([item - width / 2 for item in x], q1, width=width, color=palette[0], label="Q1")
-    ax.bar([item + width / 2 for item in x], q2, width=width, color=palette[1], label="Q2")
-    ax.set_xticks(x, categories)
-    ax.legend(loc="upper right", fontsize=7, frameon=False)
-
-
-def _preview_line(ax, palette: list[str], style: dict) -> None:
-    periods = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun"]
-    values = [80, 92, 88, 110, 126, 121]
-    x = list(range(len(periods)))
-    marker = "o" if style.get("id") != "minimal" else None
-    ax.plot(x, values, color=palette[0], marker=marker, linewidth=2)
-    ax.fill_between(x, values, [min(values)] * len(values), color=palette[0], alpha=0.08)
-    ax.set_xticks(x, periods)
-    ax.set_ylabel("Valor")
-
-
-def _preview_scatter(ax, palette: list[str], style: dict) -> None:
-    xs = [18, 22, 25, 29, 35, 39, 44, 48, 53, 58, 62, 67]
-    ys = [41, 46, 43, 55, 58, 62, 59, 71, 73, 78, 81, 87]
-    ax.scatter(xs, ys, s=38 if style.get("id") != "dense_dashboard" else 24, color=palette[0], alpha=0.76)
-    ax.plot([min(xs), max(xs)], [min(ys), max(ys)], color=palette[1], linewidth=1.6, alpha=0.8)
-    ax.set_xlabel("Investimento")
-    ax.set_ylabel("Resultado")
-
-
-def _preview_donut(ax, palette: list[str], theme: dict) -> None:
-    values = [42, 27, 19, 12]
-    labels = ["A", "B", "C", "D"]
-    ax.pie(values, labels=labels, colors=palette[:4], startangle=90, wedgeprops={"width": 0.42, "edgecolor": "white"})
-    ax.text(0, 0, "100%", ha="center", va="center", color=theme.get("text_color", "#111827"), fontsize=11, fontweight="bold")
-    ax.axis("equal")
-
-
-def _preview_gauge(ax, palette: list[str], theme: dict, wedge_cls) -> None:
-    value = 0.72
-    ax.set_xlim(-1.2, 1.2)
-    ax.set_ylim(-0.15, 1.2)
-    ax.axis("off")
-    background = wedge_cls((0, 0), 1, 0, 180, width=0.28, facecolor=theme.get("grid_color", "#e5e7eb"), edgecolor="white")
-    foreground = wedge_cls((0, 0), 1, 0, 180 * value, width=0.28, facecolor=palette[0], edgecolor="white")
-    ax.add_patch(background)
-    ax.add_patch(foreground)
-    ax.text(0, 0.18, "72%", ha="center", va="center", color=theme.get("text_color", "#111827"), fontsize=16, fontweight="bold")
-    ax.text(0, -0.02, "atingimento", ha="center", va="center", color=theme.get("muted_text_color", "#6b7280"), fontsize=8)
-
-
-def _preview_table(ax, theme: dict) -> None:
-    ax.axis("off")
-    table_theme = theme.get("table", {})
-    rows = [["Norte", "142k", "1.12"], ["Sul", "118k", "0.98"], ["Leste", "96k", "0.91"]]
-    table = ax.table(
-        cellText=rows,
-        colLabels=["Região", "Receita", "Meta"],
-        loc="center",
-        cellLoc="left",
-        colLoc="left",
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(8)
-    table.scale(1, 1.35)
-    for (row, _col), cell in table.get_celld().items():
-        cell.set_edgecolor(table_theme.get("border", "#d1d5db"))
-        if row == 0:
-            cell.set_facecolor(table_theme.get("header_bg", "#111827"))
-            cell.get_text().set_color(table_theme.get("header_text", "#ffffff"))
-            cell.get_text().set_fontweight("bold")
-        else:
-            cell.set_facecolor(table_theme.get("alt_row_bg", "#f9fafb") if row % 2 else table_theme.get("row_bg", "#ffffff"))
-            cell.get_text().set_color(theme.get("text_color", "#111827"))
+    roles = {
+        "category": "region", "series": "series", "value": "value",
+        "date": "date", "x": "investment", "y": "value", "color": "region",
+        "target": "target", "dimensions": ["region"], "metrics": ["value", "investment"],
+        "columns": ["region", "value", "investment"],
+    }
+    sample = pd.DataFrame({
+        "region": ["Norte", "Sul", "Leste"] * 4,
+        "series": ["A", "B"] * 6,
+        "date": pd.date_range("2026-01-01", periods=12, freq="MS"),
+        "value": [41, 46, 43, 55, 58, 62, 59, 71, 73, 78, 81, 87],
+        "investment": [18, 22, 25, 29, 35, 39, 44, 48, 53, 58, 62, 67],
+        "target": [100] * 12,
+    })
+    artifact = {
+        "id": "preview", "indicator": preset["name"], "component_preset_id": preset["id"],
+        "visual_options": {**preset["default_options"], "labels": {
+            "region": "Região", "series": "Série", "date": "Data", "value": "Resultado",
+            "investment": "Investimento", "target": "Meta",
+        }},
+        "data_binding": {"source": "sample", "roles": {
+            role["name"]: roles[role["name"]] for role in preset["data_roles"]
+        }},
+    }
+    with _PREVIEW_LOCK:
+        runtime = _preview_runtime()
+        # A temporary destination prevents concurrent requests from seeing a
+        # partially written preview. Reports and previews use the same renderer.
+        with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".png", delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+        class PreviewImage:
+            def image(self, image_path, **_kwargs):
+                shutil.copyfile(image_path, temporary_path)
+        try:
+            runtime.configure_visual_runtime(theme, theme.get("palette"), style)
+            runtime.begin_component_render("library")
+            runtime.render_visual_component(PreviewImage(), {"sample": sample}, artifact, 0, 0, 122, 69)
+            temporary_path.replace(path)
+        finally:
+            temporary_path.unlink(missing_ok=True)

@@ -9,7 +9,8 @@ from copy import deepcopy
 from pydantic import ValidationError
 
 from app.models.refinement import RefinementDecision, SettingsChanges
-from app.utils.component_library import CHART_STYLES, VISUAL_THEMES
+from app.utils.component_library import CHART_STYLES, VISUAL_THEMES, infer_preset_id
+from app.utils.visual_contracts import visual_options_schema
 from app.utils.component_renderers import render_function_suffix, runtime_api_prompt_reference, supports_library_renderer
 from app.utils.layout import normalize_template
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
@@ -39,6 +40,13 @@ def validate_refinement_decision(payload: dict, session: dict) -> dict:
         visuals = [artifacts[key] for key in selected if artifacts[key].get("type") in VISUAL_COMPONENT_TYPES]
         if not visuals or (targets and len(visuals) != len(targets)):
             raise ValueError("Visual changes require existing visual components")
+        requested_options = set(decision['visual_options'])
+        supported = [set(visual_options_schema(artifact.get('component_preset_id') or infer_preset_id(artifact))['properties']) for artifact in visuals]
+        if requested_options and (
+            (targets and any(requested_options - allowed for allowed in supported))
+            or requested_options - set().union(*supported)
+        ):
+            raise ValueError("Visual option is not supported by the selected component preset")
     if decision["intent"] == "component" and any(artifacts[key].get("type") == "metric" for key in targets):
         raise ValueError("Metrics must be changed through data or report intent")
     if decision["intent"] == "layout":
@@ -89,6 +97,7 @@ def classify_refinement(session: dict, prompt: str, job_id: str | None = None) -
             {
                 **{key: artifact.get(key) for key in ("id", "indicator", "type", "component_preset_id", "visual_options", "columns")},
                 "binding_roles": (artifact.get("data_binding") or {}).get("roles", {}),
+                "supported_visual_options": list(visual_options_schema(artifact.get('component_preset_id') or infer_preset_id(artifact))['properties']),
             }
             for artifact in session.get("artifacts", [])
         ],
@@ -256,7 +265,8 @@ def refine_session_modular(
             if settings_changes.keys() & {"visual_theme_id", "chart_palette"}:
                 for key in ("color", "line_color", "bar_color"):
                     options.pop(key, None)
-            changes = dict(decision["visual_options"])
+            allowed = visual_options_schema(artifact.get('component_preset_id') or infer_preset_id(artifact))['properties']
+            changes = {key: value for key, value in decision["visual_options"].items() if key in allowed}
             if "labels" in changes:
                 changes["labels"] = {**options.get("labels", {}), **changes["labels"]}
             options.update(changes)

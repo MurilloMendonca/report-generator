@@ -236,6 +236,75 @@ def append_session_files(job_id: str, files: list):
     return _mutate(job_id, change)
 
 
+def queue_source_import(job_id: str, references: list, *, refresh=False, files=None):
+    from app.services.source_errors import SourceError
+    token = uuid.uuid4().hex
+    def change(session):
+        previous = session.get("source_import") or {}
+        if previous.get("status") in {"queued", "running"} and session.get("current_step") != "failed":
+            raise SourceError("source_busy", "Uma importação já está em andamento neste relatório.", 409)
+        requested = {item["dataset_id"] for item in references}
+        existing = {item.get("source", {}).get("dataset_id") for item in session.get("files", [])}
+        if refresh and not requested.issubset(existing):
+            raise SourceError("source_not_found", "Escolha fontes já importadas neste relatório.", 409)
+        if not refresh and existing.intersection(requested):
+            raise SourceError("source_exists", "Este conjunto já está no relatório. Use Atualizar fontes para criar outra revisão.", 409)
+        names = [item["original_filename"].casefold() for item in session.get("files", []) + (files or [])]
+        if len(names) != len(set(names)):
+            raise SourceError("source_filename", "Já existe um arquivo com este nome no relatório.", 409)
+        session.setdefault("files", []).extend(files or [])
+        session["source_import"] = {"id": token, "status": "queued", "sources": references, "refresh": refresh}
+        session.update(current_step="source_import_queued", status="Aguardando importação das fontes...", progress=5, error={})
+        return token
+    return _mutate(job_id, change)
+
+
+def begin_source_import(job_id: str, token: str):
+    def change(session):
+        operation = session.get("source_import") or {}
+        if operation.get("id") != token or operation.get("status") != "queued":
+            return _NO_WRITE
+        operation["status"] = "running"
+        session.update(current_step="source_import", status="Importando fontes salvas...", progress=10, error={})
+        return deepcopy(operation)
+    result = _mutate(job_id, change)
+    return result if isinstance(result, dict) and result.get("id") == token else None
+
+
+def commit_source_import(job_id: str, token: str, files: list):
+    from app.services.source_errors import SourceError
+    def change(session):
+        operation = session.get("source_import") or {}
+        if operation.get("id") != token or operation.get("status") != "running":
+            raise SourceError("source_import_obsolete", "Esta importação foi substituída.", 409)
+        replaced = {item["source"]["dataset_id"] for item in files} if operation["refresh"] else set()
+        kept = [item for item in session.get("files", []) if item.get("source", {}).get("dataset_id") not in replaced]
+        names = [item["original_filename"].casefold() for item in kept + files]
+        if len(names) != len(set(names)):
+            raise SourceError("source_filename", "Já existe um arquivo com o nome deste conjunto de dados.", 409)
+        session["files"] = kept + files
+        session.setdefault("source_snapshot_history", []).extend(deepcopy(files))
+        # Reused artifact IDs must not reuse code or metric values derived from
+        # an earlier snapshot. Keep the previous PDF until the rebuild succeeds.
+        session.update(components={}, calculated_metrics={}, component_validation_retries={},
+                       artifact_validation=[], data_filter={}, data_preprocessing={},
+                       semantic_model={}, script="")
+        operation["status"] = "completed"
+        operation["completed_at"] = _now_iso()
+        return True
+    return _mutate(job_id, change)
+
+
+def fail_source_import(job_id: str, token: str, error: dict):
+    def change(session):
+        operation = session.get("source_import") or {}
+        if operation.get("id") != token:
+            return _NO_WRITE
+        operation.update(status="failed", error=error)
+        session.update(current_step="failed", status=error["message"], progress=100, error=error)
+    return _mutate(job_id, change)
+
+
 def preserve_report_on_failure(refine):
     """Keep the last usable report when a refinement fails before a new PDF exists."""
     @wraps(refine)
@@ -285,6 +354,8 @@ def fail_disabled_account_job(job_id):
     def change(session):
         session.update(current_step="failed", progress=100, status=message,
                        error={"code": "account_disabled", "message": message, "retryable": False})
+        if session.get("source_import", {}).get("status") in {"queued", "running"}:
+            session["source_import"].update(status="failed", error=session["error"])
         session["explore_history"] = [
             {**item, "status": "error", "content": message, "error_status": 403}
             if isinstance(item, dict) and item.get("role") == "assistant" and item.get("status") == "pending" else item
@@ -556,9 +627,11 @@ def set_session_stage(job_id: str, step: str, progress: int = None, error: dict 
 def recover_interrupted_sessions() -> list[str]:
     """Mark sessions left mid-run by a server restart as failed, so the UI stops waiting."""
     pending_turn = Report.state["explore_history"].contains([{"role": "assistant", "status": "pending"}])
+    pending_source = or_(Report.state["source_import"].contains({"status": "queued"}),
+                         Report.state["source_import"].contains({"status": "running"}))
     with db.transaction() as tx:
         job_ids = tx.execute(
-            select(Report.id).where(or_(Report.current_step.not_in(TERMINAL_STEPS), pending_turn))
+            select(Report.id).where(or_(Report.current_step.not_in(TERMINAL_STEPS), pending_turn, pending_source))
         ).scalars().all()
 
     recovered = []
@@ -567,6 +640,15 @@ def recover_interrupted_sessions() -> list[str]:
         session = get_session(job_id)
         if not session:
             continue
+        if session.get("source_import", {}).get("status") in {"queued", "running"}:
+            def interrupt_source(state):
+                if state.get("source_import", {}).get("status") not in {"queued", "running"}:
+                    return _NO_WRITE
+                error = {"code": "interrupted", "message": message, "stage": "source_import", "retryable": True}
+                state["source_import"].update(status="failed", error=error)
+                state.update(current_step="failed", progress=100, status=message, error=error, active_run_id=0)
+            _mutate(job_id, interrupt_source)
+            recovered.append(job_id)
         if has_pending_exploration(session):
             explore_message = "A consulta foi interrompida porque o servidor reiniciou. Tente novamente."
             history = [

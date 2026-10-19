@@ -42,6 +42,9 @@ const App = {
         await this.loadComponentLibrary();
         await this.loadLayoutTemplates();
         await this.loadRecentSessions();
+        if (typeof SavedSources !== 'undefined') {
+            try { await SavedSources.init(); } catch (error) { this.showNotice(error.message); }
+        }
         await this.loadSessionFromUrl();
     },
 
@@ -119,6 +122,7 @@ const App = {
     isTerminalSession(session) {
         // Explorer answers arrive in the background; keep polling until they land.
         if (this.hasPendingExploration(session)) return false;
+        if (['queued', 'running'].includes(session?.source_import?.status)) return false;
         if (session && session.current_step) {
             return ['completed', 'failed', 'awaiting_clarification', 'translation_failed'].includes(session.current_step);
         }
@@ -434,8 +438,11 @@ const App = {
         try {
             const files = document.getElementById('file').files;
             const apiUrl = document.getElementById('api-url').value.trim();
-            if (!files.length && !apiUrl) throw new Error('Envie um arquivo ou informe uma API JSON pública.');
-            const data = await API.startSession(new FormData(e.target));
+            const sources = typeof SavedSources !== 'undefined' ? SavedSources.selections('initial-source-list') : [];
+            if (!files.length && !apiUrl && !sources.length) throw new Error('Envie um arquivo, informe uma API JSON ou selecione um conjunto salvo.');
+            const formData = new FormData(e.target);
+            formData.set('source_datasets', JSON.stringify(sources));
+            const data = await API.startSession(formData);
             this.currentSession = { job_id: data.job_id };
             window.history.replaceState({}, '', `/session/${data.job_id}`);
             this.showWorkspace();
@@ -504,6 +511,7 @@ const App = {
         UI.renderRefinementChat(session);
         UI.renderExploreChat(session, this.explorePending?.jobId === session.job_id ? this.explorePending : null);
         UI.renderFiles(session.files);
+        if (typeof SavedSources !== 'undefined') SavedSources.update(session);
         UI.renderArtifacts(session.artifacts);
         UI.renderLayoutCanvas(session);
         UI.renderDataArtifacts(session);
@@ -862,7 +870,7 @@ const App = {
         document.getElementById('m-visual-theme').value = art.visual_theme_id || "";
         document.getElementById('m-chart-style').value = art.chart_style_id || "";
         document.getElementById('m-visual-options').value = JSON.stringify(art.visual_options || {}, null, 2);
-        document.getElementById('m-render-mode').value = art.render_mode || "generated_code";
+        document.getElementById('m-render-mode').value = art.render_mode || "";
         document.getElementById('m-data-binding').value = JSON.stringify(art.data_binding || {}, null, 2);
         this.updateModalPresetOptions(art);
         document.getElementById('m-cols').value = (art.columns || []).join(', ');
@@ -941,7 +949,7 @@ const App = {
             chart_style_id: document.getElementById('m-chart-style').value || undefined,
             visual_options: visualOptions,
             data_binding: Object.keys(dataBinding).length ? dataBinding : undefined,
-            render_mode: document.getElementById('m-render-mode').value || 'generated_code',
+            render_mode: document.getElementById('m-render-mode').value || undefined,
             columns: document.getElementById('m-cols').value.split(',').map(s => s.trim()),
             reason: document.getElementById('m-reason').value
         };

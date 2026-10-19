@@ -2057,3 +2057,23 @@ iframe {
     .operations-table { font-size: 13px; }
     .operations-table th, .operations-table td { padding: 10px 5px; }
 }
+
+/* Saved data sources */
+.sources-page { max-width: 980px; }
+.source-editor, .source-fields { display: grid; gap: .6rem; }
+.source-editor { margin-top: 1rem; max-width: 640px; }
+.source-editor input, .source-editor select, .source-editor textarea, .source-parameter-fields input, .source-parameter-fields select { width: 100%; box-sizing: border-box; }
+.source-editor label { font-weight: 600; }
+.source-editor small, .source-card small { color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
+.source-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+.source-list { display: grid; gap: .75rem; margin: 1rem 0; }
+.source-card { border: 1px solid var(--md-sys-color-outline-variant); border-radius: 12px; padding: 1rem; display: grid; gap: .4rem; }
+.source-preview-body { max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.saved-source-choice { margin: .6rem 0; border: 1px solid var(--md-sys-color-outline-variant); border-radius: 8px; padding: .6rem; }
+.saved-source-label { display: flex; align-items: center; gap: .6rem; cursor: pointer; }
+.saved-source-label input[type="checkbox"] { width: auto; flex: 0 0 auto; }
+.source-parameter-fields { display: grid; gap: .5rem; padding-top: .6rem; }
+.source-parameter-fields label { display: grid; gap: .25rem; overflow-wrap: anywhere; }
+#source-snapshot-list { padding-left: 1rem; overflow-wrap: anywhere; }
+#source-snapshot-list li { margin: .7rem 0; }
+.source-fields[hidden], .source-parameter-fields[hidden] { display: none; }

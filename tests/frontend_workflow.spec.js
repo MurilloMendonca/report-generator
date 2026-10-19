@@ -16,7 +16,7 @@ const ui = new Proxy({}, { get: (_target, key) => (...args) => {
 const context = vm.createContext({
     document: { getElementById: element },
     window: { history: { replaceState() {} } },
-    UI: ui, FormData: class {}, URL: { revokeObjectURL() {} },
+    UI: ui, FormData: class { set() {} }, URL: { revokeObjectURL() {} },
     setTimeout: callback => { scheduled.push(callback); return scheduled.length; },
     clearTimeout() {},
 });
@@ -88,6 +88,7 @@ async function main() {
     await scheduled.pop()();
     assert.strictEqual(scheduled.length, 0, 'terminal sessions must stop polling');
     assert.strictEqual(app.isTerminalSession({ current_step: 'awaiting_clarification' }), true, 'clarification pauses polling until the user replies');
+    assert.strictEqual(app.isTerminalSession({ current_step: 'completed', source_import: { status: 'queued' } }), false, 'queued source reads must keep polling even when an earlier pipeline finishes');
     assert.strictEqual(app.isTerminalSession({ current_step: 'refinement_routing', status: 'Relatório concluído anteriormente' }), false, 'current stage takes precedence over old status text');
 
     assert.strictEqual(api.explorerChartUrl('one', 'a'.repeat(32), 'chart_1'), `/api/sessions/one/explore/${'a'.repeat(32)}/charts/chart_1`);

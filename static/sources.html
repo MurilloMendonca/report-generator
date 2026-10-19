@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fontes de dados · Report Generator</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="account-body">
+<main id="app-shell" class="account-page sources-page" style="display:none">
+    <header class="account-header"><h1>Fontes de dados</h1><a href="/account" class="btn btn-outline">Sua conta</a><a href="/" class="btn btn-outline">Criar relatório</a></header>
+    <p>Salve uma conexão e defina quais dados importar. Depois, escolha seus conjuntos de dados ao criar um relatório.</p>
+    <div id="sources-notice" class="auth-message" role="status" hidden></div>
+    <section class="account-section">
+        <h2>Conexões</h2>
+        <p>As credenciais ficam criptografadas na sua conta. Use uma conta de banco com acesso restrito aos dados necessários. Para APIs, o teste consulta a URL base; use a prévia do conjunto para testar um endpoint.</p>
+        <div id="connection-list" class="source-list"></div>
+        <details id="connection-editor"><summary>Adicionar conexão</summary>
+        <form id="connection-form" class="source-editor">
+            <input id="connection-id" type="hidden">
+            <label for="connection-name">Nome</label><input id="connection-name" maxlength="120" required placeholder="Ex.: Vendas — produção">
+            <label for="connection-kind">Tipo</label><select id="connection-kind"><option value="api">API JSON</option><option value="postgres">PostgreSQL</option></select>
+            <div id="api-connection-fields" class="source-fields">
+                <label for="connection-url">URL base HTTPS</label><input id="connection-url" type="url" placeholder="https://api.example.com/v1">
+                <label for="connection-auth">Autenticação</label><select id="connection-auth"><option value="bearer">Bearer token</option><option value="api_key">Chave em cabeçalho</option><option value="basic">Usuário e senha (Basic)</option><option value="none">Sem autenticação</option></select>
+                <div id="header-field"><label for="connection-header">Nome do cabeçalho</label><input id="connection-header" value="X-API-Key"></div>
+                <div id="api-user-field"><label for="connection-api-user">Usuário</label><input id="connection-api-user" autocomplete="off"></div>
+            </div>
+            <div id="postgres-connection-fields" class="source-fields" hidden>
+                <label for="connection-host">Servidor</label><input id="connection-host" placeholder="db.example.com">
+                <label for="connection-port">Porta</label><input id="connection-port" type="number" min="1" max="65535" value="5432">
+                <label for="connection-database">Banco de dados</label><input id="connection-database">
+                <label for="connection-db-user">Usuário de leitura</label><input id="connection-db-user" autocomplete="off">
+                <small>TLS com certificado válido é obrigatório. Redes privadas precisam ser autorizadas pelo administrador da aplicação.</small>
+            </div>
+            <div id="secret-field"><label for="connection-secret">Token, chave ou senha</label><input id="connection-secret" type="password" maxlength="4096" autocomplete="new-password"><small>Ao editar, deixe vazio para manter a credencial. Informe-a novamente se mudar o destino ou a autenticação.</small></div>
+            <div class="source-actions"><button class="btn" type="submit">Salvar conexão</button><button class="btn btn-outline" type="button" id="connection-cancel">Cancelar</button></div>
+        </form></details>
+    </section>
+    <section class="account-section">
+        <h2>Conjuntos de dados</h2>
+        <p>Cada conjunto define um endpoint, tabela, view ou consulta. Os parâmetros podem ser ajustados em cada relatório.</p>
+        <div id="dataset-list" class="source-list"></div>
+        <details id="dataset-editor"><summary>Adicionar conjunto de dados</summary>
+        <form id="dataset-form" class="source-editor">
+            <input id="dataset-id" type="hidden">
+            <label for="dataset-name">Nome</label><input id="dataset-name" required maxlength="120" placeholder="Ex.: Pedidos do período">
+            <label for="dataset-connection">Conexão</label><select id="dataset-connection" required></select>
+            <div id="api-dataset-fields" class="source-fields">
+                <label for="dataset-endpoint">Endpoint</label><input id="dataset-endpoint" placeholder="orders">
+                <label for="dataset-records">Caminho dos registros (opcional)</label><input id="dataset-records" placeholder="/data/items"><small>Use um JSON Pointer, como /data/items. Deixe vazio para detectar os registros.</small>
+                <label for="dataset-pagination">Paginação</label><select id="dataset-pagination"><option value="none">Resposta única</option><option value="next">Link da próxima página</option><option value="page">Número de página até resposta vazia</option></select>
+                <div id="next-field"><label for="dataset-next">Caminho do link da próxima página</label><input id="dataset-next" placeholder="/paging/next"></div>
+                <div id="page-fields"><label for="dataset-page-param">Parâmetro de página</label><input id="dataset-page-param" value="page"><label for="dataset-first-page">Primeira página</label><input id="dataset-first-page" type="number" min="0" value="1"></div>
+                <label for="dataset-max-pages">Máximo de páginas</label><input id="dataset-max-pages" type="number" min="1" max="100" value="20">
+                <small>A importação só aceita o conjunto completo. Se atingir um limite, restrinja os filtros.</small>
+            </div>
+            <div id="postgres-dataset-fields" class="source-fields" hidden>
+                <label for="dataset-mode">Origem dos registros</label><select id="dataset-mode"><option value="table">Tabela ou view</option><option value="query">Consulta SELECT</option></select>
+                <div id="table-fields"><label for="dataset-schema">Schema</label><input id="dataset-schema" value="public"><label for="dataset-table">Tabela ou view</label><input id="dataset-table"></div>
+                <div id="query-field"><label for="dataset-query">Consulta</label><textarea id="dataset-query" rows="5" placeholder="SELECT * FROM public.orders WHERE created_at >= %(start_date)s"></textarea><small>Use parâmetros no formato %(nome)s. As consultas são executadas em transações somente de leitura.</small></div>
+            </div>
+            <label for="dataset-parameters">Parâmetros padrão (JSON)</label><textarea id="dataset-parameters" rows="3" placeholder='{"start_date": "2026-01-01"}'>{}</textarea><small>Valores de texto, número, booleano ou null. Em APIs, null omite o parâmetro. Credenciais devem ficar na conexão.</small>
+            <div class="source-actions"><button class="btn" type="submit">Salvar conjunto</button><button class="btn btn-outline" type="button" id="dataset-cancel">Cancelar</button></div>
+        </form></details>
+    </section>
+    <section id="source-preview" class="account-section" hidden><h2>Prévia dos dados</h2><p>Amostra de até 5 registros. A importação no relatório cria um snapshot completo.</p><pre id="source-preview-body" class="source-preview-body"></pre></section>
+</main>
+<script src="/static/js/api.js"></script><script src="/static/js/sources.js"></script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 """HTTP routes for the report workspace."""
 import os
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import List
@@ -71,8 +72,28 @@ from app.utils.template_library import (
     load_layout_templates,
     upsert_layout_template,
 )
+from app.models.sources import SourceSelections
+from app.services import source_service
+from app.services.source_imports import import_saved_sources
+from app.services.session_manager import queue_source_import
+from app.routers.sources import source_action
 
 router = APIRouter()
+
+
+def saved_source_references(owner_id, value):
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        if len(value) > 65536:
+            raise ValueError
+        selections = json.loads(value)
+        if selections == []:
+            return []
+        selections = SourceSelections.model_validate({"sources": selections}).sources
+    except ValueError:
+        raise HTTPException(422, detail="Escolha até 10 conjuntos de dados com parâmetros válidos.") from None
+    return source_action(lambda: source_service.select_datasets(owner_id, selections))
 
 
 @router.get("/api/models")
@@ -124,17 +145,19 @@ async def start_session(
     provider: str = Form(DEFAULT_PROVIDER),
     model_name: str | None = Form(None),
     api_url: str = Form(""),
-    api_records_path: str = Form("")
+    api_records_path: str = Form(""),
+    source_datasets: str = Form("[]"),
 ):
     user = require_verified_user(request)
     provider, model_name = validate_provider_model(provider, model_name, user.id)
     await run_in_threadpool(quotas.check_daily_reports, user.id)
     await run_in_threadpool(quotas.check_storage, user.id, quotas.upload_size(files))
+    references = await run_in_threadpool(saved_source_references, user.id, source_datasets)
     job_id = str(uuid.uuid4())
     report_paths = ReportPaths.for_new_report(job_id, str(user.id)).ensure()
     session_files = await run_in_threadpool(
         save_data_sources, files, api_url, api_records_path, report_paths.uploads, user.id
-    )
+    ) if not references or files or api_url else []
     now = datetime.now(timezone.utc).isoformat()
     user_prompt = (prompt or "").strip()
     effective_prompt = user_prompt or DEFAULT_EXPLORATORY_PROMPT
@@ -169,7 +192,11 @@ async def start_session(
     }, owner_id=user.id)
     await run_in_threadpool(quotas.refresh_storage, job_id)
 
-    background_tasks.add_task(run_job, run_pipeline, job_id)
+    if references:
+        token = source_action(lambda: queue_source_import(job_id, references))
+        background_tasks.add_task(run_job, import_saved_sources, job_id, token)
+    else:
+        background_tasks.add_task(run_job, run_pipeline, job_id)
     return {"job_id": job_id}
 
 
@@ -190,9 +217,11 @@ async def add_files_to_session(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] | None = File(None),
     api_url: str = Form(""),
-    api_records_path: str = Form("")
+    api_records_path: str = Form(""),
+    source_datasets: str = Form("[]"),
 ):
     session = require_session(job_id, request)
+    references = await run_in_threadpool(saved_source_references, current_user(request).id, source_datasets)
     
     session_files = session.get("files", [])
     existing_names = {file["original_filename"].casefold() for file in session_files}
@@ -202,9 +231,13 @@ async def add_files_to_session(
     saved = await run_in_threadpool(
         save_data_sources, files, api_url, api_records_path,
         ReportPaths.from_session(session).uploads, current_user(request).id,
-    )
+    ) if not references or files or api_url else []
     try:
-        if not append_session_files(job_id, saved):
+        if references:
+            token = source_action(lambda: queue_source_import(job_id, references, files=saved))
+            if not token:
+                raise HTTPException(status_code=404)
+        elif not append_session_files(job_id, saved):
             raise HTTPException(status_code=404)
     except Exception as exc:
         for item in saved:
@@ -214,8 +247,34 @@ async def add_files_to_session(
         raise
     await run_in_threadpool(quotas.refresh_storage, job_id)
     add_log(job_id, f"Adicionados {len(saved)} novos arquivos.")
-    background_tasks.add_task(run_job, run_pipeline, job_id)
+    if references:
+        background_tasks.add_task(run_job, import_saved_sources, job_id, token)
+    else:
+        background_tasks.add_task(run_job, run_pipeline, job_id)
     return {"status": "OK"}
+
+
+@router.post("/api/sessions/{job_id}/sources/refresh", status_code=202)
+async def refresh_saved_sources(request: Request, job_id: str, background_tasks: BackgroundTasks, body: SourceSelections):
+    session = require_session(job_id, request)
+    active = {item.get("source", {}).get("dataset_id") for item in session.get("files", [])}
+    if any(str(selection.dataset_id) not in active for selection in body.sources):
+        raise HTTPException(400, detail="Escolha uma fonte já importada neste relatório.")
+    references = await run_in_threadpool(source_action, lambda: source_service.select_datasets(current_user(request).id, body.sources))
+    token = source_action(lambda: queue_source_import(job_id, references, refresh=True))
+    background_tasks.add_task(run_job, import_saved_sources, job_id, token)
+    return {"status": "queued", "import_id": token}
+
+
+@router.get("/api/sessions/{job_id}/source-snapshots/{snapshot_id}/download")
+def download_source_snapshot(request: Request, job_id: str, snapshot_id: str):
+    session = require_session(job_id, request)
+    snapshot = next((item for item in session.get("source_snapshot_history", [])
+                     if item.get("source", {}).get("snapshot_id") == snapshot_id), None)
+    if snapshot is None:
+        raise HTTPException(404, detail="Snapshot not found")
+    return report_file_response(session, snapshot["path"], media_type="application/json",
+                                filename=snapshot["original_filename"], disposition="attachment")
 
 
 @router.get("/api/sessions/{job_id}/files/{file_index}/download")
@@ -237,7 +296,8 @@ async def delete_session_file(request: Request, job_id: str, file_index: int, ba
     files = session.get("files", [])
     removed = files.pop(file_index)
 
-    safe_remove_path(file_info["path"])
+    if not file_info.get("source", {}).get("snapshot_id"):
+        safe_remove_path(file_info["path"])
     for generated_path in [
         file_info.get("preprocessed_path"),
         file_info.get("filtered_path"),
@@ -323,6 +383,9 @@ async def update_artifacts_manually(request: Request, job_id: str, background_ta
     defer_pipeline = bool(payload.get("defer_pipeline"))
     old_artifacts = session.get('artifacts', [])
     current_components = session.get('components', {})
+    for artifact in new_artifacts:
+        if isinstance(artifact, dict) and artifact.get('id') in new_components and not artifact.get('render_mode'):
+            artifact['render_mode'] = 'generated_code'
     metadata_items = [file_info.get("artifact") for file_info in session.get("files", []) if file_info.get("artifact")]
     new_artifacts, validation_issues = validate_report_plan(new_artifacts, metadata_items)
     # Detecção de mudanças para invalidar cache de código
@@ -339,6 +402,7 @@ async def update_artifacts_manually(request: Request, job_id: str, background_ta
                 old_art.get('type') != new_art.get('type') or
                 old_art.get('sub_type') != new_art.get('sub_type') or
                 old_art.get('component_preset_id') != new_art.get('component_preset_id') or
+                old_art.get('visual_theme_id') != new_art.get('visual_theme_id') or
                 old_art.get('chart_style_id') != new_art.get('chart_style_id') or
                 old_art.get('visual_options') != new_art.get('visual_options') or
                 old_art.get('data_binding') != new_art.get('data_binding') or

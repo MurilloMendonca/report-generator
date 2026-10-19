@@ -26,7 +26,7 @@ class RefinementHttpTests(unittest.TestCase):
         ]
         for path in self.paths:
             self.addCleanup(self.remove_if_present, path)
-        with open(self.paths[2], "w", encoding="utf-8") as upload:
+        with open(self.paths[0], "w", encoding="utf-8") as upload:
             upload.write("region,revenue\nNorth,10\nSouth,20\n")
         text = {"id": "t_summary", "type": "text", "indicator": "Summary", "columns": []}
         chart = {
@@ -39,7 +39,7 @@ class RefinementHttpTests(unittest.TestCase):
         create_session(self.job_id, {
             "job_id": self.job_id, "initial_prompt": "Analyze revenue", "current_goal": "Analyze revenue",
             "settings": {"title": "Sales report"},
-            "files": [{"original_filename": "sales.csv", "path": self.paths[2], "artifact": {
+            "files": [{"original_filename": "sales.csv", "path": self.paths[0], "artifact": {
                 "filename": "sales.csv", "columns": [
                     {"name": "region", "type": "object", "role": "dimension"},
                     {"name": "revenue", "type": "int64", "role": "measure"},

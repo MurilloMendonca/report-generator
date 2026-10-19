@@ -78,6 +78,22 @@ const API = {
         return await this.parseResponse(res, 'Não foi possível iniciar a sessão');
     },
 
+    async dataSources(path = '', method = 'GET', body = undefined) {
+        const res = await fetch(`/api/data-sources${path}`, {
+            method, headers: this.authHeaders(body ? { 'Content-Type': 'application/json' } : {}),
+            ...(body ? { body: JSON.stringify(body) } : {})
+        });
+        return this.parseResponse(res, 'Não foi possível acessar as fontes de dados');
+    },
+
+    async refreshSources(jobId, sources) {
+        const res = await fetch(`/api/sessions/${jobId}/sources/refresh`, {
+            method: 'POST', headers: this.authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ sources })
+        });
+        return this.parseResponse(res, 'Não foi possível atualizar as fontes');
+    },
+
     async getRecentSessions() {
         const res = await fetch('/api/sessions', { headers: this.authHeaders() });
         return await this.parseResponse(res, 'Não foi possível carregar as sessões recentes');

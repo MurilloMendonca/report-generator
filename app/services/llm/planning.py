@@ -5,6 +5,7 @@ import logging
 import time
 
 from app.utils.component_library import presets_prompt_summary
+from app.utils.visual_contracts import DataBinding
 from app.utils.layout import normalize_template
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 from app.utils.template_library import build_layout_from_template
@@ -41,6 +42,7 @@ def generate_artifacts(
             f"Target Language: {lang}\n"
             f"{layout_constraints}"
             f"Available Visual Component Presets:\n{visual_catalog}\n\n"
+            f"Shared Data Binding JSON Schema:\n{json.dumps(DataBinding.model_json_schema(), ensure_ascii=False)}\n\n"
             f"Data Artifacts:\n{all_metadata}\n\n"
             f"User's Initial Prompt: {prompt}"
         )

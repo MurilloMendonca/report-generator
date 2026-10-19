@@ -46,6 +46,8 @@ BINDING_REGENERATION_ISSUE_CODES = {
     "data_binding_role_missing",
     "data_binding_column_missing",
     "data_binding_role_mismatch",
+    "data_binding_source_missing",
+    "invalid_data_binding",
 }
 DEFAULT_SETTINGS = {
     "title": "",
@@ -186,17 +188,37 @@ def _advance_render_modes_after_failure(session: dict, failed_component_ids: set
 
 
 def _failed_components_from_manifest(manifest_path: str | None) -> set[str]:
-    if not manifest_path or not os.path.exists(manifest_path):
-        return set()
-    try:
-        with open(manifest_path, "r", encoding="utf-8") as manifest_file:
-            manifest = json.load(manifest_file)
-    except (OSError, json.JSONDecodeError):
-        return set()
+    manifest = _read_render_manifest(manifest_path)
     return {
         str(item.get("id"))
         for item in manifest.get("components", []) or []
         if item.get("status") != "rendered" and item.get("id")
+    }
+
+
+def _read_render_manifest(manifest_path: str | None) -> dict:
+    if not manifest_path or not os.path.exists(manifest_path):
+        return {}
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+            manifest = json.load(manifest_file)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
+def summarize_render_manifest(manifest: dict) -> dict:
+    """Record counts and timing without copying source data into operational history."""
+    visuals = [item for item in manifest.get("components", []) if item.get("preset_id")]
+    return {
+        "visual_count": len(visuals),
+        "library_count": sum(item.get("render_mode") == "library" for item in visuals),
+        "fallback_count": sum(bool(item.get("fallback_used")) for item in visuals),
+        "empty_count": sum(item.get("status") == "empty" for item in visuals),
+        "invalid_binding_count": sum(item.get("status") == "invalid_binding" for item in visuals),
+        "failed_count": sum(item.get("status") != "rendered" for item in visuals),
+        "sampled_count": sum(item.get("plotted_rows", 0) < item.get("valid_rows", 0) for item in visuals),
+        "duration_ms": sum(item.get("duration_ms", 0) for item in visuals),
     }
 
 
@@ -735,7 +757,7 @@ def _run_pipeline(job_id: str, run_id: int):
 
         visible_artifacts = [a for a in artifacts if a.get('type') in VISUAL_TYPES or a.get('type') == 'text']
         template = session.get('template', [])
-        if not template or len(template) != len(visible_artifacts):
+        if not template or {item.get('id') for item in template} != {item.get('id') for item in visible_artifacts}:
             with tracked_stage(job_id, "layout", 65, provider, model_name):
                 if not _ensure_current_run(job_id, run_id, "layout"):
                     return
@@ -963,12 +985,26 @@ def run_execution(job_id: str, run_id: int | None = None):
     try:
         result = execute_script(session['script'], session['script_path'], paths=ReportPaths.from_session(session))
         duration = time.perf_counter() - start_time
+        manifest = _read_render_manifest(f"{session.get('pdf_path')}.manifest.json")
+        render_summary = summarize_render_manifest(manifest)
+        update_session(job_id, {"render_summary": render_summary})
 
         if result["success"]:
             new_version = session.get("pdf_version", 0) + 1
             update_session(job_id, {"pdf_version": new_version, "retry_count": 0, "status": "Concluído", "current_step": "completed", "progress": 100, "error": {}})
             add_log(job_id, f"Relatório concluído em {duration:.1f}s")
-            append_stage_event(job_id, "render", "end", status="ok", duration_ms=duration * 1000, provider=session.get('provider'), model_name=session.get('model_name'))
+            append_stage_event(job_id, "render", "end", status="ok", duration_ms=duration * 1000, provider=session.get('provider'), model_name=session.get('model_name'), details=render_summary)
+            return
+
+        empty_ids = [item['id'] for item in manifest.get('components', []) if item.get('status') == 'empty']
+        if empty_ids:
+            set_session_stage(job_id, "failed", 100, {
+                "code": "empty_visual", "message": "Há componentes sem dados após os filtros ou cálculos. Revise suas fontes e filtros.",
+                "stage": "render", "retryable": False, "component_ids": empty_ids,
+            })
+            add_log(job_id, f"Componentes sem dados: {', '.join(empty_ids)}")
+            append_stage_event(job_id, "render", "end", status="error", duration_ms=duration * 1000,
+                               provider=session.get('provider'), model_name=session.get('model_name'), details=render_summary)
             return
 
         failed_component_ids = _failed_components_from_manifest(f"{session.get('pdf_path')}.manifest.json")

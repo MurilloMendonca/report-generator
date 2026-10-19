@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
-from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT, DEFAULT_SETTINGS, run_pipeline, run_script_generation
+from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT, DEFAULT_SETTINGS, run_pipeline, run_script_generation, summarize_render_manifest
 from app.services.web_helpers import append_refinement_message, process_chat_refinement
 from app.services.session_manager import add_log, create_session, get_session, update_session
 from app.services.crypto import dev_server_keys_enabled
@@ -137,6 +137,14 @@ def validate_session(job_id: str, case: dict, artifact_dir: Path | None = None, 
 
     pdf_path = session.get("pdf_path")
     pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
+    manifest_path = Path(f"{pdf_path}.manifest.json") if pdf_path else None
+    manifest = None
+    if manifest_path and manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            pass
+    checks.extend(validate_component_outcomes(session, manifest))
     checks.append(check("pdf_exists", pdf_exists, pdf_path or "missing"))
     if pdf_exists:
         checks.append(check("pdf_size_gt_20kb", os.path.getsize(pdf_path) > 20_000, os.path.getsize(pdf_path)))
@@ -191,10 +199,23 @@ def validate_session(job_id: str, case: dict, artifact_dir: Path | None = None, 
         "review_pdf_path": artifacts.get("review_pdf_path"),
         "passed": all(item["passed"] for item in checks),
         "checks": checks,
+        "render_summary": summarize_render_manifest(manifest or {}),
+        "llm_usage": session.get("llm_usage", {}),
     }
     if save_artifacts and artifact_dir:
         write_json(artifact_dir / "checks.json", result)
     return result
+
+
+def validate_component_outcomes(session: dict, manifest: dict | None) -> list[dict]:
+    expected = {item["id"] for item in session.get("template", [])}
+    components = (manifest or {}).get("components", [])
+    rendered = {item.get("id") for item in components if item.get("status") == "rendered"}
+    invalid = [{"id": item.get("id"), "status": item.get("status")} for item in components if item.get("status") != "rendered"]
+    return [
+        check("component_manifest_present", manifest is not None, "missing" if manifest is None else "present"),
+        check("all_components_rendered", rendered == expected and not invalid, {"missing": sorted(expected - rendered), "invalid": invalid}),
+    ]
 
 
 def check(name: str, passed: bool, detail):

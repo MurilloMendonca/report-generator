@@ -46,6 +46,19 @@
                     <button type="submit" class="btn btn-outline">Importar dados</button>
                 </form>
             </details>
+            <details class="api-source-details">
+                <summary>Fontes da sua conta</summary>
+                <a href="/sources" target="_blank" rel="noopener">Configurar fontes</a>
+                <button id="reload-sources-btn" type="button" class="account-link">Recarregar lista</button>
+                <form id="saved-source-form">
+                    <div id="report-source-list"></div>
+                    <button id="import-sources-btn" type="submit" class="btn btn-outline">Adicionar selecionados</button>
+                    <button id="refresh-sources-btn" type="button" class="btn btn-outline">Atualizar selecionados</button>
+                    <small>Atualizar busca novos dados e gera novamente o relatório. As versões anteriores dos dados ficam no histórico.</small>
+                    <span id="source-import-status" role="status"></span>
+                </form>
+            </details>
+            <details id="source-snapshot-history" class="api-source-details" hidden><summary>Histórico de importações</summary><ul id="source-snapshot-list"></ul></details>
         </div>
 
         <div class="chat-history" id="chat-history">
@@ -85,6 +98,13 @@
                     <label for="api-records-path">Caminho dos registros (opcional):</label>
                     <input id="api-records-path" name="api_records_path" type="text" placeholder="/data/items">
                     <small>Usa uma resposta como snapshot. Sem autenticação ou paginação automática. Envie arquivos, uma API, ou ambos.</small>
+                </div>
+                <div class="form-group">
+                    <label>Ou conjuntos de dados salvos:</label>
+                    <a href="/sources" target="_blank" rel="noopener">Configurar fontes na sua conta</a>
+                    <button id="reload-initial-sources-btn" type="button" class="account-link">Recarregar lista</button>
+                    <div id="initial-source-list"></div>
+                    <small>Selecione os conjuntos e ajuste seus parâmetros. Cada importação cria uma cópia dos dados para este relatório.</small>
                 </div>
                 <div class="form-group">
                     <label>Objetivo do Relatório (opcional):</label>
@@ -334,6 +354,7 @@
 	                        <div class="form-group">
 	                            <label>Modo de renderização:</label>
 	                            <select id="m-render-mode">
+	                                <option value="">Automático</option>
 	                                <option value="generated_code">Código gerado</option>
 	                                <option value="hybrid">Híbrido</option>
 	                                <option value="library">Biblioteca</option>
@@ -389,6 +410,7 @@
     <script src="/static/js/utils.js"></script>
     <script src="/static/js/layout_editor.js"></script>
     <script src="/static/js/ui.js"></script>
+    <script src="/static/js/saved_sources.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

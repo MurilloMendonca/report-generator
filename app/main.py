@@ -20,6 +20,7 @@ from app.routers.api import router as api_router
 from app.routers.auth import router as auth_router
 from app.routers.credentials import router as credentials_router
 from app.routers.operations import router as operations_router
+from app.routers.sources import router as sources_router
 from app.security import (
     PUBLIC_API_PATHS, SESSION_COOKIE, add_cache_headers, add_security_headers, clear_session_cookie,
     csrf_ok, ensure_csrf_cookie, signup_open,
@@ -64,12 +65,13 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(auth_router)
 app.include_router(credentials_router)
 app.include_router(operations_router)
+app.include_router(sources_router)
 app.include_router(api_router)
 
 
 # Pages that need a signed-in user (signed-out visitors go to /login), and
 # pages only for signed-out visitors (signed-in users go to the studio).
-SIGNED_IN_PAGES = {"/", "/templates", "/account", "/keys", "/usage", "/admin"}
+SIGNED_IN_PAGES = {"/", "/templates", "/account", "/keys", "/usage", "/admin", "/sources"}
 SIGNED_OUT_PAGES = {"/login", "/signup", "/forgot-password"}
 
 

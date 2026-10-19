@@ -16,7 +16,7 @@ The current UI text is mostly Portuguese, and the default report language is Por
    - `text`: narrative report sections.
 5. Calculates metric artifacts by asking the LLM for short Python snippets, executing them, and storing the returned values.
 6. Selects or generates an A4 layout template with millimeter coordinates.
-7. Generates Python render functions for visual components and a shared text-generation response for text components.
+7. Uses the component library for standard visuals, generates Python functions for custom visuals, and generates a shared text response for narrative components.
 8. Assembles a standalone Python report script, executes it in a bubblewrap sandbox, and writes the PDF.
 9. If execution fails, asks the LLM to repair the whole script and retries up to five times.
 
@@ -77,6 +77,7 @@ app/
     semantic_model.py        Column roles (measures, dimensions, dates) across datasets
     component_library.py     Visual presets, themes, and chart styles
     component_renderers.py   Library renderers and the sandbox runtime
+    visual_contracts.py      Shared typed visual options, roles, filters and bindings
     exploration_charts.py    Explorer chart storage and validation
     layout.py                Layout normalization
     template_library.py      Built-in and saved A4 layout blueprints
@@ -224,6 +225,10 @@ All settings are environment variables (`.env` is loaded automatically).
 | `PDF_REPORT_RECOVER_SESSIONS_ON_START` | `1` (`0` when `APP_ENV=test`) | Mark sessions interrupted by a restart as failed on startup. |
 | `PDF_REPORT_MAX_UPLOAD_BYTES` | `52428800` (50 MB) | Per-file upload limit. |
 | `PDF_REPORT_MAX_REQUEST_UPLOAD_BYTES` | `94371840` (90 MB) | Total size of all files in one upload request. Cloudflare's free plan rejects bodies over 100 MB. |
+| `PDF_REPORT_SOURCE_ALLOWED_NETWORKS` | unset | Comma-separated private CIDRs allowed for saved connectors only; metadata/link-local and reserved destinations stay blocked. |
+| `PDF_REPORT_SOURCE_MAX_ROWS` | `100000` | Maximum rows in one saved dataset snapshot; exceeding the limit fails the import. |
+| `PDF_REPORT_SOURCE_MAX_BYTES` | `10485760` (10 MB) | Maximum saved dataset size (API responses also obey `PDF_REPORT_MAX_API_BYTES`). |
+| `PDF_REPORT_SOURCE_TIMEOUT_SECONDS` | `60` | Total saved dataset read budget; previews/tests use 20 seconds. PostgreSQL also has a 15-second statement timeout and 3-second lock timeout. |
 | `PDF_REPORT_MAX_API_BYTES` | `10485760` (10 MB) | Maximum JSON API response size; upload and account storage limits also apply. |
 | `PDF_REPORT_MAX_EXCEL_SHEETS` | `20` | Sheets allowed per Excel workbook. |
 | `PDF_REPORT_CLIENT_IP_HEADER` | unset (compose: `CF-Connecting-IP`) | Header holding the real client address behind a proxy. Used only for requests from a trusted proxy. |
@@ -398,7 +403,22 @@ JSON (`.json`) accepts an array of objects, a single object, or an API envelope 
 
 TXT files provide document context like PDFs, supporting document-only narrative reports and evidence-backed document insights. UTF-8 and Windows-1252 are supported; empty files and binary control characters are rejected. Document context uses the first 20,000 characters and records a truncation warning; the full original remains downloadable. TXT files are not treated as tables.
 
-To import an API, enter a public HTTPS URL when starting a report or use **Importar API JSON** in an existing report. An optional JSON Pointer such as `/data/items` selects records from the response. Each import performs one GET and saves a JSON snapshot in that report's uploads, so subsequent report generation does not depend on the remote API. Only public addresses on port 443 are allowed; connections pin a validated IP while verifying the original TLS hostname. Redirects and compressed responses are rejected, and requests have a 20-second network time budget. APIs must return `application/json` or an `application/*+json` content type. There is no authentication, automatic pagination or scheduled refresh. Only the source hostname, records path and import time are stored as provenance; the request URL and query string are not persisted.
+To import an API, enter a public HTTPS URL when starting a report or use **Importar API JSON** in an existing report. An optional JSON Pointer such as `/data/items` selects records from the response. Each import performs one GET and saves a JSON snapshot in that report's uploads, so subsequent report generation does not depend on the remote API. Only public addresses on port 443 are allowed; connections pin a validated IP while verifying the original TLS hostname. Redirects and compressed responses are rejected, and requests have a 20-second network time budget. APIs must return `application/json` or an `application/*+json` content type. This quick-import form uses no authentication or automatic pagination. For saved authenticated sources, use the account settings described below. Only the source hostname, records path and import time are stored as provenance; the request URL and query string are not persisted.
+
+### Saved API and database inputs
+
+Open **Conta → Fontes de dados** (`/sources`) to save up to 20 connections and 100 named datasets per account. Connections hold a destination and encrypted credentials; datasets define what to read. The encryption keyring (`APP_ENCRYPTION_KEYS` or its secret file) must be configured. `python -m app.cli rewrap-keys` rotates saved source credentials along with provider credentials. Other accounts cannot list, test, preview or use your sources.
+
+- **JSON APIs:** HTTPS on port 443 with bearer tokens, an API-key header, Basic authentication, or no authentication. Credentials are sent only to the configured origin. Redirects and compressed responses are rejected. Datasets define a relative endpoint, an optional JSON Pointer to records, scalar query parameters (booleans use `true`/`false`; null omits a parameter) and pagination: one response, a same-origin next-link JSON Pointer, or a page-number parameter until an empty page. A next-link must end with null or an empty string. Repeated links, missing next links, page caps and row/byte limits fail the complete import instead of accepting a partial snapshot.
+- **PostgreSQL:** a hostname, port, database, restricted non-admin username and password. TLS certificate and hostname verification are mandatory (`verify-full`, system trust roots); use a publicly trusted server certificate or install your operator CA in the container trust store. The connection pins the approved IP while retaining the original hostname for TLS. Use a dedicated role granted SELECT only on the necessary tables/views. Superuser, role/database creation, replication and RLS-bypass roles are rejected. Datasets select a schema/table/view or a single SELECT query, with named `%(parameter)s` placeholders and scalar parameter values. Reads run in read-only transactions with statement/lock deadlines and a bounded streaming cursor. The application's own database is blocked.
+
+Public destinations work by default. An operator may permit private addresses with `PDF_REPORT_SOURCE_ALLOWED_NETWORKS`, for example `10.20.0.0/24`; this authorizes all saved connectors to contact that subnet, so scope it to intended data servers. Link-local/metadata, reserved, multicast and IPv6 transition addresses remain blocked. This setting does not relax the public quick-import form. Only enable private ranges on a deployment with the intended network access.
+
+Select saved datasets when starting a report, optionally alongside uploads or a public API. The report form lets you change the dataset's predefined parameters (for example dates). Up to 10 datasets can be selected per operation. Imports run in background jobs before the existing pipeline. Credentials and connection settings stay on the server; generated scripts receive only report-local JSON files. A preview returns at most 5 rows and is explicitly incomplete. Connection tests and previews have a 20-second read budget and account/global concurrency limits.
+
+Report generation reuses its existing data snapshot. In an existing report, **Fontes da sua conta → Atualizar selecionados** explicitly fetches another revision and rebuilds the report. **Histórico de importações** downloads previous snapshots, including after a connection or dataset is deleted. Provenance records the dataset/connection versions, actual parameter values, row count and import time. Source credentials must go in the connection's credential field, never in query parameters or SQL. Changing a connection destination/authentication requires re-entering its credential; changing a saved definition after selection invalidates that queued import. Multi-dataset imports commit together, and failed reads keep the active files unchanged. A failed report rebuild preserves the last usable report. Snapshots count toward account storage and are deleted with their report.
+
+There is no OAuth sign-in flow, scheduled refresh or support for other database engines in this version.
 
 If the server restarts mid-job, the job is lost; on the next startup that session is marked `failed` with error code `interrupted` so the UI stops waiting and the user can retry.
 
@@ -448,20 +468,29 @@ Reports:
 - `GET /api/model-preferences`, `PUT /api/model-preferences`: account defaults and fallback, restricted to the caller's keys.
 - `GET /api/usage`: your storage, report quotas, monthly provider tokens/calls and account limits. The `/usage` page links from your account.
 - `GET /api/usage/reports`: usage for up to 50 of your recent reports. Summaries derive from durable events; historical reports without events retain their older summaries in session state.
+- `GET /sources`: account source settings page.
+- `GET /api/data-sources`: caller's connections (without secrets) and named datasets.
+- `POST /api/data-sources/connections`, `PUT /api/data-sources/connections/{connection_id}`, `DELETE /api/data-sources/connections/{connection_id}`: create, update or delete an owned connection. JSON: `name`, `kind` (`api` / `postgres`), `config`, optional `secret`. Omitting a secret preserves it when the connection configuration is unchanged.
+- `POST /api/data-sources/connections/{connection_id}/test`: bounded authenticated connection test.
+- `POST /api/data-sources/datasets`, `PUT /api/data-sources/datasets/{dataset_id}`, `DELETE /api/data-sources/datasets/{dataset_id}`: manage owned definitions. JSON: `name`, `connection_id`, `definition`.
+- `POST /api/data-sources/datasets/{dataset_id}/preview`: JSON `{"dataset_id": "<uuid>", "parameters": {}}`; returns at most 5 rows, with `complete: false`.
+- `POST /api/sessions/{job_id}/sources/refresh`: JSON `{"sources": [{"dataset_id": "<uuid>", "parameters": {}}]}`; queues replacement snapshots for already imported datasets and rebuilds the report. Returns 202; poll report state, including `source_import`.
+- `GET /api/sessions/{job_id}/source-snapshots/{snapshot_id}/download`: owner-only immutable snapshot download.
 - `GET /api/component-library`: lists visual presets, themes, and chart styles.
 - `GET /api/component-library/previews`: preview images for presets, given a `theme` and `style`.
 - `GET /api/component-library/presets/{preset_id}/preview`: one preset's preview image.
 - `POST /api/sessions`: starts a report job. Form fields:
-  - `files`: optional CSV/Excel/JSON/JSON Lines/TXT/PDF files. Supply files, an API URL, or both.
+  - `files`: optional CSV/Excel/JSON/JSON Lines/TXT/PDF files. Supply files, an API URL, saved datasets, or a combination.
   - `api_url`: optional public HTTPS JSON API URL.
   - `api_records_path`: optional JSON Pointer (for example `/data/items`) selecting records from the API response.
+  - `source_datasets`: optional JSON array of `{"dataset_id": "<uuid>", "parameters": {}}` selections (maximum 10).
   - `prompt`: report objective. Blank means exploratory report.
   - `provider`: `gemini`, `deepseek`, `anthropic`, `openai` or `openrouter`; default `deepseek`.
   - `model_name`: provider model name.
 - `GET /api/sessions`: returns recent sessions.
 - `GET /api/sessions/{job_id}`: returns the full session state.
 - `DELETE /api/sessions/{job_id}`: deletes the session's database row and all its files.
-- `POST /api/sessions/{job_id}/files`: adds files and/or an API snapshot using the same `files`, `api_url` and `api_records_path` fields, then reruns the pipeline.
+- `POST /api/sessions/{job_id}/files`: adds files and/or an API snapshot using the same `files`, `api_url`, `api_records_path` and `source_datasets` fields, then reruns the pipeline.
 - `GET /api/sessions/{job_id}/files/{file_index}/preview`: previews an uploaded file. Use `?variant=preprocessed` when available.
 - `GET /api/sessions/{job_id}/files/{file_index}/download`: downloads an uploaded file. Use `?variant=preprocessed` when available.
 - `DELETE /api/sessions/{job_id}/files/{file_index}`: removes a file from the session and reruns when files remain.
@@ -542,7 +571,18 @@ Sessions are normalized by `app/models/session.py` and stored as JSONB in `repor
 - `pdf_path`: output PDF path.
 - `pdf_version`: incremented when a new PDF is successfully rendered.
 - `current_step` and `error`: pipeline stage and the last structured error (`code`, `message`, `stage`, `retryable`).
+- `render_summary`: counts of library visuals, fallbacks, empty/invalid components and sampling, plus visual rendering time for the latest attempt. Render stage events retain these measurements per attempt.
 - `explore_history`: ad-hoc explorer conversation history.
+
+## Visual Library Contracts
+
+The planner, component inspector, validator and sandbox renderer share the schemas in `app/utils/visual_contracts.py`. The component catalog exposes each preset's roles, supported render modes and option schema. Standard visuals with valid bindings default to `library`; explicit `generated_code` and `hybrid` selections are preserved. Catalog previews use the same renderer as reports.
+
+Put source, column roles, aggregation, filters, result ordering and limits in `data_binding`. Table `dimensions`, `metrics` and `columns` accept either a single column or a list. Put presentation choices in `visual_options`, including explicit `date_granularity` (`day`, `week`, `month`, `quarter`, `year`). A binding limit caps the preset's `top_n`. Donuts retain an Others group within that cap so shares keep their denominator. Per-component theme/style choices override report defaults for that component only.
+
+Every render writes a component manifest with outcomes (`rendered`, `empty`, `invalid_binding`, `failed`), renderer mode, fallback use, row counts, warnings and elapsed time. Empty visuals fail the report with `empty_visual`, without asking a model to invent a repair for missing data. Scatter sampling and category grouping are disclosed in the manifest; grouping preserves every sampled point. Tables report fitting limits, and layout overflow goes onto additional pages without deleting accepted components.
+
+Canonical checks require every layout component to be rendered successfully and record rendering counters alongside existing LLM usage. Use these measurements to compare adoption, fallback rate, token usage and elapsed time across runs; no live-provider benchmark is part of the unit suite.
 
 ## Prompt Contracts
 

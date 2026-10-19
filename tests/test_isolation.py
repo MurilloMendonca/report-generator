@@ -27,6 +27,17 @@ from tests.auth_helpers import TEST_PASSWORD, create_session, make_user, signed_
 
 # Routes that don't take a report id, and why that's safe.
 NOT_REPORT_SCOPED = {
+    ("GET", "/sources"): "signed-in source settings page (test_saved_sources)",
+    ("GET", "/api/data-sources"): "caller connections and datasets only (test_saved_sources)",
+    ("POST", "/api/data-sources/connections"): "creates a caller-owned connection (test_saved_sources)",
+    ("PUT", "/api/data-sources/connections/{connection_id}"): "caller-owned connection (test_saved_sources)",
+    ("DELETE", "/api/data-sources/connections/{connection_id}"): "caller-owned connection (test_saved_sources)",
+    ("POST", "/api/data-sources/connections/{connection_id}/test"): "caller-owned connection (test_saved_sources)",
+    ("POST", "/api/data-sources/datasets"): "creates a caller-owned dataset (test_saved_sources)",
+    ("PUT", "/api/data-sources/datasets/{dataset_id}"): "caller-owned dataset (test_saved_sources)",
+    ("DELETE", "/api/data-sources/datasets/{dataset_id}"): "caller-owned dataset (test_saved_sources)",
+    ("POST", "/api/data-sources/datasets/{dataset_id}/preview"): "caller-owned dataset (test_saved_sources)",
+
     ("GET", "/"): "page; data comes from scoped API calls",
     ("GET", "/templates"): "page",
     ("GET", "/account"): "page",
@@ -69,6 +80,8 @@ ACCOUNT_SCOPED_PREFIX = "/api/auth/"  # public, or acts on the caller's own acco
 # A plausible request for each report route, so validation passes and the
 # ownership check is what answers.
 SAMPLE_REQUESTS = {
+    ("POST", "/api/sessions/{job_id}/sources/refresh"): {"json": {"sources": [{"dataset_id": "11111111-1111-1111-1111-111111111111"}]}},
+    ("GET", "/api/sessions/{job_id}/source-snapshots/{snapshot_id}/download"): {},
     ("GET", "/session/{job_id}"): {},
     ("GET", "/api/sessions/{job_id}"): {},
     ("DELETE", "/api/sessions/{job_id}"): {},
@@ -143,7 +156,7 @@ class RouteCoverageTests(IsolationTestCase):
             self.assertTrue(path.startswith(ACCOUNT_SCOPED_PREFIX), path)
 
     def test_other_users_get_404_on_every_report_route(self):
-        values = {"job_id": self.job_id, "file_index": "0", "component_id": "t_intro", "turn_id": TURN_ID, "chart_id": "chart_1"}
+        values = {"snapshot_id": "a" * 32, "job_id": self.job_id, "file_index": "0", "component_id": "t_intro", "turn_id": TURN_ID, "chart_id": "chart_1"}
         with patch.object(api, "run_pipeline") as pipeline, patch.object(api, "run_script_generation") as render, \
              patch.object(api, "process_chat_refinement") as refine, patch.object(api, "complete_exploration_job") as explore, \
              TestClient(app, follow_redirects=False) as client:

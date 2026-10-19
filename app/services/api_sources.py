@@ -17,12 +17,13 @@ from urllib.parse import urlsplit
 from fastapi import HTTPException
 
 from app.utils.tabular import parse_json
+from app.services.source_network import resolve_addresses
 
 MAX_API_BYTES = int(os.getenv("PDF_REPORT_MAX_API_BYTES", str(10 * 1024 * 1024)))
 API_TIMEOUT_SECONDS = 20
 
 
-def public_api_target(url: str) -> tuple[str, str, str]:
+def public_api_target(url: str, *, address_validator=None) -> tuple[str, str, str]:
     if not url or len(url) > 4096 or any(ord(char) <= 32 or ord(char) == 127 for char in url):
         raise HTTPException(400, "Enter a valid public HTTPS API URL")
     try:
@@ -31,11 +32,15 @@ def public_api_target(url: str) -> tuple[str, str, str]:
         if (parsed.scheme != "https" or not hostname or parsed.port not in {None, 443}
                 or parsed.username is not None or parsed.password is not None or parsed.fragment):
             raise ValueError
-        addresses = socket.getaddrinfo(hostname, 443, type=socket.SOCK_STREAM)
+        addresses = resolve_addresses(hostname, 443)
         if not addresses:
             raise ValueError
         for address in addresses:
             ip = ipaddress.ip_address(address[4][0])
+            if address_validator is not None:
+                if not address_validator(str(ip)):
+                    raise ValueError
+                continue
             if not ip.is_global or ip.is_multicast or ip.is_reserved or (isinstance(ip, ipaddress.IPv6Address) and (
                 ip.ipv4_mapped is not None or ip.sixtofour is not None or ip.teredo is not None
             )):
@@ -94,10 +99,14 @@ def select_records(payload, pointer: str):
     return payload
 
 
-def fetch_json_snapshot(url: str, records_path: str = "") -> tuple[bytes, str]:
-    hostname, target, address = public_api_target(url)
+def fetch_json_snapshot(url: str, records_path: str = "", *, auth_headers=None, address_validator=None,
+                        timeout_seconds=None, max_bytes=None) -> tuple[bytes, str]:
+    hostname, target, address = public_api_target(url, address_validator=address_validator)
     connection = PinnedHTTPSConnection(hostname, address)
-    deadline = time.monotonic() + API_TIMEOUT_SECONDS
+    timeout = min(API_TIMEOUT_SECONDS, timeout_seconds) if timeout_seconds is not None else API_TIMEOUT_SECONDS
+    byte_limit = min(MAX_API_BYTES, max_bytes) if max_bytes is not None else MAX_API_BYTES
+    connection.timeout = max(0.001, timeout)
+    deadline = time.monotonic() + timeout
     abort_timer = None
     try:
         connection.connect()
@@ -120,6 +129,7 @@ def fetch_json_snapshot(url: str, records_path: str = "") -> tuple[bytes, str]:
         connection.request("GET", target, headers={
             "Accept": "application/json", "Accept-Encoding": "identity",
             "User-Agent": "ReportGenerator/1.0",
+            **(auth_headers or {}),
         })
         transport_socket.settimeout(max(0.001, deadline - time.monotonic()))
         response = connection.getresponse()
@@ -137,11 +147,11 @@ def fetch_json_snapshot(url: str, records_path: str = "") -> tuple[bytes, str]:
                 raise TimeoutError
             # Socket timeouts and the deadline also bound slow streaming responses.
             transport_socket.settimeout(remaining)
-            chunk = response.read1(min(65536, MAX_API_BYTES + 1 - size))
+            chunk = response.read1(min(65536, byte_limit + 1 - size))
             if not chunk:
                 break
             size += len(chunk)
-            if size > MAX_API_BYTES:
+            if size > byte_limit:
                 raise HTTPException(413, "API response exceeds the configured size limit")
             chunks.append(chunk)
         body = b"".join(chunks)

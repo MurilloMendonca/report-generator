@@ -324,18 +324,19 @@ def build_layout_from_template(artifacts: list, template_id: str = None, owner_i
 
 
 def fit_artifacts_to_template(artifacts: list, template: dict) -> list:
+    """Order the plan without deleting evidence to meet a template's capacity.
+
+    build_layout_from_template places overflow on additional pages. Slot counts
+    guide planning but must never silently discard an accepted component.
+    """
     if not template:
         return artifacts
-
-    slots = sanitize_template_slots(template.get("slots", []))
-    text_limit = sum(1 for slot in slots if slot["type"] == "text")
-    graphic_limit = sum(1 for slot in slots if slot["type"] == "graphic")
 
     metrics = [a for a in artifacts if a.get("type") == "metric"]
     text_artifacts = _prioritize_text_artifacts([a for a in artifacts if a.get("type") == "text"])
     graphic_artifacts = [a for a in artifacts if a.get("type") not in {"metric", "text"}]
 
-    return metrics + text_artifacts[:text_limit] + graphic_artifacts[:graphic_limit]
+    return metrics + text_artifacts + graphic_artifacts
 
 
 def template_constraints(template: dict) -> dict:

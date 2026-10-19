@@ -70,7 +70,7 @@ const path = require('path');
         assert.equal(imports[0].url, '/api/sessions');
         assert(imports[0].body.includes('https://example.com/api/data'));
         assert(imports[0].body.includes('/data/items'));
-        await page.locator('.api-source-details summary').click();
+        await page.locator('.api-source-details summary').first().click();
         await page.locator('#add-api-url').fill('https://example.com/more');
         await page.locator('#api-source-form button[type="submit"]').click();
         await page.waitForFunction(() => document.getElementById('add-api-url').value === '');
