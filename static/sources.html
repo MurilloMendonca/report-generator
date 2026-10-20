@@ -35,9 +35,11 @@
                 <label for="connection-port">Porta</label><input id="connection-port" type="number" min="1" max="65535" value="5432">
                 <label for="connection-database">Banco de dados</label><input id="connection-database">
                 <label for="connection-db-user">Usuário de leitura</label><input id="connection-db-user" autocomplete="off">
-                <small>Use um usuário com permissão apenas de leitura. A conexão exige TLS com certificado válido. Redes privadas precisam de autorização do administrador.</small>
+                <label for="connection-sslmode">Segurança da conexão</label><select id="connection-sslmode" aria-describedby="connection-tls-help"><option value="verify-full">TLS com certificado verificado (recomendado)</option><option value="disable">Sem TLS (apenas dados públicos)</option></select>
+                <small id="connection-tls-help">Use um usuário com permissão apenas de leitura. Redes privadas precisam de autorização do administrador.</small>
+                <div id="connection-no-tls-notice" class="source-transport-notice" role="status" hidden>Sem TLS, a senha e os dados trafegam sem criptografia. Use apenas credenciais e dados públicos, como os do RNAcentral.</div>
             </div>
-            <div id="secret-field"><label for="connection-secret">Token, chave ou senha</label><input id="connection-secret" type="password" maxlength="4096" autocomplete="new-password"><small>Ao editar, deixe vazio para manter a credencial. Informe-a novamente se mudar o destino ou a autenticação.</small></div>
+            <div id="secret-field"><label for="connection-secret">Token, chave ou senha</label><input id="connection-secret" type="password" maxlength="4096" autocomplete="new-password"><small>Ao editar, deixe vazio para manter a credencial. Informe-a novamente se mudar o destino, a autenticação ou a segurança da conexão.</small></div>
             <div class="source-actions"><button class="btn" type="submit">Salvar conexão</button><button class="btn btn-outline" type="button" id="connection-cancel">Cancelar</button></div>
         </form></details>
     </section>

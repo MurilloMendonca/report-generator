@@ -412,7 +412,7 @@ API clients can still submit a public HTTPS URL through `api_url` and `api_recor
 Open **Conta → Fontes de dados** (`/sources`) to save up to 20 connections and 100 named datasets per account. Connections hold a destination and encrypted credentials; datasets define what to read. The encryption keyring (`APP_ENCRYPTION_KEYS` or its secret file) must be configured. `python -m app.cli rewrap-keys` rotates saved source credentials along with provider credentials. Other accounts cannot list, test, preview or use your sources.
 
 - **JSON APIs:** HTTPS on port 443 with bearer tokens, an API-key header, Basic authentication, or no authentication. Credentials are sent only to the configured origin. Redirects and compressed responses are rejected. Datasets define a relative endpoint, an optional JSON Pointer to records, scalar query parameters (booleans use `true`/`false`; null omits a parameter) and pagination: one response, a same-origin next-link JSON Pointer, or a page-number parameter until an empty page. A next-link must end with null or an empty string. Repeated links, missing next links, page caps and row/byte limits fail the complete import instead of accepting a partial snapshot.
-- **PostgreSQL:** a hostname, port, database, restricted non-admin username and password. TLS certificate and hostname verification are mandatory (`verify-full`, system trust roots); use a publicly trusted server certificate or install your operator CA in the container trust store. The connection pins the approved IP while retaining the original hostname for TLS. Use a dedicated role granted SELECT only on the necessary tables/views. Superuser, role/database creation, replication and RLS-bypass roles are rejected. Datasets select a schema/table/view or a single SELECT query, with named `%(parameter)s` placeholders and scalar parameter values. Reads run in read-only transactions with statement/lock deadlines and a bounded streaming cursor. The application's own database is blocked.
+- **PostgreSQL:** a hostname, port, database, restricted non-admin username and password. Connections default to verified TLS (`sslmode: "verify-full"`, system trust roots); use a publicly trusted server certificate or install your operator CA in the container trust store. For public demo servers without TLS, explicitly choose **Sem TLS (apenas dados públicos)** (`sslmode: "disable"`). This sends the password and data without encryption; use only published credentials and public data. Failed TLS connections never retry without encryption. Changing the transport setting requires re-entering the password; existing saved connections retain verified TLS. Both modes pin the approved IP and enforce the same network restrictions. Use a dedicated role granted SELECT only on the necessary tables/views. Superuser, role/database creation, replication and RLS-bypass roles are rejected. Datasets select a schema/table/view or a single SELECT query, with named `%(parameter)s` placeholders and scalar parameter values. Reads run in read-only transactions with statement/lock deadlines and a bounded streaming cursor. The application's own database is blocked.
 
 Public destinations work by default. An operator may permit private addresses with `PDF_REPORT_SOURCE_ALLOWED_NETWORKS`, for example `10.20.0.0/24`; this authorizes all saved connectors to contact that subnet, so scope it to intended data servers. Link-local/metadata, reserved, multicast and IPv6 transition addresses remain blocked. This setting does not relax the public quick-import form. Only enable private ranges on a deployment with the intended network access.
 
@@ -421,6 +421,32 @@ Select saved datasets when starting a report, optionally alongside uploads or a 
 Report generation reuses its existing data snapshot. In an existing report, **Fontes de dados → Atualizar selecionados** explicitly fetches another revision and rebuilds the report. **Histórico de importações** downloads previous snapshots, including after a connection or dataset is deleted. Provenance records the dataset/connection versions, actual parameter values, row count and import time. Source credentials must go in the connection's credential field, never in query parameters or SQL. Changing a connection destination/authentication requires re-entering its credential; changing a saved definition after selection invalidates that queued import. Multi-dataset imports commit together, and failed reads keep the active files unchanged. A failed report rebuild preserves the last usable report. Snapshots count toward account storage and are deleted with their report.
 
 There is no OAuth sign-in flow, scheduled refresh or support for other database engines in this version.
+
+#### Try RNAcentral's public PostgreSQL database
+
+In **Fontes de dados → Adicionar conexão**, select PostgreSQL and use the [published RNAcentral connection details](https://rnacentral.org/help/public-database):
+
+| Field | Value |
+| --- | --- |
+| Host | `hh-pgsql-public.ebi.ac.uk` |
+| Port | `5432` |
+| Database | `pfmegrnargs` |
+| Username | `reader` |
+| Password (public demo credential) | `NWDMCE5xdipIjRrp` |
+| Connection security | **Sem TLS (apenas dados públicos)** |
+
+Save and test the connection. Create a dataset using **Consulta SELECT**, with parameters `{}` and this bounded query for report-friendly summary data:
+
+```sql
+SELECT display_name AS database_name,
+       num_sequences, num_organisms, avg_length
+FROM rnacen.rnc_database
+WHERE num_sequences > 0
+ORDER BY num_sequences DESC
+LIMIT 50
+```
+
+The schema is `rnacen`, not `public`. Preview the dataset, then select it when creating a report. Avoid importing the entire `rna` table; use a limited query when sampling individual sequences.
 
 If the server restarts mid-job, the job is lost; on the next startup that session is marked `failed` with error code `interrupted` so the UI stops waiting and the user can retry.
 

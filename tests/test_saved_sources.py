@@ -8,7 +8,7 @@ import socket
 import threading
 import unittest
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -21,7 +21,7 @@ from sqlalchemy.engine import make_url
 from app import db
 from app.main import app
 from app.models.db import AuditEvent, SourceConnection, User
-from app.models.sources import ApiDataset, ConnectionBody, DatasetBody, PostgresDataset, SourceSelection
+from app.models.sources import ApiDataset, ConnectionBody, DatasetBody, PostgresConnectionConfig, PostgresDataset, SourceSelection
 from app.services import api_sources, crypto, session_manager as sessions, source_connectors as connectors, source_service as service
 from app.services.cleanup_service import delete_entire_session
 from app.services.source_errors import SourceError
@@ -146,6 +146,29 @@ class ConnectorTests(unittest.TestCase):
         with self.assertRaises(ValidationError): PostgresDataset(mode='query', query='DELETE FROM public.orders')
         with self.assertRaises(ValidationError): connection_body(name='   ')
 
+    def test_postgres_tls_defaults_to_verified_and_allows_only_explicit_modes(self):
+        config = {'host': 'db.example.com', 'database': 'data', 'username': 'reader'}
+        self.assertEqual(PostgresConnectionConfig(**config).sslmode, 'verify-full')
+        self.assertEqual(PostgresConnectionConfig(**config, sslmode='disable').sslmode, 'disable')
+        for mode in ['prefer', 'allow', 'require', 'verify-ca', '', None, 'disable host=evil.example']:
+            with self.subTest(mode=mode), self.assertRaises(ValidationError):
+                PostgresConnectionConfig(**config, sslmode=mode)
+
+    def test_failed_tls_is_never_retried_without_encryption(self):
+        config = {'host': 'db.example.com', 'port': 5432, 'database': 'data', 'username': 'reader'}
+        for message, code in [('server does not support SSL, but SSL was required', 'source_database_tls'),
+                              ('certificate verify failed ' + SECRET, 'source_database_error')]:
+            with self.subTest(message=code), patch.object(source_network, 'resolve_host', return_value=('db.example.com', '8.8.8.8')), \
+                 patch.object(connectors, '_reject_application_database'), \
+                 patch.object(psycopg.AsyncConnection, 'connect', new_callable=AsyncMock, side_effect=psycopg.OperationalError(message)) as connect:
+                with self.assertRaises(SourceError) as error:
+                    connectors.test_connection('postgres', config, SECRET)
+                self.assertEqual(error.exception.code, code)
+                self.assertNotIn(SECRET, str(error.exception))
+                connect.assert_awaited_once()
+                self.assertEqual(connect.call_args.kwargs['sslmode'], 'verify-full')
+                self.assertEqual(connect.call_args.kwargs['sslrootcert'], 'system')
+
     def test_database_client_deadline_is_bounded_and_errors_are_safe(self):
         async def stall(): await asyncio.sleep(1)
         with self.assertRaises(SourceError) as error: connectors._bounded_database_read(stall(), .01)
@@ -212,6 +235,32 @@ class SavedSourceHTTPTests(unittest.TestCase):
         response = self.client.put(url, headers=self.headers, json=body); self.assertEqual(response.status_code, 400)
         body['secret'] = SECRET
         self.assertEqual(self.client.put(url, headers=self.headers, json=body).status_code, 200)
+
+    def test_postgres_transport_is_saved_and_legacy_edits_preserve_credentials(self):
+        config = {'host': 'db.example.com', 'port': 5432, 'database': 'data', 'username': 'reader'}
+        connection = service.save_connection(self.alice.id, connection_body(kind='postgres', config=config))
+        # Simulate an existing connection from before the sslmode field existed.
+        with db.transaction() as tx:
+            tx.get(SourceConnection, uuid.UUID(connection['id'])).config = config
+        url = '/api/data-sources/connections/' + connection['id']
+        body = {'name': 'Renamed database', 'kind': 'postgres', 'config': config}
+        response = self.client.put(url, headers=self.headers, json=body)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['config']['sslmode'], 'verify-full')
+        body['config'] = {**config, 'sslmode': 'disable'}
+        self.assertEqual(self.client.put(url, headers=self.headers, json=body).status_code, 400)
+        body['secret'] = SECRET
+        response = self.client.put(url, headers=self.headers, json=body)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['config']['sslmode'], 'disable')
+        with db.transaction() as tx:
+            row = tx.get(SourceConnection, uuid.UUID(connection['id']))
+            self.assertEqual(service.decrypt(row), SECRET)
+        with patch.object(connectors, 'test_connection', return_value={'ok': True}) as test:
+            response = self.client.post(url + '/test', headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(test.call_args.args[1]['sslmode'], 'disable')
+        self.assertNotIn(SECRET, self.client.get('/api/data-sources', headers=self.headers).text)
 
     def test_preview_is_explicit_bounded_and_uses_only_saved_parameters(self):
         body = json.dumps([{'id': 1}]).encode()
@@ -430,6 +479,19 @@ class PostgreSQLConnectorTests(unittest.TestCase):
         for config in self.transport_settings:
             self.assertEqual(config['sslmode'], 'verify-full'); self.assertEqual(config['sslrootcert'], 'system'); self.assertEqual(config['hostaddr'], self.url.host)
             self.assertIn('default_transaction_read_only=on', config['options']); self.assertEqual(config['passfile'], '/dev/null')
+
+    def test_explicit_plaintext_connection_reads_without_a_transport_override(self):
+        self.transport.stop()
+        config = {**self.config, 'sslmode': 'disable'}
+        self.assertTrue(connectors.test_connection('postgres', config, SECRET)['ok'])
+        definition = PostgresDataset(mode='query', query='SELECT * FROM public.orders WHERE id <= %(last)s', parameters={'last': 3}).model_dump()
+        body, details = connectors.read_dataset('postgres', config, SECRET, definition, {})
+        self.assertEqual([row['id'] for row in json.loads(body)], [1, 2, 3])
+        self.assertTrue(details['complete'])
+        # The plaintext option must not loosen internal-database protection.
+        with self.assertRaises(SourceError) as error:
+            connectors.test_connection('postgres', {**config, 'database': self.url.database}, SECRET)
+        self.assertEqual(error.exception.code, 'source_destination')
 
     def test_writes_multiple_statements_and_application_database_are_blocked(self):
         for query in ["WITH inserted AS (INSERT INTO public.orders(id) VALUES (99) RETURNING *) SELECT * FROM inserted", "SELECT 1; INSERT INTO public.orders(id) VALUES (99)", "SELECT 1); INSERT INTO public.orders(id) VALUES (99); --"]:

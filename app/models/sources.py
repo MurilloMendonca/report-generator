@@ -50,6 +50,7 @@ class PostgresConnectionConfig(StrictModel):
     port: int = Field(default=5432, ge=1, le=65535)
     database: str = Field(min_length=1, max_length=128)
     username: str = Field(min_length=1, max_length=128)
+    sslmode: Literal["verify-full", "disable"] = "verify-full"
 
     @field_validator("host")
     @classmethod

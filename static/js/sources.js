@@ -17,7 +17,7 @@ const Sources = {
     async init() {
         try { await API.me(); } catch (_) { API.redirectToLogin(); return; }
         this.el('app-shell').style.display = 'block';
-        for (const id of ['connection-kind', 'connection-auth', 'dataset-connection', 'dataset-pagination', 'dataset-mode']) this.el(id).addEventListener('change', () => this.fields());
+        for (const id of ['connection-kind', 'connection-auth', 'connection-sslmode', 'dataset-connection', 'dataset-pagination', 'dataset-mode']) this.el(id).addEventListener('change', () => this.fields());
         this.el('connection-cancel').addEventListener('click', () => this.reset('connection'));
         this.el('dataset-cancel').addEventListener('click', () => this.reset('dataset'));
         this.el('connection-form').addEventListener('submit', event => {
@@ -58,7 +58,7 @@ const Sources = {
             const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = connection?.kind === 'postgres' ? 'PostgreSQL' : 'API JSON';
             top.append(heading, badge); card.append(top);
             const detail = document.createElement('small');
-            detail.textContent = kind === 'connection' ? (item.kind === 'api' ? `API · ${item.config.base_url}` : `PostgreSQL · ${item.config.host} / ${item.config.database}`) : (this.connections.find(c => c.id === item.connection_id)?.name || '');
+            detail.textContent = kind === 'connection' ? (item.kind === 'api' ? `API · ${item.config.base_url}` : `PostgreSQL · ${item.config.host} / ${item.config.database} · ${item.config.sslmode === 'disable' ? 'Sem TLS' : 'TLS verificado'}`) : (this.connections.find(c => c.id === item.connection_id)?.name || '');
             card.append(detail);
             const actions = document.createElement('div'); actions.className = 'source-actions';
             for (const [label, callback] of [
@@ -111,6 +111,7 @@ const Sources = {
         const api = this.value('connection-kind') === 'api';
         const auth = this.value('connection-auth');
         this.el('api-connection-fields').hidden = !api; this.el('postgres-connection-fields').hidden = api;
+        this.el('connection-no-tls-notice').hidden = api || this.value('connection-sslmode') !== 'disable';
         this.el('header-field').hidden = auth !== 'api_key'; this.el('api-user-field').hidden = auth !== 'basic'; this.el('secret-field').hidden = api && auth === 'none';
         for (const id of ['connection-url', 'connection-host', 'connection-database', 'connection-db-user']) this.el(id).required = id === 'connection-url' ? api : !api;
         const connection = this.connections.find(item => item.id === this.value('dataset-connection'));
@@ -131,7 +132,7 @@ const Sources = {
         if (kind === 'connection') {
             set('connection-kind', item.kind); this.el('connection-kind').disabled = true;
             const c = item.config;
-            for (const [id, value] of Object.entries({ 'connection-url': c.base_url, 'connection-auth': c.auth_mode || 'bearer', 'connection-header': c.header_name || 'X-API-Key', 'connection-api-user': c.username, 'connection-host': c.host, 'connection-port': c.port || 5432, 'connection-database': c.database, 'connection-db-user': c.username })) set(id, value);
+            for (const [id, value] of Object.entries({ 'connection-url': c.base_url, 'connection-auth': c.auth_mode || 'bearer', 'connection-header': c.header_name || 'X-API-Key', 'connection-api-user': c.username, 'connection-host': c.host, 'connection-port': c.port || 5432, 'connection-database': c.database, 'connection-db-user': c.username, 'connection-sslmode': c.sslmode || 'verify-full' })) set(id, value);
             this.el('connection-secret').value = '';
         } else {
             const d = item.definition;
@@ -141,7 +142,7 @@ const Sources = {
     },
     async saveConnection() {
         const kind = this.value('connection-kind');
-        const config = kind === 'api' ? { base_url: this.value('connection-url'), auth_mode: this.value('connection-auth'), header_name: this.value('connection-header'), username: this.value('connection-api-user') } : { host: this.value('connection-host'), port: Number(this.value('connection-port')), database: this.value('connection-database'), username: this.value('connection-db-user') };
+        const config = kind === 'api' ? { base_url: this.value('connection-url'), auth_mode: this.value('connection-auth'), header_name: this.value('connection-header'), username: this.value('connection-api-user') } : { host: this.value('connection-host'), port: Number(this.value('connection-port')), database: this.value('connection-database'), username: this.value('connection-db-user'), sslmode: this.value('connection-sslmode') };
         const body = { name: this.value('connection-name'), kind, config };
         const secret = this.el('connection-secret').value;
         if (secret && (kind !== 'api' || config.auth_mode !== 'none')) body.secret = secret;

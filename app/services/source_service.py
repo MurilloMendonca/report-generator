@@ -94,8 +94,12 @@ def save_connection(owner_id, body: ConnectionBody, connection_id=None, ip=None)
             row = SourceConnection(id=uuid.uuid4(), owner_id=owner_id, kind=body.kind, version=0)
             tx.add(row)
         needs_secret = body.kind == "postgres" or body.config.get("auth_mode") != "none"
-        if body.secret is None and needs_secret and (row.version == 0 or row.config != body.config):
-            raise SourceError("source_credentials", "Informe a credencial ao criar ou alterar o destino/autenticação da conexão.")
+        previous_config = row.config
+        if row.version and row.kind == "postgres":
+            # Connections saved before transport settings used verified TLS.
+            previous_config = {"sslmode": "verify-full", **row.config}
+        if body.secret is None and needs_secret and (row.version == 0 or previous_config != body.config):
+            raise SourceError("source_credentials", "Informe a credencial ao criar ou alterar o destino, a autenticação ou a segurança da conexão.")
         if body.secret is not None or not needs_secret:
             secret = body.secret.get_secret_value() if body.secret is not None and needs_secret else ""
             if needs_secret and not secret:

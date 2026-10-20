@@ -14,6 +14,7 @@ from psycopg import sql
 from fastapi import HTTPException
 
 from app import db
+from app.models.sources import PostgresConnectionConfig
 from app.services import api_sources, source_network
 from app.services.source_errors import SourceError
 from app.utils.tabular import json_records, parse_json
@@ -141,14 +142,19 @@ def _reject_application_database(config, address):
 @asynccontextmanager
 async def postgres_connection(config, secret):
     try:
+        config = PostgresConnectionConfig.model_validate(config).model_dump()
         host, address = source_network.resolve_host(config["host"], config["port"])
         _reject_application_database(config, address)
-        # Every transport setting is controlled by the server. hostaddr pins the
-        # approved address; host retains TLS hostname verification.
+        # TLS is verified unless this connection explicitly opts out. Never
+        # retry a TLS failure without encryption. Pin the approved address in
+        # either mode, retaining host for TLS hostname verification.
+        transport = {"sslmode": config["sslmode"]}
+        if config["sslmode"] == "verify-full":
+            transport["sslrootcert"] = "system"
         async with await psycopg.AsyncConnection.connect(
             host=host, hostaddr=address, port=config["port"], dbname=config["database"],
             user=config["username"], password=secret, passfile="/dev/null",
-            sslmode="verify-full", sslrootcert="system", gssencmode="disable", connect_timeout=5,
+            **transport, gssencmode="disable", connect_timeout=5,
             application_name="pdf-report-source",
             options="-c default_transaction_read_only=on -c statement_timeout=15000 -c lock_timeout=3000 -c idle_in_transaction_session_timeout=20000 -c search_path=pg_catalog",
         ) as connection:
@@ -164,6 +170,14 @@ async def postgres_connection(config, secret):
             yield connection
     except SourceError:
         raise
+    except psycopg.OperationalError as exc:
+        if "server does not support SSL" in str(exc):
+            raise SourceError(
+                "source_database_tls",
+                "O servidor não oferece TLS. Para uma fonte de dados públicos como RNAcentral, "
+                "selecione Sem TLS na conexão e informe novamente a senha.",
+            ) from None
+        raise SourceError("source_database_error", "Não foi possível ler o PostgreSQL. Verifique rede aprovada, TLS, credenciais e a consulta somente de leitura.") from None
     except Exception:
         raise SourceError("source_database_error", "Não foi possível ler o PostgreSQL. Verifique rede aprovada, TLS, credenciais e a consulta somente de leitura.") from None
 

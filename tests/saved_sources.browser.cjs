@@ -26,6 +26,7 @@ const path = require('path');
         const session = { job_id: 'saved-browser', current_step: 'completed', status: 'Concluído', progress: 100, files: [], artifacts: [], components: {}, settings: {}, template: [], logs: [], pdf_version: 0, source_snapshot_history: [] };
         const firstId = '11111111-1111-1111-1111-111111111111', datasetId = '22222222-2222-2222-2222-222222222222';
         const publicConnectionId = '33333333-3333-3333-3333-333333333333', publicDatasetId = '44444444-4444-4444-4444-444444444444';
+        const postgresConnectionId = '55555555-5555-5555-5555-555555555555', postgresDatasetId = '66666666-6666-6666-6666-666666666666';
         function snapshot(amount, parameters, selectedId = datasetId) {
             const id = String(amount).padStart(32, '0');
             const file = { original_filename: 'dataset_orders.json', source: { snapshot_id: id, dataset_id: selectedId, dataset_name: datasets.find(item => item.id === selectedId).name, row_count: amount, parameters, fetched_at: '2026-10-19T12:00:00Z', type: 'saved_dataset' } };
@@ -49,26 +50,35 @@ const path = require('path');
             }
             else if (url === '/api/data-sources/connections' && method === 'POST') {
                 const body = request.postDataJSON();
-                if (body.config.auth_mode === 'none') assert(!Object.hasOwn(body, 'secret'));
+                if (body.kind === 'postgres') {
+                    assert.equal(body.config.sslmode, 'disable');
+                    assert.equal(body.config.host, 'hh-pgsql-public.ebi.ac.uk');
+                    assert.equal(body.secret, 'public-demo-password');
+                }
+                else if (body.config.auth_mode === 'none') assert(!Object.hasOwn(body, 'secret'));
                 else { assert.equal(body.secret, 'browser-secret'); assert.equal(body.config.auth_mode, 'bearer'); }
-                const { secret, ...safe } = body; data = { ...safe, id: connections.length ? publicConnectionId : firstId, version: 1, has_secret: !!secret }; connections.push(data);
+                const { secret, ...safe } = body; data = { ...safe, id: body.kind === 'postgres' ? postgresConnectionId : connections.length ? publicConnectionId : firstId, version: 1, has_secret: !!secret }; connections.push(data);
             } else if (url === '/api/data-sources/connections/' + firstId && method === 'PUT') {
                 const body = request.postDataJSON(); assert(!Object.hasOwn(body, 'secret'), 'editing must preserve the stored secret without sending a mask');
                 Object.assign(connections[0], body); data = connections[0];
+            } else if (url === '/api/data-sources/connections/' + postgresConnectionId && method === 'PUT') {
+                const body = request.postDataJSON(); assert(!Object.hasOwn(body, 'secret')); assert.equal(body.config.sslmode, 'disable');
+                Object.assign(connections[2], body); data = connections[2];
             } else if (url.endsWith('/test')) data = { ok: true, message: 'Conexão testada com sucesso.' };
             else if (url === '/api/data-sources/datasets' && method === 'POST') {
-                const body = request.postDataJSON(); data = { ...body, id: datasets.length ? publicDatasetId : datasetId, version: 1 }; datasets.push(data);
+                const body = request.postDataJSON(); data = { ...body, id: body.connection_id === postgresConnectionId ? postgresDatasetId : datasets.length ? publicDatasetId : datasetId, version: 1 }; datasets.push(data);
             } else if (url.endsWith('/preview')) data = { rows: [{ note: '<script>alert(1)</script>', amount: 10 }], preview: true, complete: false };
             else if (url === '/api/models') data = { providers: { deepseek: [{ id: 'deepseek-flash', label: 'DeepSeek' }] }, default_provider: 'deepseek', default_model: 'deepseek-flash' };
             else if (url === '/api/component-library') data = { themes: [], chart_styles: [], presets: [] };
             else if (url === '/api/layout-templates') data = { templates: [] };
             else if (url === '/api/sessions' && method === 'GET') data = { sessions: [] };
             else if (url === '/api/sessions' && method === 'POST') {
+                const isPostgres = request.postData().includes(postgresDatasetId);
                 const isPublic = request.postData().includes(publicDatasetId);
-                if (!isPublic) { assert(request.postData().includes(datasetId)); assert(request.postData().includes('2026-09-01')); }
+                if (!isPublic && !isPostgres) { assert(request.postData().includes(datasetId)); assert(request.postData().includes('2026-09-01')); }
                 assert(!request.postData().includes('filename=""'), 'source-only reports must not submit an empty upload');
                 assert(!request.postData().includes('name="api_url"'), 'external APIs are configured through saved sources');
-                snapshot(10, isPublic ? {} : { start_date: '2026-09-01' }, isPublic ? publicDatasetId : datasetId); data = { job_id: session.job_id };
+                snapshot(10, isPublic || isPostgres ? {} : { start_date: '2026-09-01' }, isPostgres ? postgresDatasetId : isPublic ? publicDatasetId : datasetId); data = { job_id: session.job_id };
             } else if (url.endsWith('/sources/refresh')) {
                 const body = request.postDataJSON(); assert.equal(body.sources[0].parameters.start_date, '2026-10-01');
                 snapshot(20, body.sources[0].parameters); data = { status: 'queued' };
@@ -162,7 +172,48 @@ const path = require('path');
         await page.locator(`#initial-source-list input[value="${publicDatasetId}"]`).check();
         await page.locator('#upload-form button[type=submit]').click();
         await page.waitForFunction(id => App.currentSession?.files?.[0]?.source?.dataset_id === id, publicDatasetId);
+        await page.goto(origin + '/sources', { waitUntil: 'networkidle' });
+        await page.locator('#connection-editor summary').click();
+        await page.locator('#connection-kind').selectOption('postgres');
+        assert.equal(await page.locator('#connection-sslmode').inputValue(), 'verify-full');
+        assert(await page.locator('#connection-no-tls-notice').isHidden());
+        await page.locator('#connection-name').fill('RNAcentral public');
+        await page.locator('#connection-host').fill('hh-pgsql-public.ebi.ac.uk');
+        await page.locator('#connection-database').fill('pfmegrnargs');
+        await page.locator('#connection-db-user').fill('reader');
+        await page.locator('#connection-secret').fill('public-demo-password');
+        await page.locator('#connection-sslmode').selectOption('disable');
+        assert(await page.locator('#connection-no-tls-notice').isVisible());
+        await page.screenshot({ path: '/tmp/pdf-rnacentral-connection-desktop.png', fullPage: true });
+        await page.setViewportSize({ width: 390, height: 844 });
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+        await page.screenshot({ path: '/tmp/pdf-rnacentral-connection-mobile.png', fullPage: true });
+        await page.setViewportSize({ width: 1440, height: 1100 });
+        await page.locator('#connection-form button[type=submit]').click();
+        await page.waitForFunction(() => document.getElementById('connection-count').textContent === '3');
+        const postgresCard = page.locator('#connection-list .source-card').last();
+        assert((await postgresCard.textContent()).includes('Sem TLS'));
+        await postgresCard.getByRole('button', { name: 'Editar', exact: true }).click();
+        assert.equal(await page.locator('#connection-sslmode').inputValue(), 'disable');
+        assert.equal(await page.locator('#connection-secret').inputValue(), '');
+        await page.locator('#connection-name').fill('RNAcentral renamed');
+        await page.locator('#connection-form button[type=submit]').click();
+        await page.getByText('Conexão salva.', { exact: false }).waitFor();
+        await postgresCard.getByRole('button', { name: 'Testar conexão' }).click();
+        await page.getByText('Conexão testada com sucesso.').waitFor();
+        await postgresCard.getByRole('button', { name: 'Criar conjunto' }).click();
+        await page.locator('#dataset-name').fill('RNAcentral summary');
+        await page.locator('#dataset-mode').selectOption('query');
+        await page.locator('#dataset-query').fill('SELECT display_name AS database_name, num_sequences, num_organisms FROM rnacen.rnc_database WHERE num_sequences > 0 ORDER BY num_sequences DESC LIMIT 50');
+        await page.locator('#dataset-form button[type=submit]').click();
+        await page.waitForFunction(() => document.getElementById('dataset-count').textContent === '3');
+        await page.locator('#dataset-list .source-card').last().getByRole('button', { name: 'Prévia', exact: true }).click();
+        await page.locator('#source-preview-table table').waitFor();
+        await page.goto(origin, { waitUntil: 'networkidle' });
+        await page.locator(`#initial-source-list input[value="${postgresDatasetId}"]`).check();
+        await page.locator('#upload-form button[type=submit]').click();
+        await page.waitForFunction(id => App.currentSession?.files?.[0]?.source?.dataset_id === id, postgresDatasetId);
         assert.deepEqual(errors, []);
-        console.log('Saved source browser flow passed: public/authenticated APIs, connection forms, preview, selection, parameters, catalog retry, refresh, history, mobile and CSRF.');
+        console.log('Saved source browser flow passed: public/authenticated APIs, PostgreSQL transport settings, connection forms, preview, selection, parameters, catalog retry, refresh, history, mobile and CSRF.');
     } finally { if (browser) await browser.close(); await new Promise(resolve => server.close(resolve)); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
