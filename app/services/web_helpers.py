@@ -364,7 +364,7 @@ def save_data_sources(files, api_url, api_records_path, destination_dir, owner_i
         source = {"type": "api_snapshot", "hostname": hostname, "records_path": api_records_path,
                   "fetched_at": datetime.now(timezone.utc).isoformat()}
     if not uploads:
-        raise HTTPException(400, "Upload at least one file or enter a public JSON API URL")
+        raise HTTPException(400, "Selecione um conjunto de dados ou envie pelo menos um arquivo.")
     if api_records_path and not api_url:
         raise HTTPException(400, "An API URL is required when using a records path")
     saved = []

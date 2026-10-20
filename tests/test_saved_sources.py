@@ -261,6 +261,48 @@ class SavedSourceHTTPTests(unittest.TestCase):
             self.assertEqual(self.client.delete(f'/api/sessions/{job_id}/files/0', headers=self.headers).status_code, 200)
         self.assertEqual(self.client.get(url, headers=self.headers).status_code, 200)
 
+    def test_browser_empty_file_part_does_not_block_selected_sources(self):
+        def post_with_empty_upload(url, data):
+            # httpx omits filename="" for an empty filename; encode the browser's
+            # actual multipart part so FastAPI receives an empty UploadFile.
+            boundary = 'test-browser-empty-upload'
+            parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'
+                     for key, value in data.items()]
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="files"; filename=""\r\n'
+                         f'Content-Type: application/octet-stream\r\n\r\n\r\n--{boundary}--\r\n')
+            return self.client.post(url, content=''.join(parts).encode(), headers={
+                **self.headers, 'Content-Type': f'multipart/form-data; boundary={boundary}',
+            })
+
+        with patch('app.services.source_imports.run_pipeline') as pipeline, patch.object(
+            connectors, 'read_dataset', return_value=(b'[{"amount":10}]', {'row_count': 1, 'complete': True})
+        ):
+            response = post_with_empty_upload(
+                '/api/sessions', {'provider': 'deepseek', 'source_datasets': json.dumps([self.select()])},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        job_id = response.json()['job_id']
+        self.addCleanup(delete_entire_session, job_id)
+        session = sessions.get_session(job_id)
+        self.assertEqual(session['source_import']['status'], 'completed')
+        self.assertEqual(len(session['files']), 1)
+        pipeline.assert_called_once_with(job_id)
+
+        other = service.save_dataset(self.alice.id, DatasetBody(
+            name='Another endpoint', connection_id=self.connection['id'], definition={}
+        ))
+        with patch('app.services.source_imports.run_pipeline') as pipeline, patch.object(
+            connectors, 'read_dataset', return_value=(b'[{"amount":20}]', {'row_count': 1, 'complete': True})
+        ):
+            response = post_with_empty_upload(
+                f'/api/sessions/{job_id}/files', {'source_datasets': json.dumps([{'dataset_id': other['id']}])},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(sessions.get_session(job_id)['files']), 2)
+        pipeline.assert_called_once_with(job_id)
+        response = post_with_empty_upload('/api/sessions', {'provider': 'deepseek'})
+        self.assertEqual(response.status_code, 400, response.text)
+
     def test_failed_multi_source_import_is_atomic_and_cleans_staging(self):
         job_id, original = self.new_report()
         other = service.save_dataset(self.alice.id, DatasetBody(name='More', connection_id=self.connection['id'], definition={}))

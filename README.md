@@ -175,7 +175,7 @@ APP_ENCRYPTION_KEYS=v1:<base64-encoded-32-byte-master-key>
 APP_ENCRYPTION_ACTIVE_KEY=v1
 ```
 
-After signing in, open **Conta → Chaves de API** (`/keys`) and save your Gemini, DeepSeek, Anthropic, OpenAI or OpenRouter key. The app validates it using the provider's model listing (plus OpenRouter's authenticated key endpoint), encrypts it, and shows only its last four characters. Model choices and fallback preferences belong to your account. Imported demo reports need a key on the demo account before they can use an LLM again.
+After signing in, open **Conta → Modelos de IA** (`/keys`) and save your Gemini, DeepSeek, Anthropic, OpenAI or OpenRouter key. The app validates it using the provider's model listing (plus OpenRouter's authenticated key endpoint), encrypts it, and shows only its last four characters. Model choices and fallback preferences belong to your account. Imported demo reports need a key on the demo account before they can use an LLM again.
 
 For local development and canonical sessions only, `PDF_REPORT_DEV_SERVER_KEYS=1` permits the provider's env key as a fallback when the owner has no stored key. It still requires a report owner or user context. Production refuses to start with this flag.
 
@@ -403,7 +403,9 @@ JSON (`.json`) accepts an array of objects, a single object, or an API envelope 
 
 TXT files provide document context like PDFs, supporting document-only narrative reports and evidence-backed document insights. UTF-8 and Windows-1252 are supported; empty files and binary control characters are rejected. Document context uses the first 20,000 characters and records a truncation warning; the full original remains downloadable. TXT files are not treated as tables.
 
-To import an API, enter a public HTTPS URL when starting a report or use **Importar API JSON** in an existing report. An optional JSON Pointer such as `/data/items` selects records from the response. Each import performs one GET and saves a JSON snapshot in that report's uploads, so subsequent report generation does not depend on the remote API. Only public addresses on port 443 are allowed; connections pin a validated IP while verifying the original TLS hostname. Redirects and compressed responses are rejected, and requests have a 20-second network time budget. APIs must return `application/json` or an `application/*+json` content type. This quick-import form uses no authentication or automatic pagination. For saved authenticated sources, use the account settings described below. Only the source hostname, records path and import time are stored as provenance; the request URL and query string are not persisted.
+To import an API in the browser, open **Fontes de dados** (`/sources`), save its base HTTPS address and authentication, and define a dataset with a relative endpoint and optional JSON Pointer such as `/data/items`. Choose **Sem autenticação (API pública)** for a public API. Select the dataset in **Novo relatório**, alongside any uploaded files. In an existing report, **Fontes de dados → Adicionar selecionados** imports additional datasets. Each import saves a snapshot, so later report generation uses that copy until you explicitly refresh it.
+
+API clients can still submit a public HTTPS URL through `api_url` and `api_records_path`. This one-response import has no authentication or automatic pagination; only public addresses on port 443 are allowed, with validated pinned IPs, TLS hostname verification, no redirects or compression, and a 20-second network budget. Responses must have an `application/json` or `application/*+json` content type. Only the source hostname, records path and import time are stored as provenance; the request URL and query string are not persisted.
 
 ### Saved API and database inputs
 
@@ -416,7 +418,7 @@ Public destinations work by default. An operator may permit private addresses wi
 
 Select saved datasets when starting a report, optionally alongside uploads or a public API. The report form lets you change the dataset's predefined parameters (for example dates). Up to 10 datasets can be selected per operation. Imports run in background jobs before the existing pipeline. Credentials and connection settings stay on the server; generated scripts receive only report-local JSON files. A preview returns at most 5 rows and is explicitly incomplete. Connection tests and previews have a 20-second read budget and account/global concurrency limits.
 
-Report generation reuses its existing data snapshot. In an existing report, **Fontes da sua conta → Atualizar selecionados** explicitly fetches another revision and rebuilds the report. **Histórico de importações** downloads previous snapshots, including after a connection or dataset is deleted. Provenance records the dataset/connection versions, actual parameter values, row count and import time. Source credentials must go in the connection's credential field, never in query parameters or SQL. Changing a connection destination/authentication requires re-entering its credential; changing a saved definition after selection invalidates that queued import. Multi-dataset imports commit together, and failed reads keep the active files unchanged. A failed report rebuild preserves the last usable report. Snapshots count toward account storage and are deleted with their report.
+Report generation reuses its existing data snapshot. In an existing report, **Fontes de dados → Atualizar selecionados** explicitly fetches another revision and rebuilds the report. **Histórico de importações** downloads previous snapshots, including after a connection or dataset is deleted. Provenance records the dataset/connection versions, actual parameter values, row count and import time. Source credentials must go in the connection's credential field, never in query parameters or SQL. Changing a connection destination/authentication requires re-entering its credential; changing a saved definition after selection invalidates that queued import. Multi-dataset imports commit together, and failed reads keep the active files unchanged. A failed report rebuild preserves the last usable report. Snapshots count toward account storage and are deleted with their report.
 
 There is no OAuth sign-in flow, scheduled refresh or support for other database engines in this version.
 
@@ -468,7 +470,7 @@ Reports:
 - `GET /api/model-preferences`, `PUT /api/model-preferences`: account defaults and fallback, restricted to the caller's keys.
 - `GET /api/usage`: your storage, report quotas, monthly provider tokens/calls and account limits. The `/usage` page links from your account.
 - `GET /api/usage/reports`: usage for up to 50 of your recent reports. Summaries derive from durable events; historical reports without events retain their older summaries in session state.
-- `GET /sources`: account source settings page.
+- `GET /sources`: unified settings for public/authenticated JSON APIs and PostgreSQL connections. Save a connection, define a dataset, then select it when creating a report or adding data. The report form accepts saved datasets, uploaded files, or both. `/keys` configures the AI providers that generate reports, separately from data connections.
 - `GET /api/data-sources`: caller's connections (without secrets) and named datasets.
 - `POST /api/data-sources/connections`, `PUT /api/data-sources/connections/{connection_id}`, `DELETE /api/data-sources/connections/{connection_id}`: create, update or delete an owned connection. JSON: `name`, `kind` (`api` / `postgres`), `config`, optional `secret`. Omitting a secret preserves it when the connection configuration is unchanged.
 - `POST /api/data-sources/connections/{connection_id}/test`: bounded authenticated connection test.
@@ -481,7 +483,7 @@ Reports:
 - `GET /api/component-library/presets/{preset_id}/preview`: one preset's preview image.
 - `POST /api/sessions`: starts a report job. Form fields:
   - `files`: optional CSV/Excel/JSON/JSON Lines/TXT/PDF files. Supply files, an API URL, saved datasets, or a combination.
-  - `api_url`: optional public HTTPS JSON API URL.
+  - `api_url`: optional public HTTPS JSON API URL for API clients. The browser uses saved connections under `/sources` for all external data.
   - `api_records_path`: optional JSON Pointer (for example `/data/items`) selecting records from the API response.
   - `source_datasets`: optional JSON array of `{"dataset_id": "<uuid>", "parameters": {}}` selections (maximum 10).
   - `prompt`: report objective. Blank means exploratory report.

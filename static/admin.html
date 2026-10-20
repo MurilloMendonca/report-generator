@@ -6,10 +6,18 @@
     <title>Administração · Report Generator</title>
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
-<body class="account-body" data-operations="admin">
+<body class="account-body settings-body" data-operations="admin">
     <main class="account-page operations-page">
-        <header class="account-header"><h1>Administração</h1><nav class="keys-nav"><a href="/account" class="btn btn-outline">Sua conta</a><a href="/" class="btn btn-outline">Estúdio</a></nav></header>
+        <header class="settings-topbar"><a href="/" class="studio-brand"><span class="brand-mark" aria-hidden="true">R</span><span>Report Generator<small>Workspace</small></span></a><a href="/" class="btn btn-outline">Voltar ao estúdio <span aria-hidden="true">↗</span></a></header>
+        <nav class="settings-nav" aria-label="Configurações da conta"><a href="/account">Visão geral</a><a href="/sources">Fontes de dados</a><a href="/keys">Modelos de IA</a><a href="/usage">Uso e limites</a></nav>
+        <header class="page-heading"><span class="eyebrow">WORKSPACE / ADMINISTRAÇÃO</span><h1>Visão geral da operação.</h1><p>Gerencie contas, limites de uso e atividades do workspace.</p></header>
         <div id="operations-notice" class="auth-message" role="status" hidden></div>
+        <div class="usage-metrics" aria-label="Resumo de uso deste mês">
+            <div class="usage-metric"><span>Chamadas de IA</span><strong id="usage-total-calls">—</strong><small>Neste mês</small></div>
+            <div class="usage-metric"><span>Tokens processados</span><strong id="usage-total-tokens">—</strong><small>Entrada e saída conhecidas</small></div>
+            <div class="usage-metric"><span>Chamadas com falha</span><strong id="usage-total-failures">—</strong><small>Registradas no período</small></div>
+            <div class="usage-metric"><span>Em andamento</span><strong id="usage-total-pending">—</strong><small>Aguardando conclusão</small></div>
+        </div>
         <section class="account-section"><h2>Uso geral neste mês</h2><p id="usage-totals">Carregando...</p><p id="workspace-usage"></p>
             <p class="auth-hint">A limpeza remove relatórios sem atualização há 30 dias e arquivos órfãos conforme a retenção configurada. Relatórios recentes são preservados.</p>
             <button type="button" id="cleanup-button" class="btn btn-outline">Executar limpeza por retenção</button>

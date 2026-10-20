@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chaves · Report Generator</title>
+    <title>Modelos de IA · Report Generator</title>
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
-<body class="account-body keys-body">
+<body class="account-body settings-body keys-body">
     <main id="app-shell" class="account-page" style="display:none">
-        <header class="account-header">
-            <h1>Suas chaves de API</h1>
-            <nav class="keys-nav"><a href="/account" class="btn btn-outline">Sua conta</a><a href="/" class="btn btn-outline">Estúdio de Relatórios</a></nav>
-        </header>
-        <p>Adicione uma chave para gerar relatórios. O uso dos modelos é cobrado pelo provedor na sua conta.</p>
-        <p class="auth-hint">As chaves ficam criptografadas e não são exibidas novamente depois de salvas.</p>
+        <header class="settings-topbar"><a href="/" class="studio-brand"><span class="brand-mark" aria-hidden="true">R</span><span>Report Generator<small>Workspace</small></span></a><a href="/" class="btn btn-outline">Voltar ao estúdio <span aria-hidden="true">↗</span></a></header>
+        <nav class="settings-nav" aria-label="Configurações da conta"><a href="/account">Visão geral</a><a href="/sources">Fontes de dados</a><a href="/keys" aria-current="page">Modelos de IA</a><a href="/usage">Uso e limites</a></nav>
+        <header class="page-heading"><span class="eyebrow">WORKSPACE / MODELOS DE IA</span><h1>A inteligência por trás dos relatórios.</h1><p>Conecte seus provedores de IA e escolha os modelos que vão analisar seus dados.</p></header>
+        <div class="settings-info"><span class="info-symbol" aria-hidden="true">✧</span><p>Os modelos de IA analisam seus dados e escrevem o relatório. Para conectar APIs que fornecem dados, acesse <a href="/sources">Fontes de dados</a>.</p></div>
+        <p class="auth-hint">Suas chaves ficam criptografadas. O uso é cobrado diretamente na sua conta do provedor.</p>
         <details class="account-section">
             <summary>Como obter uma chave de API</summary>
             <p>Entre no painel do provedor, configure o acesso à API e crie uma chave. Copie-a e salve no cartão correspondente abaixo.</p>
@@ -28,9 +27,9 @@
         </details>
         <div id="keys-notice" class="auth-message" role="status" hidden></div>
         <p id="keys-unverified" class="auth-message" hidden>Confirme seu email antes de adicionar uma chave. <a href="/account">Abrir sua conta</a></p>
-        <div id="credential-cards"></div>
+        <div class="section-heading provider-section-heading"><span class="step-number">01</span><div><h2>Conecte seus provedores</h2><p>Adicione pelo menos uma chave para começar.</p></div></div><div id="credential-cards"></div>
         <section class="account-section">
-            <h2>Preferências de modelos</h2>
+            <div class="section-heading"><span class="step-number">02</span><div><h2>Preferências de modelos</h2><p>Escolha seu modelo padrão e uma alternativa.</p></div></div>
             <p class="auth-hint">A alternativa é usada se o provedor principal ficar indisponível. Ela usa uma das suas próprias chaves.</p>
             <form id="model-preferences-form" class="account-form">
                 <div class="form-group"><label for="default-provider">Provedor padrão</label><select id="default-provider"></select></div>

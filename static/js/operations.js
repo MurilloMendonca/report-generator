@@ -34,6 +34,15 @@ const Operations = {
         try { await action(); } catch (error) { this.notice(error.message, true); }
     },
     totals(usage) {
+        for (const [id, value] of Object.entries({
+            'usage-total-calls': usage.calls,
+            'usage-total-tokens': Number(usage.input_tokens || 0) + Number(usage.output_tokens || 0),
+            'usage-total-failures': usage.failed_calls,
+            'usage-total-pending': usage.pending_calls,
+        })) {
+            const element = document.getElementById(id);
+            if (element) element.textContent = this.number(value);
+        }
         document.getElementById('usage-totals').textContent =
             `${this.number(usage.calls)} chamadas · ${this.number(usage.input_tokens)} tokens de entrada · ${this.number(usage.output_tokens)} tokens de saída · ${this.number(usage.failed_calls)} falhas · ${this.number(usage.pending_calls)} pendentes · ${this.number(usage.unknown_token_calls)} sem contagem completa`;
     },

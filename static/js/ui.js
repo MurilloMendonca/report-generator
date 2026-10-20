@@ -176,7 +176,7 @@ const UI = {
             if (['missing_provider_key', 'invalid_provider_key'].includes(item.error?.code)) {
                 const link = document.createElement('a');
                 link.href = '/keys';
-                link.textContent = 'Abrir Chaves';
+                link.textContent = 'Configurar modelos de IA';
                 message.appendChild(link);
             }
             if (!user) (Array.isArray(item.charts) ? item.charts : []).forEach(chart => {

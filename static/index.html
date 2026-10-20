@@ -9,9 +9,9 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
-    <div id="app-shell" class="app-shell" style="display:none">
+    <div id="app-shell" class="app-shell is-starting" style="display:none">
     <div class="sidebar">
-        <h2>Report Generator</h2>
+        <a class="studio-brand" href="/"><span class="brand-mark" aria-hidden="true">R</span><span>Report Generator<small>Seu estúdio de relatórios</small></span></a>
         <div class="account-bar">
             <span id="account-name" class="account-name"></span>
             <a href="/account" class="account-link">Conta</a>
@@ -22,32 +22,27 @@
             <button type="button" id="resend-verification-btn" class="account-link">Reenviar link</button>
             <span id="verify-banner-status"></span>
         </div>
+        <nav class="studio-nav" aria-label="Workspace">
+            <a href="/" aria-current="page"><span aria-hidden="true">+</span> Novo relatório</a>
+            <a href="/sources"><span aria-hidden="true">▤</span> Fontes de dados</a>
+            <a href="/keys"><span aria-hidden="true">✧</span> Modelos de IA</a>
+            <a href="/usage"><span aria-hidden="true">◷</span> Uso e limites</a>
+        </nav>
         <a id="new-session-link" href="/" class="btn btn-secondary new-session-link" style="display:none">+ Criar nova sessão</a>
         <a href="/templates" class="btn btn-outline" style="margin-bottom: 1rem; text-align: center; text-decoration: none;">Editar Templates</a>
         
         <div id="file-workspace" class="file-workspace" style="display:none">
             <div class="workspace-section-header">
-                <label>Arquivos</label>
+                <label>Dados do relatório</label>
                 <span id="file-summary">0 arquivos</span>
             </div>
             <div class="file-dropzone" id="file-dropzone">
                 <div class="file-tray" id="file-tray"></div>
-                <button class="btn btn-outline add-file-btn" type="button" data-action="trigger-add-file">+ Adicionar Dados</button>
+                <button class="btn btn-outline add-file-btn" type="button" data-action="trigger-add-file">+ Enviar arquivos</button>
             </div>
             <input type="file" id="add-file-input" accept=".csv,.xls,.xlsx,.json,.jsonl,.ndjson,.txt,.pdf" style="display:none" multiple>
             <details class="api-source-details">
-                <summary>Importar API JSON</summary>
-                <form id="api-source-form">
-                    <label for="add-api-url">URL pública HTTPS:</label>
-                    <input id="add-api-url" name="api_url" type="url" placeholder="https://example.com/api/data" required>
-                    <label for="add-api-records-path">Caminho dos registros (opcional):</label>
-                    <input id="add-api-records-path" name="api_records_path" type="text" placeholder="/data/items">
-                    <small>Importa uma resposta como arquivo JSON. Sem autenticação ou paginação automática.</small>
-                    <button type="submit" class="btn btn-outline">Importar dados</button>
-                </form>
-            </details>
-            <details class="api-source-details">
-                <summary>Fontes da sua conta</summary>
+                <summary>Fontes de dados</summary>
                 <a href="/sources" target="_blank" rel="noopener">Configurar fontes</a>
                 <button id="reload-sources-btn" type="button" class="account-link">Recarregar lista</button>
                 <form id="saved-source-form">
@@ -70,59 +65,38 @@
             <button type="submit" class="btn" style="width:100%; margin-top: 0.5rem;">Enviar Feedback</button>
         </form>
         
-        <div id="initial-form" class="upload-section">
-            <form id="upload-form">
-                <div class="form-group">
-                    <label>Provedor:</label>
-                    <select id="provider" name="provider">
-                        <option value="gemini">Google Gemini</option>
-                        <option value="deepseek" selected>DeepSeek</option>
-                        <option value="anthropic">Anthropic</option>
-                        <option value="openai">OpenAI</option>
-                        <option value="openrouter">OpenRouter</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Modelo:</label>
-                    <select id="model_name" name="model_name"></select>
-                    <p id="model-default-notice" class="model-default-notice" hidden></p>
-                </div>
-                <div class="form-group">
-                    <label>Arquivos de dados e contexto:</label>
-                    <input type="file" id="file" name="files" accept=".csv,.xls,.xlsx,.json,.jsonl,.ndjson,.txt,.pdf" multiple>
-                    <small>CSV, Excel, JSON, JSON Lines, TXT e PDF. Use nomes diferentes para cada arquivo.</small>
-                </div>
-                <div class="form-group">
-                    <label for="api-url">Ou API JSON pública (HTTPS):</label>
-                    <input id="api-url" name="api_url" type="url" placeholder="https://example.com/api/data">
-                    <label for="api-records-path">Caminho dos registros (opcional):</label>
-                    <input id="api-records-path" name="api_records_path" type="text" placeholder="/data/items">
-                    <small>Usa uma resposta como snapshot. Sem autenticação ou paginação automática. Envie arquivos, uma API, ou ambos.</small>
-                </div>
-                <div class="form-group">
-                    <label>Ou conjuntos de dados salvos:</label>
-                    <a href="/sources" target="_blank" rel="noopener">Configurar fontes na sua conta</a>
-                    <button id="reload-initial-sources-btn" type="button" class="account-link">Recarregar lista</button>
-                    <div id="initial-source-list"></div>
-                    <small>Selecione os conjuntos e ajuste seus parâmetros. Cada importação cria uma cópia dos dados para este relatório.</small>
-                </div>
-                <div class="form-group">
-                    <label>Objetivo do Relatório (opcional):</label>
-                    <textarea name="prompt" placeholder="Deixe em branco para gerar um relatório exploratório dos dados."></textarea>
-                </div>
-                <button type="submit" class="btn" style="width:100%; height: 48px; font-size: 1rem;">Iniciar Geração</button>
-            </form>
-            <div class="recent-section">
-                <h3>Recentes</h3>
-                <div id="recent-sessions" class="recent-sessions">
-                    <div class="recent-empty">Nenhuma sessão recente.</div>
-                </div>
-            </div>
-        </div>
+
     </div>
 
     <div class="main-content">
         <div id="workspace-notice" class="workspace-notice" role="status" aria-live="polite" hidden></div>
+
+        <div id="initial-form" class="new-report-page">
+            <header class="page-heading"><span class="eyebrow">ESTÚDIO / NOVO RELATÓRIO</span><h1>Dos seus dados à próxima decisão.</h1><p>Escolha os dados, conte o que quer descobrir e crie seu relatório.</p></header>
+            <form id="upload-form" class="report-create-grid">
+                <section class="setup-card report-data-card" aria-labelledby="report-data-title">
+                    <div class="section-heading"><span class="step-number">01</span><div><h2 id="report-data-title">Escolha seus dados</h2><p>Combine fontes conectadas e arquivos, se precisar.</p></div></div>
+                    <div class="source-picker-heading"><h3>Fontes de dados</h3><a href="/sources" target="_blank" rel="noopener">Gerenciar fontes ↗</a></div>
+                    <div id="initial-source-list" class="initial-source-list"><p class="source-empty">Carregando suas fontes…</p></div>
+                    <div class="source-picker-footer"><span id="initial-source-count" role="status">Nenhum conjunto selecionado</span><button id="reload-initial-sources-btn" type="button" class="text-button">Atualizar lista</button></div>
+                    <div class="input-divider"><span>ou envie arquivos</span></div>
+                    <label for="file" class="upload-label"><span class="upload-symbol" aria-hidden="true">↑</span><strong>Adicione dados e documentos</strong><span>CSV, Excel, JSON, JSON Lines, TXT ou PDF</span></label>
+                    <input type="file" id="file" name="files" accept=".csv,.xls,.xlsx,.json,.jsonl,.ndjson,.txt,.pdf" multiple aria-describedby="upload-help">
+                    <small id="upload-help">Você pode selecionar vários arquivos com nomes diferentes.</small>
+                    <p class="data-copy-note">Cada fonte selecionada cria uma cópia dos dados para este relatório. Você pode atualizá-la depois.</p>
+                </section>
+                <section class="setup-card report-brief-card" aria-labelledby="report-brief-title">
+                    <div class="section-heading"><span class="step-number">02</span><div><h2 id="report-brief-title">Dê uma direção</h2><p>O que seu relatório precisa mostrar?</p></div></div>
+                    <div class="form-group"><label for="report-prompt">Objetivo <span class="optional-label">opcional</span></label><textarea id="report-prompt" name="prompt" rows="5" placeholder="Ex.: Analise as vendas do trimestre, destaque os produtos mais rentáveis e compare os resultados por região."></textarea><small>Em branco, criamos uma análise exploratória dos seus dados.</small></div>
+                    <div class="model-section-heading"><h3>Modelo de IA</h3><a href="/keys">Configurar modelos ↗</a></div>
+                    <div class="form-group"><label for="provider">Provedor</label><select id="provider" name="provider"><option value="gemini">Google Gemini</option><option value="deepseek" selected>DeepSeek</option><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option></select></div>
+                    <div class="form-group"><label for="model_name">Modelo</label><select id="model_name" name="model_name"></select><p id="model-default-notice" class="model-default-notice" hidden></p></div>
+                    <div class="create-report-action"><button type="submit" class="btn">Gerar relatório <span aria-hidden="true">→</span></button><small>Você poderá ajustar o conteúdo e o layout depois.</small></div>
+                </section>
+            </form>
+            <section class="recent-section"><div class="source-picker-heading"><h2>Continue de onde parou</h2><span class="optional-label">Relatórios recentes</span></div><div id="recent-sessions" class="recent-sessions"><div class="recent-empty">Seus relatórios aparecerão aqui.</div></div></section>
+        </div>
+
         <div class="header" id="header-progress" style="display:none;">
             <div class="progress-section">
                 <div id="status-text" class="status-text" style="margin-right: 1.5rem; min-width: 150px;">Processando...</div>

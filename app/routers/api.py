@@ -153,6 +153,8 @@ async def start_session(
     await run_in_threadpool(quotas.check_daily_reports, user.id)
     await run_in_threadpool(quotas.check_storage, user.id, quotas.upload_size(files))
     references = await run_in_threadpool(saved_source_references, user.id, source_datasets)
+    # Browsers include an empty multipart file part when no file was chosen.
+    files = [file for file in files or [] if file.filename]
     job_id = str(uuid.uuid4())
     report_paths = ReportPaths.for_new_report(job_id, str(user.id)).ensure()
     session_files = await run_in_threadpool(
@@ -222,6 +224,7 @@ async def add_files_to_session(
 ):
     session = require_session(job_id, request)
     references = await run_in_threadpool(saved_source_references, current_user(request).id, source_datasets)
+    files = [file for file in files or [] if file.filename]
     
     session_files = session.get("files", [])
     existing_names = {file["original_filename"].casefold() for file in session_files}

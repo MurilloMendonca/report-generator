@@ -16,7 +16,7 @@ const ui = new Proxy({}, { get: (_target, key) => (...args) => {
 const context = vm.createContext({
     document: { getElementById: element },
     window: { history: { replaceState() {} } },
-    UI: ui, FormData: class { set() {} }, URL: { revokeObjectURL() {} },
+    UI: ui, FormData: class { set() {} delete() {} append() {} }, URL: { revokeObjectURL() {} },
     setTimeout: callback => { scheduled.push(callback); return scheduled.length; },
     clearTimeout() {},
 });
@@ -48,11 +48,11 @@ async function main() {
     element('file').files = [];
     await app.handleStartSession(event);
     assert.strictEqual(uploadCalls, 1, 'empty imports must be rejected before making a request');
-    assert(element('workspace-notice').textContent.includes('API JSON'));
-    element('api-url').value = 'https://example.com/data';
-    api.startSession = async () => { throw new Error('API unavailable'); };
+    assert(element('workspace-notice').textContent.includes('conjunto de dados'));
+    context.SavedSources = { selections: () => [{ dataset_id: 'saved-dataset', parameters: {} }], update() {} };
+    api.startSession = async () => { throw new Error('Source unavailable'); };
     await app.handleStartSession(event);
-    assert.strictEqual(element('workspace-notice').textContent, 'API unavailable', 'API-only reports can be submitted');
+    assert.strictEqual(element('workspace-notice').textContent, 'Source unavailable', 'saved sources alone can be submitted');
 
     const session = { job_id: 'one', status: 'Working', settings: {}, artifacts: [], files: [] };
     app.currentSession = session;

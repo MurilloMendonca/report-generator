@@ -71,7 +71,7 @@ const App = {
             }
             if (provider && catalog.default_provider) provider.value = catalog.default_provider;
             if (catalog.credential_status && !Object.values(catalog.credential_status).some(status => status.enabled)) {
-                this.showNotice('Adicione sua chave de API para gerar relatórios.', { code: 'missing_provider_key' });
+                this.showNotice('Configure um modelo de IA para gerar relatórios.', { code: 'missing_provider_key' });
             }
         }
     },
@@ -226,7 +226,6 @@ const App = {
 
     setupEventListeners() {
         document.getElementById('upload-form').onsubmit = (e) => this.handleStartSession(e);
-        document.getElementById('api-source-form').onsubmit = (e) => this.handleApiImport(e);
         document.getElementById('chat-form').onsubmit = (e) => this.handleChat(e);
         document.getElementById('explore-form').onsubmit = (e) => this.handleExplore(e);
         document.getElementById('modal-form').onsubmit = (e) => this.handleSaveIndicator(e);
@@ -433,14 +432,16 @@ const App = {
         const button = e.target.querySelector('button[type="submit"]');
         if (button.disabled) return;
         button.disabled = true;
-        button.textContent = 'Enviando arquivos...';
+        button.textContent = 'Preparando relatório…';
         this.showNotice('');
         try {
             const files = document.getElementById('file').files;
-            const apiUrl = document.getElementById('api-url').value.trim();
             const sources = typeof SavedSources !== 'undefined' ? SavedSources.selections('initial-source-list') : [];
-            if (!files.length && !apiUrl && !sources.length) throw new Error('Envie um arquivo, informe uma API JSON ou selecione um conjunto salvo.');
+            if (!files.length && !sources.length) throw new Error('Selecione um conjunto de dados ou envie pelo menos um arquivo.');
             const formData = new FormData(e.target);
+            // Avoid the empty file part native forms include when no file was chosen.
+            formData.delete('files');
+            for (const file of files) formData.append('files', file);
             formData.set('source_datasets', JSON.stringify(sources));
             const data = await API.startSession(formData);
             this.currentSession = { job_id: data.job_id };
@@ -448,10 +449,10 @@ const App = {
             this.showWorkspace();
             this.startPolling();
         } catch (error) {
-            this.showNotice(error.message);
+            this.showNotice(error.message, error);
         } finally {
             button.disabled = false;
-            button.textContent = 'Iniciar Geração';
+            button.textContent = 'Gerar relatório →';
         }
     },
 
@@ -463,12 +464,13 @@ const App = {
         if (['missing_provider_key', 'invalid_provider_key'].includes(error?.code)) {
             const link = document.createElement('a');
             link.href = '/keys';
-            link.textContent = 'Abrir Chaves';
+            link.textContent = 'Configurar modelos de IA';
             notice.append(' ', link);
         }
     },
 
     showWorkspace() {
+        document.getElementById('app-shell').classList.remove('is-starting');
         document.getElementById('initial-form').style.display = 'none';
         document.getElementById('file-workspace').style.display = 'block';
         document.getElementById('header-progress').style.display = 'block';
@@ -666,27 +668,6 @@ const App = {
         for (let f of files) fd.append('files', f);
         await API.addFiles(this.currentSession.job_id, fd);
         this.startPolling();
-    },
-
-    async handleApiImport(event) {
-        event.preventDefault();
-        if (!this.currentSession?.job_id) return;
-        const form = event.target;
-        const button = form.querySelector('button[type="submit"]');
-        if (button.disabled) return;
-        button.disabled = true;
-        button.textContent = 'Importando...';
-        this.showNotice('');
-        try {
-            await API.addFiles(this.currentSession.job_id, new FormData(form));
-            form.reset();
-            this.startPolling();
-        } catch (error) {
-            this.showNotice(error.message);
-        } finally {
-            button.disabled = false;
-            button.textContent = 'Importar dados';
-        }
     },
 
     async previewFile(index) {
