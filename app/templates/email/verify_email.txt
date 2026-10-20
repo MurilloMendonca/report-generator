@@ -1,0 +1,11 @@
+Subject: Confirme seu email no $app_name
+Olá$greeting,
+
+Confirme seu email para começar a criar relatórios:
+
+$link
+
+O link vale por 24 horas. Se você não criou uma conta, ignore esta mensagem.
+
+---
+Confirm your email to start creating reports (link valid for 24 hours). If you didn't sign up, ignore this message.

@@ -1,6 +1,7 @@
 import json
 import re
 from textwrap import dedent
+from pathlib import Path
 
 
 SUPPORTED_LIBRARY_RENDER_PRESETS = {
@@ -109,12 +110,21 @@ def hybrid_component_code(artifact: dict) -> str:
         generated = globals().get('render_{suffix}_generated')
         if generated is not None:
             try:
-                return generated(pdf, dataframes, x, y, w, h, df=df)
-            except TypeError:
+                import inspect
+                try:
+                    inspect.signature(generated).bind(pdf, dataframes, x, y, w, h, df=df)
+                    accepts_df = True
+                except (TypeError, ValueError):
+                    accepts_df = False
+                if accepts_df:
+                    return generated(pdf, dataframes, x, y, w, h, df=df)
                 return generated(pdf, dataframes, x, y, w, h)
             except Exception:
                 import logging
                 logging.getLogger(__name__).exception('Generated hybrid renderer failed for {suffix}; falling back to library renderer')
+                runtime = globals().get('render_runtime')
+                if runtime is not None:
+                    runtime.record_component_fallback()
         try:
             return render_visual_component(pdf, dataframes, artifact, x, y, w, h)
         except Exception:
@@ -125,11 +135,18 @@ def hybrid_component_code(artifact: dict) -> str:
 
 
 def sandbox_runtime_source() -> str:
-    return dedent(r"""
+    from app.utils.component_library import COMPONENT_PRESETS, VISUAL_THEMES, CHART_STYLES
+
+    contracts = Path(__file__).with_name("visual_contracts.py").read_text(encoding="utf-8")
+    catalog = (f"\nVISUAL_THEMES = {VISUAL_THEMES!r}\nCHART_STYLES = {CHART_STYLES!r}\n"
+               f"PRESET_ROLES = { {key: value['data_roles'] for key, value in COMPONENT_PRESETS.items()}!r}\n"
+               f"PRESET_OPTIONS = { {key: value['default_options'] for key, value in COMPONENT_PRESETS.items()}!r}\n")
+    return contracts + catalog + dedent(r"""
     import os
     import re
     import tempfile
     import textwrap
+    from contextlib import contextmanager
 
     import matplotlib as mpl
     import matplotlib.pyplot as plt
@@ -158,6 +175,46 @@ def sandbox_runtime_source() -> str:
     CHART_THEME = {}
     CHART_STYLE = {}
     _STANDARD_CHART_STYLE_INSTALLED = False
+    _STANDARD_CHART_STYLE_TOKEN = object()
+    _COMPONENT_OUTCOME = {}
+
+
+    class VisualBindingError(ValueError):
+        render_status = 'invalid_binding'
+
+
+    def begin_component_render(render_mode='generated_code'):
+        global _COMPONENT_OUTCOME
+        _COMPONENT_OUTCOME = {'status': 'rendered', 'render_mode': 'generated_code' if render_mode == 'hybrid' else render_mode,
+                              'requested_mode': render_mode, 'fallback_used': False, 'warnings': []}
+
+
+    def component_render_outcome(result=None):
+        outcome = dict(_COMPONENT_OUTCOME)
+        if isinstance(result, dict) and result.get('status') in {'rendered', 'empty', 'invalid_binding', 'failed'}:
+            outcome.update({key: value for key, value in result.items() if key in {'status', 'message', 'warnings'}})
+            if _COMPONENT_OUTCOME.get('status') != 'rendered':
+                outcome['status'] = _COMPONENT_OUTCOME.get('status', outcome['status'])
+        return outcome
+
+
+    def record_component_fallback():
+        _COMPONENT_OUTCOME.update(status='rendered', render_mode='library', fallback_used=True)
+        _COMPONENT_OUTCOME.pop('message', None)
+
+
+    @contextmanager
+    def _component_visual_context(artifact):
+        old_theme, old_palette, old_style = CHART_THEME, CHART_PALETTE, CHART_STYLE
+        theme = VISUAL_THEMES.get(artifact.get('visual_theme_id'), old_theme)
+        style = CHART_STYLES.get(artifact.get('chart_style_id'), old_style)
+        palette = theme.get('palette') if artifact.get('visual_theme_id') else old_palette
+        with mpl.rc_context():
+            configure_visual_runtime(theme, palette, style)
+            try:
+                yield
+            finally:
+                configure_visual_runtime(old_theme, old_palette, old_style)
 
 
     def configure_visual_runtime(theme=None, palette=None, style=None):
@@ -199,6 +256,10 @@ def sandbox_runtime_source() -> str:
         return [palette[i % len(palette)] for i in range(n)]
 
 
+    def _monochrome_charts():
+        return CHART_THEME.get('color_mode') == 'monochrome'
+
+
     def _apply_chart_theme(fig, ax=None, theme=None):
         theme = theme or CHART_THEME
         fig.patch.set_facecolor(theme.get('figure_facecolor', '#ffffff'))
@@ -209,9 +270,19 @@ def sandbox_runtime_source() -> str:
             axis.xaxis.label.set_color(theme.get('text_color', '#111827'))
             axis.yaxis.label.set_color(theme.get('text_color', '#111827'))
             axis.title.set_color(theme.get('text_color', '#111827'))
-            axis.grid(color=theme.get('grid_color', '#e5e7eb'), alpha=0.7)
+            minimal = CHART_STYLE.get('id') == 'minimal'
+            if minimal:
+                axis.grid(False)
+            else:
+                axis.grid(color=theme.get('grid_color', '#e5e7eb'), alpha=0.35 if CHART_STYLE.get('id') == 'editorial' else 0.7)
             for spine in axis.spines.values():
                 spine.set_color(theme.get('grid_color', '#e5e7eb'))
+                spine.set_visible(not minimal)
+            if CHART_STYLE.get('id') == 'dense_dashboard':
+                axis.tick_params(labelsize=5)
+            elif CHART_STYLE.get('id') == 'editorial':
+                axis.title.set_fontsize(10)
+                axis.title.set_fontweight('bold')
         return fig
 
 
@@ -232,6 +303,21 @@ def sandbox_runtime_source() -> str:
         return f'{value:.1f}'
 
 
+    def _format_visual_number(value, options=None):
+        fmt = (options or {}).get('format')
+        if not fmt:
+            return _format_compact_number(value)
+        try:
+            number = float(value)
+            if fmt in {'percent', 'percentage', '%'}:
+                return f'{number:.1%}'
+            if fmt == 'currency':
+                return f'{number:,.2f}'
+            return format(number, fmt)
+        except (TypeError, ValueError):
+            raise VisualBindingError('Unsupported numeric format')
+
+
     def _top_n_with_others(df, category_col, value_col, top_n=10, others_label='Others'):
         if df is None or df.empty or category_col not in df.columns or value_col not in df.columns:
             return pd.DataFrame(columns=[category_col, value_col])
@@ -249,10 +335,12 @@ def sandbox_runtime_source() -> str:
     def _save_chart_to_pdf(fig, pdf, x, y, w, h):
         _apply_chart_theme(fig)
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-            fig.savefig(tmp.name, dpi=300)
-            plt.close(fig)
-            pdf.image(tmp.name, x=x, y=y, w=w, h=h)
-            os.unlink(tmp.name)
+            try:
+                fig.savefig(tmp.name, dpi=300)
+                pdf.image(tmp.name, x=x, y=y, w=w, h=h)
+            finally:
+                plt.close(fig)
+                os.unlink(tmp.name)
 
 
     def _wrapped_chart_title(title, w=None):
@@ -326,11 +414,15 @@ def sandbox_runtime_source() -> str:
         df = dataframe.copy() if dataframe is not None else pd.DataFrame()
         max_rows = 5 if h < 60 else 8 if h < 95 else 12
         max_cols = 4 if w < 100 else 6 if w < 150 else 8
+        if len(df) > max_rows or len(df.columns) > max_cols:
+            _COMPONENT_OUTCOME.setdefault('warnings', []).append('Table rows or columns were limited to fit the layout slot')
+        if options.get('show_totals') and len(df) > max_rows:
+            df = pd.concat([df.head(max_rows - 1), df.tail(1)])
         df = df.iloc[:max_rows, :max_cols]
         df = df.fillna('')
         for column in df.columns:
             df[column] = df[column].map(
-                lambda value: _format_compact_number(value)
+                lambda value: _format_visual_number(value, options)
                 if isinstance(value, (int, float, np.integer, np.floating))
                 else str(value)[:42]
             )
@@ -338,6 +430,7 @@ def sandbox_runtime_source() -> str:
         ax.axis('off')
         title_lines = _draw_table_title(fig, title, w)
         if df.empty:
+            _COMPONENT_OUTCOME.update(status='empty', message='No rows available for the table')
             ax.text(0.5, 0.5, 'Dados indisponiveis', ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE)
             _save_chart_to_pdf(fig, pdf, x, y, w, h)
             return
@@ -360,7 +453,7 @@ def sandbox_runtime_source() -> str:
                 cell.get_text().set_color(table_theme.get('header_text', '#ffffff'))
                 cell.get_text().set_fontweight('bold')
             else:
-                cell.set_facecolor(table_theme.get('alt_row_bg', '#f9fafb') if row % 2 == 0 else table_theme.get('row_bg', '#ffffff'))
+                cell.set_facecolor(table_theme.get('alt_row_bg', '#f9fafb') if options.get('striped_rows', True) and row % 2 == 0 else table_theme.get('row_bg', '#ffffff'))
                 cell.get_text().set_color(theme.get('text_color', '#111827'))
         fig.subplots_adjust(left=0.02, right=0.98, top=_table_top_margin(title_lines), bottom=0.02)
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
@@ -368,15 +461,15 @@ def sandbox_runtime_source() -> str:
 
     def _install_standard_chart_style():
         global _STANDARD_CHART_STYLE_INSTALLED
-        if _STANDARD_CHART_STYLE_INSTALLED:
-            return
         from matplotlib.axes import Axes
-        original_set_title = Axes.set_title
-        original_set_xlabel = Axes.set_xlabel
-        original_set_ylabel = Axes.set_ylabel
-        original_tick_params = Axes.tick_params
-        original_legend = Axes.legend
-        original_plt_legend = plt.legend
+        if getattr(Axes.set_title, '_pdf_report_style_owner', None) is _STANDARD_CHART_STYLE_TOKEN:
+            return
+        original_set_title = getattr(Axes.set_title, '_pdf_report_original', Axes.set_title)
+        original_set_xlabel = getattr(Axes.set_xlabel, '_pdf_report_original', Axes.set_xlabel)
+        original_set_ylabel = getattr(Axes.set_ylabel, '_pdf_report_original', Axes.set_ylabel)
+        original_tick_params = getattr(Axes.tick_params, '_pdf_report_original', Axes.tick_params)
+        original_legend = getattr(Axes.legend, '_pdf_report_original', Axes.legend)
+        original_plt_legend = getattr(plt.legend, '_pdf_report_original', plt.legend)
 
         def set_title(self, label, fontdict=None, loc=None, pad=None, *, y=None, **kwargs):
             fontdict = dict(fontdict or {})
@@ -403,17 +496,22 @@ def sandbox_runtime_source() -> str:
             return original_set_ylabel(self, ylabel, fontdict=fontdict, labelpad=labelpad, loc=loc, **kwargs)
 
         def tick_params(self, axis='both', **kwargs):
-            kwargs['labelsize'] = CHART_TICK_FONTSIZE
+            kwargs['labelsize'] = 5 if CHART_STYLE.get('id') == 'dense_dashboard' else CHART_TICK_FONTSIZE
             return original_tick_params(self, axis=axis, **kwargs)
 
         def legend(self, *args, **kwargs):
-            kwargs['fontsize'] = CHART_LEGEND_FONTSIZE
+            kwargs['fontsize'] = 5 if CHART_STYLE.get('id') == 'dense_dashboard' else CHART_LEGEND_FONTSIZE
             return original_legend(self, *args, **kwargs)
 
         def plt_legend(*args, **kwargs):
             kwargs['fontsize'] = CHART_LEGEND_FONTSIZE
             return original_plt_legend(*args, **kwargs)
 
+        for wrapper, original in ((set_title, original_set_title), (set_xlabel, original_set_xlabel),
+                                  (set_ylabel, original_set_ylabel), (tick_params, original_tick_params),
+                                  (legend, original_legend), (plt_legend, original_plt_legend)):
+            wrapper._pdf_report_original = original
+            wrapper._pdf_report_style_owner = _STANDARD_CHART_STYLE_TOKEN
         Axes.set_title = set_title
         Axes.set_xlabel = set_xlabel
         Axes.set_ylabel = set_ylabel
@@ -436,6 +534,7 @@ def library_renderer_source() -> str:
             for key, dataframe in dataframes.items():
                 if os.path.basename(str(key)) == source_base:
                     return dataframe.copy()
+            raise VisualBindingError(f'Data source not found: {source}')
         first = next(iter(dataframes.values()))
         return first.copy() if first is not None else pd.DataFrame()
 
@@ -454,7 +553,7 @@ def library_renderer_source() -> str:
     def _library_column_name(value):
         text = str(value or '').strip()
         if ':' in text:
-            text = text.split(':', 1)[1]
+            text = text.rsplit(':', 1)[1]
         return text
 
     def _library_label_map(options=None):
@@ -571,10 +670,10 @@ def library_renderer_source() -> str:
         result = df.copy()
         for item in filters or []:
             if not isinstance(item, dict):
-                continue
+                raise VisualBindingError('Filters must be objects with a column and operator')
             column = _library_resolve_column(result, item.get('column'))
             if not column:
-                continue
+                raise VisualBindingError(f"Filter column not found: {item.get('column')}")
             op = str(item.get('operator') or item.get('op') or '==').lower()
             value = item.get('value')
             try:
@@ -593,17 +692,22 @@ def library_renderer_source() -> str:
                 elif op in {'in', 'isin'} and isinstance(value, (list, tuple, set)):
                     result = result[result[column].isin(value)]
                 elif op in {'contains'}:
-                    result = result[result[column].astype(str).str.contains(str(value), case=False, na=False)]
-            except Exception:
-                continue
+                    result = result[result[column].astype('str').str.contains(str(value), case=False, na=False, regex=False)]
+                else:
+                    raise ValueError(f'Unsupported filter operator or value: {op}')
+            except (TypeError, ValueError) as exc:
+                raise VisualBindingError(f'Could not apply filter on {column}: {exc}') from exc
         return result
 
     def _library_dataframe(dataframes, binding):
         binding = binding or {}
         df = _library_first_dataframe(dataframes, binding.get('source'))
-        return _library_apply_filters(df, binding.get('filters'))
+        result = _library_apply_filters(df, binding.get('filters'))
+        _COMPONENT_OUTCOME.update(input_rows=len(df), filtered_rows=len(result))
+        return result
 
     def _library_empty_chart(pdf, x, y, w, h, title=None, message='Dados indisponiveis'):
+        _COMPONENT_OUTCOME.update(status='empty', message=str(message))
         fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
         ax.axis('off')
         title_lines = _set_axis_chart_title(ax, title, w)
@@ -622,19 +726,19 @@ def library_renderer_source() -> str:
         work = df[category_cols + [value_col]].copy()
         aggregation = str(aggregation or 'sum').lower()
         if aggregation not in {'sum', 'mean', 'median', 'min', 'max', 'count'}:
-            aggregation = 'sum'
+            raise VisualBindingError(f'Unsupported aggregation: {aggregation}')
         if aggregation != 'count':
             work[value_col] = pd.to_numeric(work[value_col], errors='coerce')
         work = work.dropna(subset=[value_col])
         if work.empty:
             return pd.DataFrame(columns=category_cols + [value_col])
-        grouped = work.groupby(category_cols, dropna=False)[value_col].agg(aggregation).reset_index()
+        grouped = work.groupby(category_cols, dropna=False, sort=False)[value_col].agg(aggregation).reset_index()
         return grouped
 
-    def _library_limit_top(df, value_col, top_n=None, aggregate_others=False, category_col=None):
+    def _library_limit_top(df, value_col, top_n=None, aggregate_others=False, category_col=None, sort='desc'):
         if df.empty or value_col not in df.columns:
             return df
-        result = df.sort_values(value_col, ascending=False)
+        result = df.sort_values(value_col, ascending=sort == 'asc') if sort != 'none' else df
         if not top_n:
             return result
         top_n = max(1, int(top_n))
@@ -652,6 +756,8 @@ def library_renderer_source() -> str:
     def _line_date_granularity(options=None, title=None, date_label=None):
         options = options or {}
         configured = str(options.get('date_granularity') or options.get('granularity') or '').strip().lower()
+        if configured in {'week', 'quarter', 'year'}:
+            return configured
         if configured in {'day', 'daily', 'dia', 'diario', 'diaria'}:
             return 'day'
         if configured in {'month', 'monthly', 'mes', 'mensal'}:
@@ -678,6 +784,7 @@ def library_renderer_source() -> str:
         orientation = str(options.get('orientation') or 'horizontal').lower()
         show_values = bool(options.get('show_values'))
         colors = _chart_colors(12)
+        single_color = options.get('bar_color') or options.get('color')
         fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
 
         if series_col:
@@ -685,38 +792,64 @@ def library_renderer_source() -> str:
             if grouped.empty:
                 _library_empty_chart(pdf, x, y, w, h, title)
                 return
-            totals = grouped.groupby(category_col)[value_col].sum().sort_values(ascending=False)
+            totals = grouped.groupby(category_col)[value_col].sum()
+            if options.get('sort') != 'none':
+                totals = totals.sort_values(ascending=options.get('sort') == 'asc')
             categories = list(totals.index[: int(top_n or 8)])
-            grouped = grouped[grouped[category_col].isin(categories)]
+            selected = grouped[grouped[category_col].isin(categories)]
+            if options.get('aggregate_others') and aggregation in {'sum', 'count'} and len(totals) > len(categories):
+                remaining = grouped[~grouped[category_col].isin(categories)].groupby(series_col, dropna=False)[value_col].sum().reset_index()
+                others_label = 'Outros'
+                while others_label in totals.index:
+                    others_label += ' (agrupados)'
+                remaining[category_col] = others_label
+                selected = pd.concat([selected, remaining], ignore_index=True)
+                categories.append(others_label)
+            grouped = selected
             pivot = grouped.pivot_table(index=category_col, columns=series_col, values=value_col, aggfunc='sum', fill_value=0)
             pivot = pivot.reindex(categories)
-            pivot.plot(kind='bar', ax=ax, color=_chart_colors(len(pivot.columns)))
-            ax.set_xlabel('')
-            ax.set_ylabel(measure_label)
-            if len(str(category_col)) < 18:
-                ax.set_xlabel(_library_display_label(category_col, options))
-            ax.legend(title=_library_display_label(series_col, options), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
+            pivot.plot(kind='barh' if orientation == 'horizontal' else 'bar', ax=ax, color=[single_color] * len(pivot.columns) if single_color else _chart_colors(len(pivot.columns)))
+            if orientation == 'horizontal':
+                ax.invert_yaxis()
+            if show_values:
+                for container in ax.containers:
+                    ax.bar_label(container, labels=[_format_visual_number(v, options) for v in container.datavalues], padding=2, fontsize=CHART_LABEL_FONTSIZE)
+            if _monochrome_charts():
+                hatches = ('', '///', 'xxx', '...', '\\\\', '++')
+                for index, container in enumerate(ax.containers):
+                    for bar in container:
+                        bar.set_hatch(hatches[index % len(hatches)])
+                        bar.set_edgecolor('#111111')
+                        bar.set_linewidth(0.6)
+            category_label = _library_display_label(category_col, options)
+            ax.set_xlabel(measure_label if orientation == 'horizontal' else category_label)
+            ax.set_ylabel(category_label if orientation == 'horizontal' else measure_label)
+            ax.legend(title=options.get('legend_title') or _library_display_label(series_col, options), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
             ax.tick_params(axis='x', rotation=30)
         else:
             grouped = _library_aggregate(df, [category_col], value_col, aggregation)
-            grouped = _library_limit_top(grouped, value_col, top_n, bool(options.get('aggregate_others')), category_col)
+            grouped = _library_limit_top(grouped, value_col, top_n, bool(options.get('aggregate_others')) and aggregation in {'sum', 'count'}, category_col, options.get('sort', 'desc'))
             if grouped.empty:
                 _library_empty_chart(pdf, x, y, w, h, title)
                 return
             labels = [str(item)[:32] for item in grouped[category_col].fillna('')]
             values = grouped[value_col].fillna(0).tolist()
             if orientation == 'vertical':
-                bars = ax.bar(labels, values, color=colors[: len(values)])
+                bars = ax.bar(labels, values, color=single_color or colors[: len(values)])
                 ax.tick_params(axis='x', rotation=30)
                 ax.set_ylabel(measure_label)
                 if show_values:
-                    ax.bar_label(bars, labels=[_format_compact_number(v) for v in values], padding=2, fontsize=CHART_LABEL_FONTSIZE)
+                    ax.bar_label(bars, labels=[_format_visual_number(v, options) for v in values], padding=2, fontsize=CHART_LABEL_FONTSIZE)
             else:
-                bars = ax.barh(labels, values, color=colors[: len(values)])
+                bars = ax.barh(labels, values, color=single_color or colors[: len(values)])
                 ax.invert_yaxis()
                 ax.set_xlabel(measure_label)
                 if show_values:
-                    ax.bar_label(bars, labels=[_format_compact_number(v) for v in values], padding=2, fontsize=CHART_LABEL_FONTSIZE)
+                    ax.bar_label(bars, labels=[_format_visual_number(v, options) for v in values], padding=2, fontsize=CHART_LABEL_FONTSIZE)
+
+        if options.get('format'):
+            axis = ax.yaxis if orientation == 'vertical' else ax.xaxis
+            axis.set_major_formatter(mpl.ticker.FuncFormatter(lambda value, _pos: _format_visual_number(value, options)))
 
         title_lines = _set_axis_chart_title(ax, title, w)
         fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
@@ -734,7 +867,7 @@ def library_renderer_source() -> str:
             return
         aggregation = str(options.get('aggregation') or 'sum').lower()
         if aggregation not in {'sum', 'mean', 'median', 'min', 'max', 'count'}:
-            aggregation = 'sum'
+            raise VisualBindingError(f'Unsupported aggregation: {aggregation}')
         date_label = _library_display_label(date_col, options)
         date_name = _library_column_name(date_col).strip().lower()
         work = df[[date_col, value_col] + ([series_col] if series_col else [])].copy()
@@ -750,8 +883,9 @@ def library_renderer_source() -> str:
         else:
             work[date_col] = pd.to_datetime(work[date_col], errors='coerce')
         date_granularity = _line_date_granularity(options, title, date_label)
-        if date_granularity == 'month' and not is_year_axis:
-            work[date_col] = work[date_col].dt.to_period('M').dt.to_timestamp()
+        if not is_year_axis:
+            frequency = {'day': 'D', 'week': 'W', 'month': 'M', 'quarter': 'Q', 'year': 'Y'}[date_granularity]
+            work[date_col] = work[date_col].dt.to_period(frequency).dt.to_timestamp()
         if aggregation != 'count':
             work[value_col] = pd.to_numeric(work[value_col], errors='coerce')
             work = work.dropna(subset=[date_col, value_col])
@@ -765,12 +899,33 @@ def library_renderer_source() -> str:
         if series_col:
             grouped = work.groupby([date_col, series_col], dropna=False)[value_col].agg(aggregation).reset_index()
             pivot = grouped.pivot_table(index=date_col, columns=series_col, values=value_col, aggfunc='sum').sort_index()
-            pivot.plot(ax=ax, marker=marker, linewidth=1.8, color=_chart_colors(len(pivot.columns)))
-            ax.legend(title=_library_display_label(series_col, options), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
+            if options.get('rolling_average'):
+                pivot = pivot.rolling(int(options.get('rolling_window') or 3), min_periods=1).mean()
+            if options.get('sort') == 'desc':
+                pivot = pivot.sort_index(ascending=False)
+            if options.get('limit'):
+                pivot = pivot.head(int(options['limit']))
+            line_color = options.get('line_color') or options.get('color')
+            pivot.plot(ax=ax, marker=marker, linewidth=1.8, color=[line_color] * len(pivot.columns) if line_color else _chart_colors(len(pivot.columns)))
+            if _monochrome_charts():
+                for index, line in enumerate(ax.lines):
+                    line.set_linestyle(('-', '--', '-.', ':')[index % 4])
+                    line.set_marker(('o', 's', '^', 'D', 'v', 'P')[index % 6])
+            ax.legend(title=options.get('legend_title') or _library_display_label(series_col, options), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
         else:
             grouped = work.groupby(date_col, dropna=False)[value_col].agg(aggregation).reset_index().sort_values(date_col)
+            if options.get('rolling_average'):
+                grouped[value_col] = grouped[value_col].rolling(int(options.get('rolling_window') or 3), min_periods=1).mean()
+            if options.get('sort') == 'desc':
+                grouped = grouped.sort_values(date_col, ascending=False)
+            if options.get('limit'):
+                grouped = grouped.head(int(options['limit']))
             line_color = options.get('line_color') or options.get('color') or _chart_colors(1)[0]
             ax.plot(grouped[date_col], grouped[value_col], marker=marker, linewidth=1.9, color=line_color)
+        if options.get('show_values'):
+            for line in ax.lines:
+                for point_x, point_y in zip(line.get_xdata(), line.get_ydata()):
+                    ax.annotate(_format_visual_number(point_y, options), (point_x, point_y), xytext=(0, 4), textcoords='offset points', ha='center', fontsize=CHART_LABEL_FONTSIZE)
         title_lines = _set_axis_chart_title(ax, title, w)
         if is_year_axis:
             year_ticks = sorted(grouped[date_col].dropna().astype(int).unique().tolist())
@@ -778,7 +933,9 @@ def library_renderer_source() -> str:
                 ax.set_xticks(year_ticks)
             ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda x, _pos: f'{int(x)}' if float(x).is_integer() else ''))
         ax.set_xlabel(date_label if not options.get('hide_x_label') else '')
-        ax.set_ylabel(_library_display_label(value_col, options))
+        ax.set_ylabel(_library_measure_label(value_col, options, aggregation))
+        if options.get('format'):
+            ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda value, _pos: _format_visual_number(value, options)))
         ax.tick_params(axis='x', rotation=30)
         fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
@@ -798,31 +955,56 @@ def library_renderer_source() -> str:
         work[y_col] = pd.to_numeric(work[y_col], errors='coerce')
         work = work.dropna(subset=[x_col, y_col])
         max_points = int(options.get('max_points') or 250)
+        if options.get('limit'):
+            max_points = min(max_points, int(options['limit']))
+        valid_rows = len(work)
         if len(work) > max_points:
             work = work.sample(max_points, random_state=7)
+            _COMPONENT_OUTCOME.setdefault('warnings', []).append('Scatter points were sampled deterministically')
+        _COMPONENT_OUTCOME.update(valid_rows=valid_rows, plotted_rows=len(work))
         if work.empty:
             _library_empty_chart(pdf, x, y, w, h, title)
             return
         fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
         if color_col:
-            categories = list(work[color_col].dropna().astype(str).unique())[:8]
+            work[color_col] = work[color_col].fillna('Sem categoria').astype(str)
+            categories = list(work[color_col].unique())
+            if len(categories) > 8:
+                major = work[color_col].value_counts().head(7).index
+                others_label = 'Outros'
+                while others_label in categories:
+                    others_label += ' (agrupados)'
+                work[color_col] = work[color_col].where(work[color_col].isin(major), others_label)
+                categories = list(work[color_col].unique())
+                _COMPONENT_OUTCOME.setdefault('warnings', []).append('Minor scatter categories were grouped as Others; all sampled points are shown')
             colors = _chart_colors(len(categories))
             for index, category in enumerate(categories):
                 subset = work[work[color_col].astype(str) == category]
-                ax.scatter(subset[x_col], subset[y_col], s=24, alpha=0.72, color=colors[index], label=str(category)[:24])
-            ax.legend(loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
+                marker = ('o', '^', 's', 'D', 'v', 'P', 'X', '*')[index % 8] if _monochrome_charts() else 'o'
+                ax.scatter(subset[x_col], subset[y_col], s=24, alpha=0.85 if _monochrome_charts() else 0.72,
+                           color=colors[index], marker=marker,
+                           edgecolors='#111111' if _monochrome_charts() else 'none',
+                           linewidths=0.4, label=str(category)[:24])
+            ax.legend(title=options.get('legend_title'), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
         else:
-            ax.scatter(work[x_col], work[y_col], s=24, alpha=0.72, color=_chart_colors(1)[0])
+            ax.scatter(work[x_col], work[y_col], s=24, alpha=0.72, color=options.get('color') or _chart_colors(1)[0])
+        if options.get('show_labels'):
+            for index, row in work.iterrows():
+                ax.annotate(str(index), (row[x_col], row[y_col]), fontsize=CHART_TICK_FONTSIZE)
         if options.get('show_trendline', True) and len(work) >= 3:
             try:
                 coeffs = np.polyfit(work[x_col], work[y_col], 1)
                 xs = np.array([work[x_col].min(), work[x_col].max()])
-                ax.plot(xs, coeffs[0] * xs + coeffs[1], color=_chart_colors(2)[1], linewidth=1.3)
+                ax.plot(xs, coeffs[0] * xs + coeffs[1], color='#444444' if _monochrome_charts() else _chart_colors(2)[1],
+                        linestyle='--' if _monochrome_charts() else '-', linewidth=1.3)
             except Exception:
                 pass
         title_lines = _set_axis_chart_title(ax, title, w)
         ax.set_xlabel(_library_display_label(x_col, options))
         ax.set_ylabel(_library_display_label(y_col, options))
+        if options.get('format'):
+            ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda value, _pos: _format_visual_number(value, options)))
+            ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda value, _pos: _format_visual_number(value, options)))
         fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
@@ -836,10 +1018,17 @@ def library_renderer_source() -> str:
             _library_empty_chart(pdf, x, y, w, h, title)
             return
         aggregation = options.get('aggregation') or 'sum'
+        if aggregation not in {'sum', 'count'}:
+            raise VisualBindingError('Part-to-whole charts require an additive aggregation (sum or count)')
         grouped = _library_aggregate(df, [category_col], value_col, aggregation)
-        if grouped.empty and str(aggregation or '').lower() != 'count':
-            grouped = _library_aggregate(df, [category_col], value_col, 'count')
-        grouped = _library_limit_top(grouped, value_col, options.get('top_n') or 5, bool(options.get('aggregate_others')), category_col)
+        if not grouped.empty and (grouped[value_col] < 0).any():
+            raise ValueError('Part-to-whole charts require non-negative values')
+        top_n = options.get('top_n') or 5
+        if options.get('limit') and options.get('aggregate_others') and len(grouped) > top_n:
+            top_n = max(0, top_n - 1)
+            if top_n == 0:
+                grouped = pd.DataFrame([{category_col: 'Outros', value_col: grouped[value_col].sum()}])
+        grouped = _library_limit_top(grouped, value_col, top_n, bool(options.get('aggregate_others')) and aggregation in {'sum', 'count'}, category_col, options.get('sort', 'desc'))
         grouped = grouped[grouped[value_col] > 0]
         if grouped.empty:
             _library_empty_chart(pdf, x, y, w, h, title)
@@ -849,7 +1038,7 @@ def library_renderer_source() -> str:
         fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
         autopct = '%1.0f%%' if options.get('show_percent', True) else None
         ax.pie(values, labels=labels, colors=_chart_colors(len(values)), startangle=90, autopct=autopct, wedgeprops={'width': 0.42, 'edgecolor': 'white'})
-        ax.text(0, 0, _format_compact_number(sum(values)), ha='center', va='center', fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT)
+        ax.text(0, 0, _format_visual_number(sum(values), options), ha='center', va='center', fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT)
         title_lines = _set_axis_chart_title(ax, title, w)
         ax.axis('equal')
         fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
@@ -864,26 +1053,36 @@ def library_renderer_source() -> str:
         if df.empty or not value_col:
             _library_empty_chart(pdf, x, y, w, h, title)
             return
-        actual = pd.to_numeric(df[value_col], errors='coerce').dropna().sum()
+        aggregation = str(options.get('aggregation') or 'sum').lower()
+        values = df[value_col].dropna() if aggregation == 'count' else pd.to_numeric(df[value_col], errors='coerce').dropna()
+        if values.empty:
+            _library_empty_chart(pdf, x, y, w, h, title)
+            return
+        if aggregation not in {'sum', 'mean', 'median', 'min', 'max', 'count'}:
+            raise ValueError(f'Unsupported gauge aggregation: {aggregation}')
+        actual = values.agg(aggregation)
         if target_col:
-            maximum = pd.to_numeric(df[target_col], errors='coerce').dropna().sum()
+            maximum = pd.to_numeric(df[target_col], errors='coerce').sum(min_count=1)
         else:
-            maximum = options.get('target') or options.get('max_value') or max(actual, 1)
+            maximum = options.get('target') or options.get('max_value')
         try:
             maximum = float(maximum)
-        except Exception:
-            maximum = max(actual, 1)
-        ratio = 0 if maximum <= 0 else max(0, min(1, float(actual) / maximum))
+        except (TypeError, ValueError):
+            maximum = float('nan')
+        if not np.isfinite(maximum) or maximum <= 0 or not np.isfinite(actual):
+            _library_empty_chart(pdf, x, y, w, h, title, message='Meta ou valor indisponivel')
+            return
+        ratio = float(actual) / maximum
         from matplotlib.patches import Wedge
         fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
         ax.set_xlim(-1.2, 1.2)
         ax.set_ylim(-0.2, 1.2)
         ax.axis('off')
         ax.add_patch(Wedge((0, 0), 1, 0, 180, width=0.28, facecolor=CHART_THEME.get('grid_color', '#e5e7eb'), edgecolor='white'))
-        ax.add_patch(Wedge((0, 0), 1, 0, 180 * ratio, width=0.28, facecolor=_chart_colors(1)[0], edgecolor='white'))
-        label = f"{ratio * 100:.0f}%" if options.get('show_center_value', True) else _format_compact_number(actual)
+        ax.add_patch(Wedge((0, 0), 1, 0, 180 * max(0, min(1, ratio)), width=0.28, facecolor=_chart_colors(1)[0], edgecolor='white'))
+        label = f"{ratio * 100:.0f}%" if options.get('show_center_value', True) else _format_visual_number(actual, options)
         ax.text(0, 0.2, label, ha='center', va='center', fontsize=max(11, CHART_TITLE_FONTSIZE + 4), fontweight='bold')
-        ax.text(0, -0.04, _format_compact_number(actual), ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE, color=CHART_THEME.get('muted_text_color', '#6b7280'))
+        ax.text(0, -0.04, _format_visual_number(actual, options), ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE, color=CHART_THEME.get('muted_text_color', '#6b7280'))
         title_lines = _set_axis_chart_title(ax, title, w)
         fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
@@ -900,16 +1099,26 @@ def library_renderer_source() -> str:
         work = df[dimension_cols + metric_cols].copy()
         aggregation = str(options.get('aggregation') or 'sum').lower()
         if aggregation not in {'sum', 'mean', 'median', 'min', 'max', 'count'}:
-            aggregation = 'sum'
+            raise VisualBindingError(f'Unsupported aggregation: {aggregation}')
         if aggregation != 'count':
             for column in metric_cols:
                 work[column] = pd.to_numeric(work[column], errors='coerce')
-        grouped = work.groupby(dimension_cols, dropna=False)[metric_cols].agg(aggregation).reset_index()
-        first_metric = metric_cols[0]
-        if first_metric in grouped.columns:
-            grouped = grouped.sort_values(first_metric, ascending=not bool(options.get('sort_desc', True)))
+        work = work.dropna(subset=metric_cols, how='all')
+        groups = work.groupby(dimension_cols, dropna=False)[metric_cols]
+        grouped = (groups.sum(min_count=1) if aggregation == 'sum' else groups.agg(aggregation)).reset_index()
+        first_metric = _library_resolve_column(grouped, options.get('sort_by')) or metric_cols[0]
+        if options.get('sort', 'desc') != 'none':
+            grouped = grouped.sort_values(first_metric, ascending=options.get('sort') == 'asc' if 'sort' in options else not bool(options.get('sort_desc', True)))
         limit = int(options.get('top_n') or options.get('limit') or 8)
-        _render_table_image(pdf, _library_display_dataframe(grouped.head(limit), options), x, y, w, h, title=title)
+        selected = grouped.head(limit)
+        if options.get('show_totals'):
+            if aggregation not in {'sum', 'count'}:
+                raise VisualBindingError('Totals require an additive aggregation (sum or count)')
+            total = {column: '' for column in dimension_cols}
+            total[dimension_cols[0]] = 'Total'
+            total.update({column: grouped[column].sum(min_count=1) for column in metric_cols})
+            selected = pd.concat([selected, pd.DataFrame([total])], ignore_index=True)
+        _render_table_image(pdf, _library_display_dataframe(selected, options), x, y, w, h, title=title, options=options)
 
     def render_detail_table(pdf, dataframes, x, y, w, h, *, columns=None, source=None, title=None, options=None):
         options = options or {}
@@ -918,22 +1127,61 @@ def library_renderer_source() -> str:
         selected = _library_resolve_columns(df, columns or [])
         if not selected:
             selected = list(df.columns)[:6]
+        sort_col = _library_resolve_column(df, options.get('sort_by')) if options.get('sort_by') else selected[0]
+        if options.get('sort_by') and not sort_col:
+            raise VisualBindingError('Detail table sort column was not found')
+        if sort_col and options.get('sort', 'desc') != 'none':
+            df = df.sort_values(sort_col, ascending=options.get('sort') == 'asc' if 'sort' in options else not bool(options.get('sort_desc', True)))
         limit = int(options.get('top_n') or options.get('limit') or 10)
-        _render_table_image(pdf, _library_display_dataframe(df[selected].head(limit), options), x, y, w, h, title=title)
+        _render_table_image(pdf, _library_display_dataframe(df[selected].head(limit), options), x, y, w, h, title=title, options=options)
 
     def render_visual_component(pdf, dataframes, artifact, x, y, w, h):
         artifact = artifact or {}
-        binding = artifact.get('data_binding') or {}
-        options = dict(artifact.get('visual_options') or {})
+        with _component_visual_context(artifact):
+            return _render_bound_visual_component(pdf, dataframes, artifact, x, y, w, h)
+
+    def _render_bound_visual_component(pdf, dataframes, artifact, x, y, w, h):
+        preset_id = str(artifact.get('component_preset_id') or '')
+        if preset_id not in PRESET_ROLES:
+            raise VisualBindingError('Unknown visual preset')
+        try:
+            raw_options = {**PRESET_OPTIONS[preset_id], **(artifact.get('visual_options') or {})}
+            options = VisualOptions.model_validate(raw_options).model_dump(exclude_none=True)
+            default_sort = ('desc' if options.get('sort_desc', True) else 'asc') if preset_id.startswith(('bar_', 'table_')) else 'none'
+            binding = DataBinding.model_validate({'sort': default_sort, **(artifact.get('data_binding') or {})}).model_dump()
+        except ValueError as exc:
+            raise VisualBindingError('Visual configuration failed contract validation') from exc
+        if not binding.get('source') and len(dataframes) > 1:
+            raise VisualBindingError('Visuals with multiple datasets require an explicit source')
+        df = _library_first_dataframe(dataframes, binding.get('source'))
+        for role in PRESET_ROLES[preset_id]:
+            value = binding['roles'].get(role['name'])
+            if not value:
+                if role.get('required'):
+                    raise VisualBindingError(f"Missing visual role: {role['name']}")
+                continue
+            values = value if isinstance(value, list) else [value]
+            if isinstance(value, list) and not role.get('multiple'):
+                raise VisualBindingError(f"Role requires a single column: {role['name']}")
+            for column in values:
+                parts = re.split(r'(?<!:):(?!:)', column, maxsplit=1)
+                if len(parts) > 1 and parts[0] != binding.get('source'):
+                    raise VisualBindingError('Visual roles cannot mix data sources without preprocessing')
+                if _library_resolve_column(df, column) is None:
+                    raise VisualBindingError(f'Visual column not found: {column}')
+        _COMPONENT_OUTCOME['render_mode'] = 'library'
         options['filters'] = binding.get('filters') or options.get('filters') or []
         if binding.get('aggregation') and 'aggregation' not in options:
             options['aggregation'] = binding.get('aggregation')
         if binding.get('limit') and 'limit' not in options:
             options['limit'] = binding.get('limit')
+            options['top_n'] = min(options.get('top_n') or binding['limit'], binding['limit'])
+            if preset_id in {'bar_ranked', 'bar_grouped'}:
+                options['aggregate_others'] = False
+        options['sort'] = binding['sort']
         source = binding.get('source')
         roles = binding.get('roles') or {}
-        preset_id = str(artifact.get('component_preset_id') or '')
-        title = artifact.get('indicator') or artifact.get('id')
+        title = options.get('title') or artifact.get('indicator') or artifact.get('id')
 
         if preset_id == 'bar_grouped':
             return render_bar_chart(pdf, dataframes, x, y, w, h, category=roles.get('category'), value=roles.get('value'), series=roles.get('series'), source=source, title=title, options=options)

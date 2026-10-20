@@ -2,36 +2,30 @@ import json
 import os
 import logging
 import time
-import unicodedata
 import uuid
 import threading
 from contextlib import contextmanager
 
 import pandas as pd
 
+from app.utils.report_paths import ReportPaths
 from app.services.executor_service import execute_script
-from app.services.llm_service import (
-    DEFAULT_MODEL_NAME,
-    DEFAULT_PROVIDER,
-    LLMBudgetError,
-    LLMContractError,
-    LLMTimeoutError,
-    assemble_script,
-    calculate_metric_value,
-    condense_texts_to_fit,
-    dataframe_load_line,
-    fix_script,
-    generate_all_texts,
+from app.services.llm.client import llm_operation_context
+from app.services.llm.components import generate_component_code, slot_by_artifact_id
+from app.services.llm.errors import MissingCredentialError, PDFCredentialUnavailableError, LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.metrics import calculate_metric_value, dataframe_load_line
+from app.services.llm.planning import (
     generate_artifacts,
-    generate_component_code,
     generate_data_filter,
     generate_document_insights,
     generate_document_insights_from_pdf_file,
     generate_report_title,
     generate_template,
-    slot_by_artifact_id,
 )
-from app.services.session_manager import add_log, append_stage_event, get_session, is_current_session_run, reserve_session_run, set_session_stage, update_session
+from app.services.llm.script import assemble_script, fix_script
+from app.services.llm.texts import condense_texts_to_fit, generate_all_texts
+from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
+from app.services.session_manager import add_log, append_stage_event, get_report_owner, get_session, is_current_session_run, reserve_session_run, set_session_stage, update_session
 from app.utils.data_analyzer import extract_metadata
 from app.utils.artifact_validation import validate_report_plan
 from app.utils.component_renderers import supports_library_renderer
@@ -42,6 +36,7 @@ from app.utils.template_library import (
     select_layout_template,
     template_constraints,
 )
+from app.utils.tabular import TABULAR_EXTENSIONS, load_tabular_dataframes
 
 FILTERED_DIR = "workspace/filtered"
 SCRIPT_DIR = "workspace/scripts"
@@ -51,6 +46,8 @@ BINDING_REGENERATION_ISSUE_CODES = {
     "data_binding_role_missing",
     "data_binding_column_missing",
     "data_binding_role_mismatch",
+    "data_binding_source_missing",
+    "invalid_data_binding",
 }
 DEFAULT_SETTINGS = {
     "title": "",
@@ -73,9 +70,6 @@ DEFAULT_EXPLORATORY_PROMPT = (
     "pergunta específica do usuário."
 )
 DOCUMENT_TEXT_ONLY_TEMPLATE_ID = "document_text_only"
-
-for directory in [FILTERED_DIR, SCRIPT_DIR, REPORT_DIR]:
-    os.makedirs(directory, exist_ok=True)
 
 
 _PIPELINE_LOCKS: dict[str, threading.RLock] = {}
@@ -194,17 +188,37 @@ def _advance_render_modes_after_failure(session: dict, failed_component_ids: set
 
 
 def _failed_components_from_manifest(manifest_path: str | None) -> set[str]:
-    if not manifest_path or not os.path.exists(manifest_path):
-        return set()
-    try:
-        with open(manifest_path, "r", encoding="utf-8") as manifest_file:
-            manifest = json.load(manifest_file)
-    except (OSError, json.JSONDecodeError):
-        return set()
+    manifest = _read_render_manifest(manifest_path)
     return {
         str(item.get("id"))
         for item in manifest.get("components", []) or []
         if item.get("status") != "rendered" and item.get("id")
+    }
+
+
+def _read_render_manifest(manifest_path: str | None) -> dict:
+    if not manifest_path or not os.path.exists(manifest_path):
+        return {}
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+            manifest = json.load(manifest_file)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
+def summarize_render_manifest(manifest: dict) -> dict:
+    """Record counts and timing without copying source data into operational history."""
+    visuals = [item for item in manifest.get("components", []) if item.get("preset_id")]
+    return {
+        "visual_count": len(visuals),
+        "library_count": sum(item.get("render_mode") == "library" for item in visuals),
+        "fallback_count": sum(bool(item.get("fallback_used")) for item in visuals),
+        "empty_count": sum(item.get("status") == "empty" for item in visuals),
+        "invalid_binding_count": sum(item.get("status") == "invalid_binding" for item in visuals),
+        "failed_count": sum(item.get("status") != "rendered" for item in visuals),
+        "sampled_count": sum(item.get("plotted_rows", 0) < item.get("valid_rows", 0) for item in visuals),
+        "duration_ms": sum(item.get("duration_ms", 0) for item in visuals),
     }
 
 
@@ -325,11 +339,11 @@ def metadata_json(session: dict, include_samples: bool = False) -> str:
     return json.dumps(artifacts, indent=2, ensure_ascii=False)
 
 
-def pdf_files(files: list) -> list:
+def document_files(files: list) -> list:
     return [
         file_info for file_info in files or []
-        if (file_info.get("artifact") or {}).get("type") == "pdf"
-        or os.path.splitext(file_info.get("path", ""))[1].lower() == ".pdf"
+        if (file_info.get("artifact") or {}).get("type") in {"pdf", "text"}
+        or os.path.splitext(file_info.get("path", ""))[1].lower() in {".pdf", ".txt"}
     ]
 
 
@@ -338,7 +352,7 @@ def has_tabular_files(files: list) -> bool:
 
 
 def is_document_only_session(files: list) -> bool:
-    return bool(files) and bool(pdf_files(files)) and not has_tabular_files(files)
+    return bool(files) and bool(document_files(files)) and not has_tabular_files(files)
 
 
 def document_metrics_from_insights(document_insights: dict) -> dict:
@@ -367,87 +381,28 @@ def raw_metadata_json(session: dict, include_samples: bool = False) -> str:
     return json.dumps(artifacts, indent=2, ensure_ascii=False)
 
 
-def normalize_filter_prompt(prompt: str) -> str:
-    text = unicodedata.normalize("NFKD", prompt or "")
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    return " ".join(text.lower().split())
-
-
-def is_visual_label_refinement(prompt: str) -> bool:
-    normalized = normalize_filter_prompt(prompt)
-    label_terms = [
-        "legenda", "legendas", "eixo", "eixos", "rotulo", "rotulos",
-        "label", "labels", "axis", "axes", "legend", "legends",
-        "nome das colunas", "nomes das colunas", "cabecalho", "cabecalhos",
-        "header", "headers",
-    ]
-    visual_terms = [
-        "grafico", "graficos", "tabela", "tabelas", "visual", "visuais",
-        "chart", "charts", "plot", "plots",
-    ]
-    translation_terms = [
-        "traduzir", "traduza", "traducao", "portugues", "ingles",
-        "translate", "translation", "friendly", "amigavel", "amigaveis",
-    ]
-    has_label = any(term in normalized for term in label_terms)
-    has_visual = any(term in normalized for term in visual_terms)
-    has_translation = any(term in normalized for term in translation_terms)
-    return has_label and (has_visual or has_translation)
-
-
-def should_consider_data_filter(prompt: str, session: dict = None) -> bool:
-    if session and preprocessing_needed(session.get("data_preprocessing") or session.get("data_filter")):
-        return True
-    if is_visual_label_refinement(prompt):
-        return False
-    normalized = normalize_filter_prompt(prompt)
-    keywords = [
-        "filtrar", "filtro", "excluir", "exclua", "remover", "remova",
-        "retirar", "retire", "ignorar", "ignore", "desconsiderar",
-        "desconsidere", "nao incluir", "nao inclua", "nao considerar",
-        "nao considere", "nao usar", "nao use", "nenhum", "nenhuma",
-        "apenas", "somente", "so ", "sem ", "exceto", "limitar",
-        "restringir", "focar", "foco em", "considerar so",
-        "considerar apenas", "incluir apenas", "inclua apenas",
-        "preprocess", "pre-process", "pre process", "preprocessar",
-        "pre-processar", "pre processamento", "pre-processamento",
-        "transformar", "transforme", "preparar", "prepare",
-        "limpar", "limpe", "normalizar", "normalize", "padronizar",
-        "agrupar", "agrupe", "agregado", "agregar", "resumir por",
-        "group by", "grouped by", "aggregate", "summarize by",
-        "nova coluna", "coluna calculada", "criar coluna",
-        "adicione uma coluna", "adicionar uma coluna", "calcular coluna",
-        "calculated column", "new column", "derive column",
-        "keep only", "only", "exclude", "remove", "ignore", "filter",
-        "without", "except", "focus on", "restrict", "do not include",
-        "don't include"
-    ]
-    return any(keyword in normalized for keyword in keywords)
 
 
 def has_data_filter_decision(data_filter: dict | None) -> bool:
     if not data_filter:
         return False
     return bool(
-        preprocessing_needed(data_filter)
+        data_filter.get("evaluated")
+        or preprocessing_needed(data_filter)
         or data_filter.get("description")
         or data_filter.get("code")
     )
 
 
 def supported_tabular_path(path: str) -> bool:
-    return os.path.splitext(path)[1].lower() in {".csv", ".xls", ".xlsx"}
+    return os.path.splitext(path)[1].lower() in TABULAR_EXTENSIONS
 
 
 def read_tabular_preview(path: str) -> tuple[int, set]:
-    ext = os.path.splitext(path)[1].lower()
-    if ext == ".csv":
-        df = pd.read_csv(path)
-    elif ext in {".xls", ".xlsx"}:
-        df = pd.read_excel(path)
-    else:
-        return 0, set()
-    return int(len(df)), {str(column) for column in df.columns}
+    tables = load_tabular_dataframes("data", path)
+    return sum(len(df) for df in tables.values()), {
+        str(column) for df in tables.values() for column in df.columns
+    }
 
 
 def preprocessing_impact(original_path: str, processed_path_value: str) -> dict:
@@ -468,7 +423,9 @@ def preprocessing_impact(original_path: str, processed_path_value: str) -> dict:
 
 def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     files = session.get("files", [])
+    report_paths = ReportPaths.from_session(session).ensure()
     output_paths = {}
+    workbook_sheets = {}
     impacts = {}
     setup_lines = ["import pandas as pd", "import numpy as np", "dataframes = {}"]
 
@@ -479,7 +436,12 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
         setup_line = dataframe_load_line(file_info["original_filename"], os.path.abspath(source_path))
         if setup_line:
             setup_lines.append(setup_line)
-            output_path = os.path.abspath(os.path.join(FILTERED_DIR, f"{job_id}_{uuid.uuid4().hex}_preprocessed.csv"))
+            extension = ".csv"
+            if os.path.splitext(source_path)[1].lower() in {".xls", ".xlsx"}:
+                with pd.ExcelFile(source_path) as workbook:
+                    workbook_sheets[file_info["original_filename"]] = workbook.sheet_names
+                extension = ".xlsx"
+            output_path = os.path.abspath(os.path.join(report_paths.filtered, f"{job_id}_{uuid.uuid4().hex}_preprocessed{extension}"))
             output_paths[file_info["original_filename"]] = output_path
 
     if not output_paths:
@@ -490,6 +452,7 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     script += data_filter.get("code", "")
     script += "\n\n"
     script += f"output_paths = {json.dumps(output_paths, ensure_ascii=False)}\n"
+    script += f"workbook_sheets = {workbook_sheets!r}\n"
     script += "if 'preprocess_dataframes' in globals():\n"
     script += "    processed = preprocess_dataframes(dataframes)\n"
     script += "else:\n"
@@ -498,10 +461,18 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     script += "    df = processed.get(name, dataframes.get(name))\n"
     script += "    if df is None:\n"
     script += "        continue\n"
-    script += "    df.to_csv(path, index=False)\n"
+    script += "    if name in workbook_sheets:\n"
+    script += "        with pd.ExcelWriter(path) as writer:\n"
+    script += "            for index, sheet in enumerate(workbook_sheets[name]):\n"
+    script += "                key = name if index == 0 else f'{name}::{sheet}'\n"
+    script += "                table = processed.get(key, dataframes.get(key))\n"
+    script += "                if table is not None:\n"
+    script += "                    table.to_excel(writer, sheet_name=sheet, index=False)\n"
+    script += "    else:\n"
+    script += "        df.to_csv(path, index=False)\n"
 
-    script_path = os.path.join(SCRIPT_DIR, f"preprocess_{job_id}.py")
-    result = execute_script(script, script_path)
+    script_path = os.path.join(report_paths.scripts, f"preprocess_{job_id}.py")
+    result = execute_script(script, script_path, paths=report_paths)
     if not result["success"]:
         raise RuntimeError(result["stderr"] or "Falha ao aplicar pré-processamento de dados")
 
@@ -556,7 +527,9 @@ def text_component_code(artifact: dict, text_content: str) -> str:
 def run_pipeline(job_id: str):
     run_info = reserve_session_run(job_id, "pipeline")
     with serialized_pipeline(job_id, "pipeline"):
-        _run_pipeline(job_id, run_info["run_id"])
+        session = get_session(job_id) or {}
+        with llm_operation_context(job_id=job_id, user_id=get_report_owner(job_id), operation="pipeline", settings=session.get("settings")):
+            _run_pipeline(job_id, run_info["run_id"])
 
 
 def _run_pipeline(job_id: str, run_id: int):
@@ -581,6 +554,8 @@ def _run_pipeline(job_id: str, run_id: int):
                     if not processed_path(file_info):
                         files[i]['artifact'] = raw_artifact
                     any_new_artifact = True
+                if (files[i].get('raw_artifact') or {}).get('error'):
+                    raise ValueError(f"{file_info['original_filename']}: {files[i]['raw_artifact']['error']}")
             if any_new_artifact:
                 session = update_session(job_id, {"files": files, "semantic_model": build_semantic_model(files)}) or session
                 files = session.get("files", files)
@@ -588,25 +563,27 @@ def _run_pipeline(job_id: str, run_id: int):
         data_filter = session.get("data_preprocessing") or session.get("data_filter", {})
         has_filter_decision = has_data_filter_decision(data_filter)
         filter_prompt = session.get('current_goal', session['initial_prompt'])
-        should_filter = should_consider_data_filter(filter_prompt, session) and has_tabular_files(files)
+        # The preprocessing planner owns this semantic decision. No prompt-word
+        # heuristics: evaluate once, then reuse the stored plan until data changes.
+        should_filter = has_tabular_files(files)
 
         document_insights = dict(session.get("document_insights") or {})
-        pdfs_needing_insights = [
+        documents_needing_insights = [
             (index, file_info)
             for index, file_info in enumerate(files)
-            if (file_info.get("artifact") or {}).get("type") == "pdf"
+            if (file_info.get("artifact") or {}).get("type") in {"pdf", "text"}
             and not (file_info.get("artifact") or {}).get("document_insights")
         ]
-        if pdfs_needing_insights:
+        if documents_needing_insights:
             with tracked_stage(job_id, "document_extraction", 18, provider, model_name):
                 if not _ensure_current_run(job_id, run_id, "document_extraction"):
                     return
-                for index, file_info in pdfs_needing_insights:
+                for index, file_info in documents_needing_insights:
                     artifact = file_info.get("artifact") or {}
-                    source_name = file_info.get("original_filename") or artifact.get("filename") or f"pdf_{index}"
+                    source_name = file_info.get("original_filename") or artifact.get("filename") or f"document_{index}"
                     try:
-                        add_log(job_id, f"Extraindo métricas e achados do PDF: {source_name}")
-                        if str(artifact.get("text_excerpt") or "").strip():
+                        add_log(job_id, f"Extraindo métricas e achados do documento: {source_name}")
+                        if artifact.get("type") == "text" or str(artifact.get("text_excerpt") or "").strip():
                             insights = generate_document_insights(
                                 json.dumps(artifact, indent=2, ensure_ascii=False),
                                 filter_prompt,
@@ -626,6 +603,11 @@ def _run_pipeline(job_id: str, run_id: int):
                                 settings=session.get("settings"),
                                 job_id=job_id,
                             )
+                    except PDFCredentialUnavailableError as exc:
+                        insights = {"summary": "", "key_points": [], "metrics": [], "warnings": [str(exc)]}
+                        add_log(job_id, str(exc))
+                    except (MissingCredentialError, LLMBudgetError, LLMTimeoutError):
+                        raise
                     except Exception as exc:
                         logger.exception("Document extraction failed job_id=%s file=%s", job_id, source_name)
                         insights = {
@@ -636,7 +618,7 @@ def _run_pipeline(job_id: str, run_id: int):
                             "metrics": [],
                             "warnings": [f"Falha na extração documental: {str(exc)[:180]}"],
                         }
-                        add_log(job_id, "Falha ao extrair métricas do PDF; seguindo sem insights desse documento.")
+                        add_log(job_id, "Falha ao extrair métricas do documento; seguindo sem insights desse documento.")
                     artifact["document_insights"] = insights
                     files[index]["artifact"] = artifact
                     document_insights[source_name] = insights
@@ -654,6 +636,7 @@ def _run_pipeline(job_id: str, run_id: int):
                     return
                 add_log(job_id, "Avaliando pré-processamento de dados solicitado...")
                 data_filter = generate_data_filter(raw_metadata_json(session), filter_prompt, provider, model_name, settings=session.get('settings'), job_id=job_id)
+                data_filter["evaluated"] = True
                 session = update_session(job_id, {"data_preprocessing": data_filter, "data_filter": data_filter}) or session
                 has_filter_decision = has_data_filter_decision(data_filter)
 
@@ -680,6 +663,7 @@ def _run_pipeline(job_id: str, run_id: int):
         settings = session.get('settings', {})
         selected_template_id = settings.get('selected_template_id')
         selected_template = None
+        owner_id = get_report_owner(job_id)  # templates visible to the report's owner
         if not selected_template_id and is_document_only_session(files):
             selected_template_id = DOCUMENT_TEXT_ONLY_TEMPLATE_ID
             settings["selected_template_id"] = selected_template_id
@@ -691,7 +675,7 @@ def _run_pipeline(job_id: str, run_id: int):
                     return
                 max_artifacts_retries = 3
                 if selected_template_id:
-                    selected_template = select_layout_template([], selected_template_id)
+                    selected_template = select_layout_template([], selected_template_id, owner_id)
                 for attempt in range(max_artifacts_retries):
                     add_log(job_id, f"Planejando indicadores (Metric, Graphic, Text) - T{attempt+1}...")
                     artifacts = generate_artifacts(
@@ -717,7 +701,7 @@ def _run_pipeline(job_id: str, run_id: int):
                     time.sleep(2)
 
         visible_artifacts = [a for a in artifacts if a.get('type') in VISUAL_TYPES or a.get('type') == 'text']
-        selected_template = select_layout_template(visible_artifacts, selected_template_id)
+        selected_template = select_layout_template(visible_artifacts, selected_template_id, owner_id)
         if selected_template:
             selected_template_id = selected_template.get("id")
             settings["selected_template_id"] = selected_template_id
@@ -767,19 +751,19 @@ def _run_pipeline(job_id: str, run_id: int):
                     if not _ensure_current_run(job_id, run_id, "metrics"):
                         return
                     add_log(job_id, f"Calculando métrica: {art['indicator']}...")
-                    val = calculate_metric_value(all_metadata, art, files_map, provider, model_name, job_id=job_id)
+                    val = calculate_metric_value(all_metadata, art, files_map, provider, model_name, job_id=job_id, paths=ReportPaths.from_session(session))
                     metrics_store[art['id']] = val
         update_session(job_id, {"calculated_metrics": metrics_store})
 
         visible_artifacts = [a for a in artifacts if a.get('type') in VISUAL_TYPES or a.get('type') == 'text']
         template = session.get('template', [])
-        if not template or len(template) != len(visible_artifacts):
+        if not template or {item.get('id') for item in template} != {item.get('id') for item in visible_artifacts}:
             with tracked_stage(job_id, "layout", 65, provider, model_name):
                 if not _ensure_current_run(job_id, run_id, "layout"):
                     return
                 template_name = selected_template.get("name") if selected_template else "fallback"
                 add_log(job_id, f"Aplicando template de layout: {template_name}...")
-                template = generate_template(visible_artifacts, provider, model_name, template_id=selected_template_id)
+                template = generate_template(visible_artifacts, provider, model_name, template_id=selected_template_id, owner_id=owner_id)
                 update_session(job_id, {"template": normalize_template(template)})
 
         components = session.get('components', {})
@@ -865,7 +849,7 @@ def _run_pipeline(job_id: str, run_id: int):
         if _ensure_current_run(job_id, run_id, "script"):
             run_script_generation(job_id, run_id=run_id)
 
-    except (LLMBudgetError, LLMTimeoutError) as e:
+    except (MissingCredentialError, LLMBudgetError, LLMTimeoutError) as e:
         logger.exception("LLM limit error in pipeline job_id=%s stage=%s", job_id, getattr(e, "operation", "pipeline"))
         error = e.as_error_dict()
         error["stage"] = error.get("stage") or (get_session(job_id) or {}).get("current_step", "pipeline")
@@ -892,7 +876,19 @@ def run_script_generation(job_id: str, run_id: int | None = None):
     if run_id is None:
         run_id = reserve_session_run(job_id, "script")["run_id"]
     with serialized_pipeline(job_id, "renderizacao"):
-        _run_script_generation(job_id, run_id)
+        session = get_session(job_id) or {}
+        with llm_operation_context(job_id=job_id, user_id=get_report_owner(job_id), operation="script", settings=session.get("settings")):
+            try:
+                _run_script_generation(job_id, run_id)
+            except Exception as exc:
+                logger.exception("Script generation failed job_id=%s", job_id)
+                if not _ensure_current_run(job_id, run_id, "script"):
+                    return
+                error = exc.as_error_dict() if hasattr(exc, "as_error_dict") else {
+                    "code": "script_error", "message": str(exc), "stage": "script", "retryable": True,
+                }
+                set_session_stage(job_id, "failed", 100, error)
+                add_log(job_id, f"Falha na geração do relatório: {exc}")
 
 
 def _run_script_generation(job_id: str, run_id: int):
@@ -902,8 +898,9 @@ def _run_script_generation(job_id: str, run_id: int):
     set_session_stage(job_id, "script", 90)
     add_log(job_id, "Montando script final modular...")
 
-    script_path = os.path.join(SCRIPT_DIR, f"{job_id}.py")
-    output_pdf_path = os.path.abspath(os.path.join(REPORT_DIR, f"{job_id}.pdf"))
+    report_paths = ReportPaths.from_session(session).ensure()
+    script_path = os.path.join(report_paths.scripts, f"{job_id}.py")
+    output_pdf_path = os.path.abspath(os.path.join(report_paths.output, f"{job_id}.pdf"))
     files_map = build_files_map(session)
     metadata_items = [file_info.get("artifact") for file_info in session.get("files", []) if file_info.get("artifact")]
     artifacts, validation_issues = validate_report_plan(session.get("artifacts", []), metadata_items)
@@ -986,14 +983,28 @@ def run_execution(job_id: str, run_id: int | None = None):
     append_stage_event(job_id, "render", "start", status="in_progress", provider=session.get('provider'), model_name=session.get('model_name'))
     start_time = time.perf_counter()
     try:
-        result = execute_script(session['script'], session['script_path'])
+        result = execute_script(session['script'], session['script_path'], paths=ReportPaths.from_session(session))
         duration = time.perf_counter() - start_time
+        manifest = _read_render_manifest(f"{session.get('pdf_path')}.manifest.json")
+        render_summary = summarize_render_manifest(manifest)
+        update_session(job_id, {"render_summary": render_summary})
 
         if result["success"]:
             new_version = session.get("pdf_version", 0) + 1
             update_session(job_id, {"pdf_version": new_version, "retry_count": 0, "status": "Concluído", "current_step": "completed", "progress": 100, "error": {}})
             add_log(job_id, f"Relatório concluído em {duration:.1f}s")
-            append_stage_event(job_id, "render", "end", status="ok", duration_ms=duration * 1000, provider=session.get('provider'), model_name=session.get('model_name'))
+            append_stage_event(job_id, "render", "end", status="ok", duration_ms=duration * 1000, provider=session.get('provider'), model_name=session.get('model_name'), details=render_summary)
+            return
+
+        empty_ids = [item['id'] for item in manifest.get('components', []) if item.get('status') == 'empty']
+        if empty_ids:
+            set_session_stage(job_id, "failed", 100, {
+                "code": "empty_visual", "message": "Há componentes sem dados após os filtros ou cálculos. Revise suas fontes e filtros.",
+                "stage": "render", "retryable": False, "component_ids": empty_ids,
+            })
+            add_log(job_id, f"Componentes sem dados: {', '.join(empty_ids)}")
+            append_stage_event(job_id, "render", "end", status="error", duration_ms=duration * 1000,
+                               provider=session.get('provider'), model_name=session.get('model_name'), details=render_summary)
             return
 
         failed_component_ids = _failed_components_from_manifest(f"{session.get('pdf_path')}.manifest.json")

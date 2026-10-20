@@ -21,18 +21,34 @@ const Utils = {
 
             document.onmouseup = () => {
                 document.onmousemove = null;
+                document.onmouseup = null;
                 if (onStop) onStop();
             };
         };
     },
 
     openTab(id, event) {
+        document.getElementById('app-shell')?.classList.toggle('explorer-active', id === 'tab-explore');
         document.querySelectorAll('.tab-content, .tab').forEach(el => el.classList.remove('active'));
         document.getElementById(id).classList.add('active');
-        if (event) event.currentTarget.classList.add('active');
+        const tab = event?.target?.closest('[data-tab-target]') || event?.currentTarget;
+        tab?.classList?.add('active');
     },
 
     formatJson(obj) {
         return JSON.stringify(obj, null, 2);
+    },
+
+    // Fills the sidebar account bar (name, "Sair") shared by the workspace pages.
+    setupAccountBar(user) {
+        const name = document.getElementById('account-name');
+        if (name) name.textContent = user?.display_name || user?.email || '';
+        const logout = document.getElementById('logout-btn');
+        if (logout) {
+            logout.onclick = async () => {
+                try { await API.logout(); } catch (error) { /* already signed out */ }
+                window.location.assign('/login');
+            };
+        }
     }
 };

@@ -7,6 +7,8 @@ from fpdf import FPDF
 
 from app.utils.data_analyzer import extract_metadata
 from app.services.pipeline_service import metadata_json, raw_metadata_json
+from app.services.llm.metrics import dataframe_load_line
+from app.utils.tabular import load_tabular_dataframes
 
 
 class DataAnalyzerTests(unittest.TestCase):
@@ -66,6 +68,59 @@ class DataAnalyzerTests(unittest.TestCase):
         bool_column = next(column for column in metadata["columns"] if column["name"] == "is_legendary")
         self.assertEqual(bool_column["role"], "boolean")
         self.assertNotIn("stats", bool_column)
+
+    def test_nested_json_metadata_matches_generated_script_loader(self):
+        path = self.temp_path(".json")
+        with open(path, "w") as source:
+            source.write('{"data":{"items":[{"customer":{"email":"private@example.com"},"sales":12,"tags":["a","b"]},{"sales":18,"tags":[]}]},"total":2}')
+        metadata = extract_metadata(path, "sales.json")
+        self.assertNotIn("error", metadata)
+        self.assertEqual(metadata["shape"], {"rows": 2, "columns": 3})
+        self.assertEqual(metadata["parser"]["records_path"], "/data/items")
+        self.assertEqual(metadata["sample"][0]["customer.email"], "[REDACTED]")
+        scope = {"dataframes": {}}
+        # The sandbox copies this exact module as pdf_report_data.
+        import sys
+        from app.utils import tabular
+        from unittest.mock import patch
+        with patch.dict(sys.modules, {"pdf_report_data": tabular}):
+            exec(dataframe_load_line("sales.json", path), scope)
+        dataframe = scope["dataframes"]["sales.json"]
+        self.assertEqual(list(dataframe.columns), ["customer.email", "sales", "tags"])
+        self.assertEqual(dataframe["sales"].sum(), 30)
+        self.assertEqual(dataframe["tags"].iloc[0], '["a", "b"]')
+
+    def test_json_lines_and_single_object(self):
+        for suffix, content, rows in [
+            (".jsonl", '{"sales":12}\n\n{"sales":18}\n', 2),
+            (".ndjson", '{"sales":12}\n{"sales":18}\n', 2),
+            (".json", '{"sales":30,"region":{"name":"Sul"}}', 1),
+        ]:
+            with self.subTest(suffix=suffix):
+                path = self.temp_path(suffix)
+                with open(path, "w") as source:
+                    source.write(content)
+                metadata = extract_metadata(path, "source" + suffix)
+                self.assertEqual(metadata["shape"]["rows"], rows)
+                self.assertEqual(len(load_tabular_dataframes("source", path)["source"]), rows)
+
+    def test_json_ambiguous_arrays_and_conflicting_columns_are_rejected(self):
+        for content in ['{"a":[{"x":1}],"b":[{"y":2}]}', '{"a.b":1,"a":{"b":2}}']:
+            path = self.temp_path(".json")
+            with open(path, "w") as source:
+                source.write(content)
+            self.assertIn("error", extract_metadata(path))
+
+    def test_txt_is_bounded_document_context(self):
+        path = self.temp_path(".txt")
+        with open(path, "w", encoding="utf-8") as source:
+            source.write("Orçamento aprovado: 10 milhões de euros.\n" * 1000)
+        metadata = extract_metadata(path, "brief.txt")
+        self.assertEqual(metadata["type"], "text")
+        self.assertIn("Orçamento aprovado", metadata["text_excerpt"])
+        self.assertEqual(len(metadata["text_excerpt"]), 20000)
+        self.assertTrue(metadata["text_extraction"]["truncated"])
+        self.assertEqual(load_tabular_dataframes("brief.txt", path), {})
 
     def test_numeric_year_column_is_treated_as_date_role(self):
         path = self.temp_path(".xlsx")

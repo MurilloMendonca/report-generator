@@ -1,0 +1,10 @@
+Subject: Pedido de alteração de email no $app_name
+Olá,
+
+Foi pedido que o email da sua conta passe a ser $new_email. A alteração só acontece depois que o novo endereço for confirmado.
+Se não foi você, altere sua senha agora:
+
+$link
+
+---
+A change of your account's email to $new_email was requested. It only takes effect once the new address is confirmed. If this wasn't you, change your password.

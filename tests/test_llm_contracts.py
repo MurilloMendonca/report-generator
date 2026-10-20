@@ -4,28 +4,26 @@ import threading
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from app.services.llm_service import (
-    DEFAULT_MODEL_NAME,
-    DEFAULT_PROVIDER,
-    LLMBudgetError,
-    LLMTimeoutError,
-    assemble_script,
+from app.services.llm.client import (
     call_llm,
-    generate_document_insights_from_pdf_file,
-    generate_component_code,
-    generate_report_title,
     llm_operation_context,
     model_catalog,
     normalize_gemini_model_name,
+    resolve_llm_config,
+)
+from app.services.llm.components import generate_component_code
+from app.services.llm.errors import LLMBudgetError, LLMTimeoutError
+from app.services.llm.parsing import (
     parse_llm_artifacts,
     parse_llm_document_insights,
     parse_llm_preprocessing_plan,
-    parse_llm_refinement_target,
     parse_llm_text_map,
-    prompt_fingerprint,
-    refine_session_modular,
-    resolve_llm_config,
 )
+from app.services.llm.planning import generate_document_insights_from_pdf_file, generate_report_title
+from app.services.llm.prompts import prompt_fingerprint
+from app.services.llm.refinement import parse_llm_refinement_decision, refine_session_modular
+from app.services.llm.script import assemble_script
+from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 
 
 class LlmContractTests(unittest.TestCase):
@@ -70,7 +68,7 @@ class LlmContractTests(unittest.TestCase):
             captured["user_prompt"] = user_prompt
             return "def render_g_table(pdf, dataframes, x, y, w, h):\n    pass"
 
-        with patch("app.services.llm_service.call_llm", fake_call_llm):
+        with patch("app.services.llm.client.call_llm", fake_call_llm):
             code = generate_component_code(
                 "[]",
                 {
@@ -106,12 +104,12 @@ class LlmContractTests(unittest.TestCase):
         captured = {}
 
         def fake_call_llm(provider, model_name, system_instruction, user_prompt):
-            from app.services.llm_service import current_llm_context
+            from app.services.llm.client import current_llm_context
 
             captured["context"] = dict(current_llm_context())
             return "Título do relatório"
 
-        with patch("app.services.llm_service.call_llm", fake_call_llm):
+        with patch("app.services.llm.client.call_llm", fake_call_llm):
             title = generate_report_title(
                 "[]",
                 "Analisar vendas",
@@ -133,16 +131,18 @@ class LlmContractTests(unittest.TestCase):
 
         class FakeModels:
             @staticmethod
-            def generate_content(*, model, contents):
+            def generate_content(*, model, contents, config):
                 captured["model"] = model
                 captured["contents"] = contents
+                captured["config"] = config
                 return SimpleNamespace(text='{"summary":"Resumo","metrics":[{"id":"m_total","label":"Total","value":42,"source":"brief.pdf","evidence":"Total 42"}]}')
 
         class FakeClient:
             models = FakeModels()
 
         try:
-            with patch("app.services.llm_service.get_gemini_client", return_value=FakeClient()):
+            with patch("app.services.llm.client.get_gemini_client", return_value=FakeClient()), \
+                 patch("app.services.llm.client._document_pdf_provider", return_value=("gemini", "gemini-3.8-flash")):
                 insights = generate_document_insights_from_pdf_file(
                     pdf_path,
                     '{"filename":"brief.pdf","type":"pdf","text_excerpt":""}',
@@ -155,7 +155,8 @@ class LlmContractTests(unittest.TestCase):
             if os.path.exists(pdf_path):
                 os.remove(pdf_path)
 
-        self.assertEqual(captured["model"], "gemini-3.1-flash-lite-preview")
+        self.assertEqual(captured["model"], "gemini-3.8-flash")
+        self.assertEqual(captured["config"]["http_options"]["timeout"], 45000)
         self.assertEqual(insights["metrics"][0]["id"], "m_total")
         self.assertEqual(insights["extraction_source"], "pdf_file")
         self.assertEqual(len(captured["contents"]), 2)
@@ -174,14 +175,14 @@ class LlmContractTests(unittest.TestCase):
         self.assertEqual(document["metrics"][0]["id"], "m_budget")
         self.assertEqual(document["metrics"][0]["confidence"], "low")
 
-        self.assertEqual(parse_llm_refinement_target("layout"), "LAYOUT")
-        self.assertEqual(parse_llm_refinement_target("g_table"), "g_table")
+        decision = parse_llm_refinement_decision('{"intent":"clarify","scope":"report","instruction":"Melhorar","clarification_question":"Como deseja mudar?"}', {})
+        self.assertEqual(decision["intent"], "clarify")
 
         with self.assertRaises(ValueError):
             parse_llm_artifacts('{"id": "not-a-list"}')
 
         with self.assertRaises(ValueError):
-            parse_llm_refinement_target("...")
+            parse_llm_refinement_decision("...", {})
 
     def test_assemble_script_imports_runtime_chart_helpers(self):
         script = assemble_script(
@@ -220,7 +221,7 @@ class LlmContractTests(unittest.TestCase):
         def fake_call_llm(provider, model_name, system_instruction, user_prompt):
             prompts.append(user_prompt)
             if len(prompts) == 1:
-                return "g_table"
+                return '{"intent":"component","scope":"components","component_ids":["g_table"],"instruction":"Personalizar a tabela."}'
             return "def render_g_table(pdf, dataframes, x, y, w, h):\n    return render_summary_table(pdf, dataframes, x, y, w, h, dimensions=['region'], metrics=['revenue'])"
 
         session = {
@@ -241,7 +242,7 @@ class LlmContractTests(unittest.TestCase):
             "files": [{"artifact": {"filename": "sales.csv", "columns": ["region", "revenue"]}}],
         }
 
-        with patch("app.services.llm_service.call_llm", fake_call_llm):
+        with patch("app.services.llm.client.call_llm", fake_call_llm):
             updated = refine_session_modular(session, "customize a tabela", job_id="job-refine")
 
         self.assertEqual(updated["artifacts"][0]["render_mode"], "generated_code")
@@ -274,9 +275,9 @@ class LlmContractTests(unittest.TestCase):
 
         def fake_call_llm(*_args, **_kwargs):
             calls.append(True)
-            return "g_cases_trend"
+            return '{"intent":"visual","scope":"components","component_ids":["g_cases_trend"],"instruction":"Trocar a linha de azul para vermelho.","visual_options":{"line_color":"#dc2626"}}'
 
-        with patch("app.services.llm_service.call_llm", fake_call_llm):
+        with patch("app.services.llm.client.call_llm", fake_call_llm):
             updated = refine_session_modular(
                 session,
                 'Troque a cor do gráfico "Tendência Temporal de Casos" de azul para vermelho',
@@ -298,8 +299,8 @@ class LlmContractTests(unittest.TestCase):
                     def create(*args, **kwargs):
                         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
 
-        with patch("app.services.llm_service.get_deepseek_client", return_value=FakeDeepseekClient()), \
-             patch("app.services.llm_service.record_llm_usage") as record_usage:
+        with patch("app.services.llm.client.get_deepseek_client", return_value=FakeDeepseekClient()), \
+             patch("app.services.llm.client.record_llm_usage") as record_usage:
             with llm_operation_context(job_id="job-budget", operation="budget_test", settings={"llm_call_budget": 1}):
                 self.assertEqual(call_llm("deepseek", "deepseek-v4-flash", "sys", "user"), "ok")
                 with self.assertRaises(LLMBudgetError):
@@ -315,8 +316,8 @@ class LlmContractTests(unittest.TestCase):
                     def create(*args, **kwargs):
                         raise TimeoutError("timed out")
 
-        with patch("app.services.llm_service.get_deepseek_client", return_value=FakeDeepseekClient()), \
-             patch("app.services.llm_service.record_llm_usage"):
+        with patch("app.services.llm.client.get_deepseek_client", return_value=FakeDeepseekClient()), \
+             patch("app.services.llm.client.record_llm_usage"):
             with llm_operation_context(job_id="job-timeout", operation="timeout_test", settings={"llm_timeout_seconds": 1}):
                 with self.assertRaises(LLMTimeoutError):
                     call_llm("deepseek", "deepseek-v4-flash", "sys", "user", retries=1)
@@ -338,8 +339,8 @@ class LlmContractTests(unittest.TestCase):
             except Exception as exc:
                 result["error"] = exc
 
-        with patch("app.services.llm_service.get_deepseek_client", return_value=FakeDeepseekClient()), \
-             patch("app.services.llm_service.record_llm_usage"):
+        with patch("app.services.llm.client.get_deepseek_client", return_value=FakeDeepseekClient()), \
+             patch("app.services.llm.client.record_llm_usage"):
             thread = threading.Thread(target=worker)
             thread.start()
             thread.join(timeout=5)
@@ -365,16 +366,16 @@ class LlmContractTests(unittest.TestCase):
                 def generate_content(*args, **kwargs):
                     return FakeGeminiResponse()
 
-        with patch("app.services.llm_service.get_deepseek_client", return_value=FailingDeepseekClient()), \
-             patch("app.services.llm_service.get_gemini_client", return_value=FakeGeminiClient()), \
-             patch("app.services.llm_service.record_llm_usage"):
+        with patch("app.services.llm.client.get_deepseek_client", return_value=FailingDeepseekClient()), \
+             patch("app.services.llm.client.get_gemini_client", return_value=FakeGeminiClient()), \
+             patch("app.services.llm.client.operation_preferences", return_value={
+                 "llm_fallback_provider": "gemini", "llm_fallback_model_name": "gemini-2.5-flash",
+             }), \
+             patch("app.services.llm.client.resolve_api_key", return_value="fake-owned-key"), \
+             patch("app.services.llm.client.record_llm_usage"):
             with llm_operation_context(
                 job_id="job-fallback",
                 operation="fallback_test",
-                settings={
-                    "llm_fallback_provider": "gemini",
-                    "llm_fallback_model_name": "gemini-2.5-flash",
-                },
             ):
                 self.assertEqual(
                     call_llm("deepseek", "deepseek-v4-flash", "sys", "user", retries=1),

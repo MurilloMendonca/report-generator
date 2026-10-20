@@ -83,3 +83,5 @@ def render_{id}(pdf, dataframes, x, y, w, h):
 - Optional Layout Slot Constraints with exact block size and whether the block is compact.
 
 When `Layout Slot Constraints.compact` is true, simplify the visualization: fewer labels, smaller title, no table with many columns, no dense annotations, and no competing x-axis label plus bottom legend.
+- Dataframes are preloaded with the exact `dataframe_key` from metadata. Additional Excel sheets use `filename::sheet_name`; the first uses the filename. Do not open source files again or silently use another dataframe when the bound source is absent.
+- Preserve missing values in calculations; do not fabricate zeros, trends, or targets. Use explicit units and distinguish counts, sums, means, and weighted rates. Validate join cardinality before combining sources.

@@ -1,17 +1,26 @@
 const App = {
     currentSession: null,
     pollInterval: null,
+    pollGeneration: 0,
+    pdfLoading: false,
+    settingsDirty: false,
+    settingsSignature: null,
     lastPdfVersion: 0,
     pdfObjectUrl: null,
     indicatorPreviewUrl: null,
     indicatorPreviewVersion: 0,
     indicatorPreviewLoading: false,
+    indicatorPreviewRequest: 0,
+    explorePending: null,
     indicatorModalFocusTarget: null,
     filePreviewUrl: null,
     filePreviewIndex: null,
     filePreviewVariant: 'original',
     filePreviewFocusTarget: null,
     layoutTemplates: [],
+    reportLayoutEditor: null,
+    reportLayoutJobId: null,
+    layoutFocused: false,
     componentLibrary: {
         presets: [],
         themes: [],
@@ -21,7 +30,8 @@ const App = {
     },
     models: {},
     defaultProvider: 'deepseek',
-    defaultModelName: 'deepseek-v4-flash',
+    defaultModelName: 'deepseek-flash',
+    modelDefaults: {},
 
     async init() {
         this.setupEventListeners();
@@ -32,6 +42,9 @@ const App = {
         await this.loadComponentLibrary();
         await this.loadLayoutTemplates();
         await this.loadRecentSessions();
+        if (typeof SavedSources !== 'undefined') {
+            try { await SavedSources.init(); } catch (error) { this.showNotice(error.message); }
+        }
         await this.loadSessionFromUrl();
     },
 
@@ -39,10 +52,27 @@ const App = {
         const catalog = await API.getModels();
         if (catalog.providers) {
             this.models = catalog.providers;
+            this.modelDefaults = catalog.defaults || {};
             this.defaultProvider = catalog.default_provider || this.defaultProvider;
             this.defaultModelName = catalog.default_model || this.defaultModelName;
             const provider = document.getElementById('provider');
+            for (const id of ['provider', 's-provider']) {
+                const select = document.getElementById(id);
+                if (!select) continue;
+                const selected = select.value;
+                UI.clearElement(select);
+                for (const [providerId, models] of Object.entries(catalog.providers)) {
+                    const status = catalog.credential_status?.[providerId];
+                    const option = UI.buildOption(providerId, status?.label || providerId);
+                    option.disabled = status ? !status.enabled : false;
+                    select.appendChild(option);
+                }
+                select.value = selected || this.defaultProvider;
+            }
             if (provider && catalog.default_provider) provider.value = catalog.default_provider;
+            if (catalog.credential_status && !Object.values(catalog.credential_status).some(status => status.enabled)) {
+                this.showNotice('Configure um modelo de IA para gerar relatórios.', { code: 'missing_provider_key' });
+            }
         }
     },
 
@@ -53,19 +83,31 @@ const App = {
     },
 
     async ensureAuthenticated() {
-        const loginGate = document.getElementById('login-gate');
-        const appShell = document.getElementById('app-shell');
-
         try {
-            await API.checkLogin();
-            loginGate.style.display = 'none';
-            appShell.style.display = 'flex';
-            return true;
+            this.user = await API.me();
         } catch (error) {
-            appShell.style.display = 'none';
-            loginGate.style.display = 'flex';
+            API.redirectToLogin();
             return false;
         }
+        document.getElementById('app-shell').style.display = 'flex';
+        Utils.setupAccountBar(this.user);
+        this.renderVerifyBanner();
+        return true;
+    },
+
+    renderVerifyBanner() {
+        const banner = document.getElementById('verify-banner');
+        if (!banner) return;
+        banner.hidden = Boolean(this.user?.email_verified);
+        document.getElementById('verify-email-address').textContent = this.user?.email || '';
+        document.getElementById('resend-verification-btn').onclick = async () => {
+            const status = document.getElementById('verify-banner-status');
+            try {
+                status.textContent = (await API.resendVerification()).message || 'Link enviado.';
+            } catch (error) {
+                status.textContent = error.message;
+            }
+        };
     },
 
     getSessionIdFromUrl() {
@@ -73,12 +115,20 @@ const App = {
         return match ? decodeURIComponent(match[1]) : null;
     },
 
+    hasPendingExploration(session) {
+        return (session?.explore_history || []).some(item => item && item.role === 'assistant' && item.status === 'pending');
+    },
+
     isTerminalSession(session) {
+        // Explorer answers arrive in the background; keep polling until they land.
+        if (this.hasPendingExploration(session)) return false;
+        if (['queued', 'running'].includes(session?.source_import?.status)) return false;
+        if (session && session.current_step) {
+            return ['completed', 'failed', 'awaiting_clarification', 'translation_failed'].includes(session.current_step);
+        }
         const status = String(session && session.status ? session.status : '');
         const normalizedStatus = status.toLowerCase();
         return (
-            (session && session.current_step === 'completed') ||
-            (session && session.current_step === 'failed') ||
             normalizedStatus.includes("concluído") ||
             normalizedStatus.includes("falha") ||
             status === "Concluído"
@@ -132,8 +182,11 @@ const App = {
         const models = this.models[providerEl.value] || [];
         UI.clearElement(select);
         models.forEach(m => select.appendChild(UI.buildOption(m.id, m.label)));
-        if (providerEl.value === this.defaultProvider && models.some(m => m.id === this.defaultModelName)) {
-            select.value = this.defaultModelName;
+        const submit = document.querySelector('#upload-form button[type="submit"]');
+        if (submit) submit.disabled = !models.length;
+        const defaultModel = this.modelDefaults[providerEl.value] || this.defaultModelName;
+        if (models.some(m => m.id === defaultModel)) {
+            select.value = defaultModel;
         }
         this.updateModelDefaultNotice('provider', 'model_name', 'model-default-notice');
     },
@@ -148,8 +201,8 @@ const App = {
         models.forEach(m => modelEl.appendChild(UI.buildOption(m.id, m.label)));
         if (selectedModel && models.some(m => m.id === selectedModel)) {
             modelEl.value = selectedModel;
-        } else if (providerEl.value === this.defaultProvider && models.some(m => m.id === this.defaultModelName)) {
-            modelEl.value = this.defaultModelName;
+        } else if (models.some(m => m.id === (this.modelDefaults[providerEl.value] || this.defaultModelName))) {
+            modelEl.value = this.modelDefaults[providerEl.value] || this.defaultModelName;
         }
         this.updateModelDefaultNotice('s-provider', 's-model-name', 'settings-model-default-notice');
     },
@@ -157,7 +210,7 @@ const App = {
     getDefaultModelLabel() {
         const defaultModels = this.models[this.defaultProvider] || [];
         const defaultModel = defaultModels.find(m => m.id === this.defaultModelName);
-        return defaultModel ? defaultModel.label : 'DeepSeek V4 Flash';
+        return defaultModel ? defaultModel.label : this.defaultModelName;
     },
 
     updateModelDefaultNotice(providerId, modelId, noticeId) {
@@ -172,12 +225,16 @@ const App = {
     },
 
     setupEventListeners() {
-        document.getElementById('login-form').onsubmit = (e) => this.handleLogin(e);
         document.getElementById('upload-form').onsubmit = (e) => this.handleStartSession(e);
         document.getElementById('chat-form').onsubmit = (e) => this.handleChat(e);
         document.getElementById('explore-form').onsubmit = (e) => this.handleExplore(e);
         document.getElementById('modal-form').onsubmit = (e) => this.handleSaveIndicator(e);
         document.getElementById('settings-form').onsubmit = (e) => this.handleSaveSettings(e);
+        document.getElementById('settings-form').addEventListener('input', () => { this.settingsDirty = true; });
+        document.getElementById('settings-form').addEventListener('change', () => { this.settingsDirty = true; });
+        window.addEventListener('beforeunload', event => {
+            if (this.reportLayoutEditor?.dirty) { event.preventDefault(); event.returnValue = ''; }
+        });
         document.getElementById('provider').addEventListener('change', () => {
             this.updateModels();
         });
@@ -211,7 +268,9 @@ const App = {
         });
         document.getElementById('m-data-binding').addEventListener('input', () => UI.renderPresetInspector(this.componentLibrary));
         document.getElementById('add-file-input').addEventListener('change', (event) => this.handleUploadMore(event.target));
-        document.addEventListener('click', (event) => this.handleDocumentClick(event));
+        document.addEventListener('click', (event) => {
+            this.handleDocumentClick(event).catch(error => this.showNotice(error.message));
+        });
         this.setupFileDropzone();
         document.getElementById('file-preview-modal').addEventListener('close', () => {
             if (this.filePreviewUrl) {
@@ -259,16 +318,26 @@ const App = {
         }
     },
 
-    handleDocumentClick(event) {
+    async handleDocumentClick(event) {
         const target = event.target.closest('[data-action], [data-tab-target]');
         if (!target) return;
 
         if (target.dataset.tabTarget) {
             Utils.openTab(target.dataset.tabTarget, event);
+            if (target.dataset.tabTarget !== 'tab-design') this.setLayoutFocus(false);
+            else if (window.innerWidth < 1050) this.setLayoutFocus(true);
+            if (target.dataset.tabTarget === 'tab-design') requestAnimationFrame(() => {
+                if (this.reportLayoutEditor?.fit) this.reportLayoutEditor.fitPage();
+            });
             return;
         }
 
         switch (target.dataset.action) {
+            case 'explore-retry':
+                if (this.explorePending?.jobId === this.currentSession?.job_id) break;
+                document.getElementById('explore-input').value = target.dataset.prompt || '';
+                document.getElementById('explore-form').requestSubmit();
+                break;
             case 'trigger-add-file':
                 document.getElementById('add-file-input').click();
                 break;
@@ -276,7 +345,10 @@ const App = {
                 this.addLayoutPage();
                 break;
             case 'save-visual-layout':
-                this.handleSaveVisualLayout();
+                await this.handleSaveVisualLayout();
+                break;
+            case 'toggle-layout-focus':
+                this.setLayoutFocus(!this.layoutFocused);
                 break;
             case 'edit-indicator-new':
                 this.handleEditIndicator(-1);
@@ -285,43 +357,43 @@ const App = {
                 this.copyFullScript();
                 break;
             case 'regenerate-texts':
-                this.handleRegenerate('texts');
+                await this.handleRegenerate('texts');
                 break;
             case 'regenerate-graphics':
-                this.handleRegenerate('graphics');
+                await this.handleRegenerate('graphics');
                 break;
             case 'regenerate-all':
-                this.handleRegenerate('all');
+                await this.handleRegenerate('all');
                 break;
             case 'close-indicator-modal':
                 this.closeIndicatorModal();
                 break;
             case 'regenerate-current-indicator':
-                this.handleRegenerateCurrentIndicator();
+                await this.handleRegenerateCurrentIndicator();
                 break;
             case 'close-file-preview':
                 this.closeFilePreview();
                 break;
             case 'preview-file':
-                this.previewFile(parseInt(target.dataset.fileIndex, 10));
+                await this.previewFile(parseInt(target.dataset.fileIndex, 10));
                 break;
             case 'preview-file-variant':
-                this.previewFileVariant(parseInt(target.dataset.fileIndex, 10), target.dataset.variant);
+                await this.previewFileVariant(parseInt(target.dataset.fileIndex, 10), target.dataset.variant);
                 break;
             case 'download-file':
-                this.downloadFile(parseInt(target.dataset.fileIndex, 10));
+                await this.downloadFile(parseInt(target.dataset.fileIndex, 10));
                 break;
             case 'delete-file':
-                this.deleteFile(parseInt(target.dataset.fileIndex, 10));
+                await this.deleteFile(parseInt(target.dataset.fileIndex, 10));
                 break;
             case 'edit-indicator':
                 this.handleEditIndicator(parseInt(target.dataset.index, 10));
                 break;
             case 'delete-indicator':
-                this.handleDeleteIndicator(parseInt(target.dataset.index, 10));
+                await this.handleDeleteIndicator(parseInt(target.dataset.index, 10));
                 break;
             case 'delete-layout-block':
-                this.handleDeleteIndicatorById(target.dataset.componentId, event);
+                await this.handleDeleteIndicatorById(target.dataset.componentId, event);
                 break;
             case 'select-template-preview':
                 UI.selectTemplatePreview(target.dataset.templateId);
@@ -351,42 +423,54 @@ const App = {
 
         dropzone.addEventListener('drop', (event) => {
             const files = event.dataTransfer.files;
-            if (files && files.length) this.uploadFiles(files);
+            if (files && files.length) this.uploadFiles(files).catch(error => this.showNotice(error.message));
         });
-    },
-
-    async handleLogin(e) {
-        e.preventDefault();
-        const input = document.getElementById('access-secret');
-        const errorEl = document.getElementById('login-error');
-        errorEl.textContent = '';
-
-        try {
-            await API.login(input.value);
-            input.value = '';
-            await this.ensureAuthenticated();
-            await this.loadModels();
-            this.updateModels();
-            await this.loadComponentLibrary();
-            await this.loadLayoutTemplates();
-            await this.loadRecentSessions();
-            await this.loadSessionFromUrl();
-        } catch (error) {
-            errorEl.textContent = 'Segredo inválido.';
-        }
     },
 
     async handleStartSession(e) {
         e.preventDefault();
-        const data = await API.startSession(new FormData(e.target));
-        this.currentSession = { job_id: data.job_id };
-        window.history.replaceState({}, '', `/session/${data.job_id}`);
-        this.showWorkspace();
-        
-        this.startPolling();
+        const button = e.target.querySelector('button[type="submit"]');
+        if (button.disabled) return;
+        button.disabled = true;
+        button.textContent = 'Preparando relatório…';
+        this.showNotice('');
+        try {
+            const files = document.getElementById('file').files;
+            const sources = typeof SavedSources !== 'undefined' ? SavedSources.selections('initial-source-list') : [];
+            if (!files.length && !sources.length) throw new Error('Selecione um conjunto de dados ou envie pelo menos um arquivo.');
+            const formData = new FormData(e.target);
+            // Avoid the empty file part native forms include when no file was chosen.
+            formData.delete('files');
+            for (const file of files) formData.append('files', file);
+            formData.set('source_datasets', JSON.stringify(sources));
+            const data = await API.startSession(formData);
+            this.currentSession = { job_id: data.job_id };
+            window.history.replaceState({}, '', `/session/${data.job_id}`);
+            this.showWorkspace();
+            this.startPolling();
+        } catch (error) {
+            this.showNotice(error.message, error);
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Gerar relatório →';
+        }
+    },
+
+    showNotice(message, error = null) {
+        const notice = document.getElementById('workspace-notice');
+        if (!notice) return;
+        notice.textContent = message || '';
+        notice.hidden = !message;
+        if (['missing_provider_key', 'invalid_provider_key'].includes(error?.code)) {
+            const link = document.createElement('a');
+            link.href = '/keys';
+            link.textContent = 'Configurar modelos de IA';
+            notice.append(' ', link);
+        }
     },
 
     showWorkspace() {
+        document.getElementById('app-shell').classList.remove('is-starting');
         document.getElementById('initial-form').style.display = 'none';
         document.getElementById('file-workspace').style.display = 'block';
         document.getElementById('header-progress').style.display = 'block';
@@ -395,38 +479,62 @@ const App = {
     },
 
     startPolling() {
-        if (this.pollInterval) clearInterval(this.pollInterval);
-        this.pollInterval = setInterval(async () => {
-            const session = await API.getSession(this.currentSession.job_id);
-            this.currentSession = session;
-            this.updateUI(session);
-            
-            if (this.isTerminalSession(session)) {
-                clearInterval(this.pollInterval);
-                this.pollInterval = null;
+        if (this.pollInterval) clearTimeout(this.pollInterval);
+        const generation = ++this.pollGeneration;
+        const jobId = this.currentSession && this.currentSession.job_id;
+        if (!jobId) return;
+        let failures = 0;
+        const poll = async () => {
+            this.pollInterval = null;
+            try {
+                const session = await API.getSession(jobId);
+                if (generation !== this.pollGeneration || this.currentSession.job_id !== jobId) return;
+                failures = 0;
+                this.currentSession = session;
+                this.updateUI(session);
+                if (this.isTerminalSession(session)) return;
+            } catch (error) {
+                if (generation !== this.pollGeneration) return;
+                failures += 1;
+                this.showNotice(error.message);
+                if (error.status === 401 || error.status === 404) return;
             }
-        }, 2000);
+            if (generation === this.pollGeneration) {
+                this.pollInterval = setTimeout(poll, Math.min(15000, 2000 * (failures + 1)));
+            }
+        };
+        // Fetch immediately, then wait for each response before scheduling another.
+        poll();
     },
 
     updateUI(session) {
         UI.updateStatus(session.status, Number.isFinite(session.progress) ? session.progress : (session.status === "Concluído" ? 100 : 60));
         UI.renderLogs(session.logs);
         UI.renderRefinementChat(session);
+        UI.renderExploreChat(session, this.explorePending?.jobId === session.job_id ? this.explorePending : null);
         UI.renderFiles(session.files);
+        if (typeof SavedSources !== 'undefined') SavedSources.update(session);
         UI.renderArtifacts(session.artifacts);
         UI.renderLayoutCanvas(session);
         UI.renderDataArtifacts(session);
         UI.renderFullScript(session.script);
-        UI.renderTemplateOptions(this.layoutTemplates);
-        UI.renderVisualThemeOptions(this.componentLibrary);
-        UI.renderComponentLibraryOptions(this.componentLibrary);
-        const settingsProvider = document.getElementById('s-provider');
-        if (settingsProvider) settingsProvider.value = session.provider || 'deepseek';
-        this.updateSettingsModels(session.model_name);
-        UI.updateSettingsForm(session.settings, session);
-        this.updateModelDefaultNotice('s-provider', 's-model-name', 'settings-model-default-notice');
+        const signature = JSON.stringify([session.job_id, session.settings, session.provider, session.model_name]);
+        if (!this.settingsDirty && signature !== this.settingsSignature) {
+            UI.renderTemplateOptions(this.layoutTemplates);
+            UI.renderVisualThemeOptions(this.componentLibrary);
+            UI.renderComponentLibraryOptions(this.componentLibrary);
+            const settingsProvider = document.getElementById('s-provider');
+            if (settingsProvider) settingsProvider.value = session.provider || this.defaultProvider;
+            this.updateSettingsModels(session.model_name);
+            UI.updateSettingsForm(session.settings, session);
+            this.settingsSignature = signature;
+            this.updateModelDefaultNotice('s-provider', 's-model-name', 'settings-model-default-notice');
+        }
+        const fallback = session.llm_usage?.last_fallback;
+        const fallbackNotice = fallback?.served_model ? `Modelo alternativo utilizado: ${fallback.provider} · ${fallback.served_model}.` : '';
+        this.showNotice(session.error?.message || fallbackNotice, session.error);
 
-        if (session.pdf_version > this.lastPdfVersion) {
+        if (session.pdf_version > this.lastPdfVersion && !this.pdfLoading) {
             this.refreshPdf(session);
         }
 
@@ -443,14 +551,30 @@ const App = {
     },
 
     async refreshPdf(session) {
-        const url = await API.getPdfObjectUrl(session.job_id, session.pdf_version);
-        if (this.pdfObjectUrl) URL.revokeObjectURL(this.pdfObjectUrl);
-        this.pdfObjectUrl = url;
-        document.getElementById('pdf-viewer').src = url;
-        const dlBtn = document.getElementById('download-btn');
-        dlBtn.style.display = 'block';
-        dlBtn.onclick = () => window.open(url);
-        this.lastPdfVersion = session.pdf_version;
+        this.pdfLoading = true;
+        try {
+            const url = await API.getPdfObjectUrl(session.job_id, session.pdf_version);
+            if (!this.currentSession || this.currentSession.job_id !== session.job_id) {
+                URL.revokeObjectURL(url);
+                return;
+            }
+            if (this.pdfObjectUrl) URL.revokeObjectURL(this.pdfObjectUrl);
+            this.pdfObjectUrl = url;
+            document.getElementById('pdf-viewer').src = url;
+            const dlBtn = document.getElementById('download-btn');
+            dlBtn.style.display = 'block';
+            dlBtn.onclick = () => {
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `relatorio-${session.job_id}.pdf`;
+                link.click();
+            };
+            this.lastPdfVersion = session.pdf_version;
+        } catch (error) {
+            this.showNotice(error.message);
+        } finally {
+            this.pdfLoading = false;
+        }
     },
 
     async handleChat(e) {
@@ -497,42 +621,45 @@ const App = {
     async handleExplore(e) {
         e.preventDefault();
         const input = document.getElementById('explore-input');
-        const q = input.value;
-        if (!q) return;
-
-        const chat = document.getElementById('explore-chat');
-        {
-            const message = document.createElement('div');
-            message.className = 'message user';
-            const label = document.createElement('b');
-            label.textContent = 'Você:';
-            const text = document.createElement('span');
-            text.textContent = ` ${q}`;
-            message.appendChild(label);
-            message.appendChild(text);
-            chat.appendChild(message);
-        }
+        const q = input.value.trim();
+        const jobId = this.currentSession?.job_id;
+        if (!q || !jobId || this.explorePending?.jobId === jobId || this.hasPendingExploration(this.currentSession)) return;
+        const request = { jobId, prompt: q, historyLength: this.currentSession.explore_history?.length || 0 };
+        this.explorePending = request;
         input.value = '';
-        
-        const data = await API.exploreData(this.currentSession.job_id, q);
-        {
-            const message = document.createElement('div');
-            message.className = 'message ai';
-            const label = document.createElement('b');
-            label.textContent = 'Analista:';
-            const text = document.createElement('span');
-            text.textContent = ` ${data.answer}`;
-            message.appendChild(label);
-            message.appendChild(text);
-            chat.appendChild(message);
+        UI.renderExploreChat(this.currentSession, request);
+        try {
+            // The server stores the question with a pending answer and finishes it in
+            // the background; polling picks up the result.
+            const data = await API.exploreData(jobId, q);
+            if (this.currentSession?.job_id !== jobId || this.explorePending !== request) return;
+            if (Array.isArray(data.history)) this.currentSession.explore_history = data.history;
+            this.startPolling();
+        } catch (error) {
+            if (this.currentSession?.job_id !== jobId || this.explorePending !== request) return;
+            this.currentSession.explore_history = Array.isArray(error.details?.history) ? error.details.history : [
+                ...(this.currentSession.explore_history || []),
+                { role: 'user', content: q },
+                { role: 'assistant', content: error.message || 'Não foi possível executar a consulta.', status: 'error' }
+            ];
+            if (!input.value.trim()) input.value = q;
+        } finally {
+            if (this.explorePending === request) {
+                this.explorePending = null;
+                if (this.currentSession) UI.renderExploreChat(this.currentSession);
+            }
         }
-        chat.scrollTop = chat.scrollHeight;
     },
 
     async handleUploadMore(input) {
         if (!input.files.length) return;
-        await this.uploadFiles(input.files);
-        input.value = '';
+        try {
+            await this.uploadFiles(input.files);
+        } catch (error) {
+            this.showNotice(error.message);
+        } finally {
+            input.value = '';
+        }
     },
 
     async uploadFiles(files) {
@@ -577,22 +704,7 @@ const App = {
             .join(' · ');
         UI.clearElement(body);
         if (hasPreprocessed) {
-            const tabs = document.createElement('div');
-            tabs.className = 'file-preview-tabs';
-            [
-                ['original', 'Original'],
-                ['preprocessed', 'Pré-processado'],
-            ].forEach(([tabVariant, label]) => {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = `file-preview-tab ${activeVariant === tabVariant ? 'active' : ''}`;
-                button.dataset.action = 'preview-file-variant';
-                button.dataset.fileIndex = index;
-                button.dataset.variant = tabVariant;
-                button.textContent = label;
-                tabs.appendChild(button);
-            });
-            body.appendChild(tabs);
+            body.appendChild(this.renderFilePreviewTabs(index, variant));
         }
         const previewContent = document.createElement('div');
         previewContent.className = 'preview-content';
@@ -631,7 +743,9 @@ const App = {
                     this.renderMetadataPreview(content, file, 'Planilhas podem ser baixadas ou usadas pelo gerador, mas nao abrem como texto no navegador.');
                     return;
                 }
-                const text = await blob.text();
+                const sourceEncoding = isPreprocessed ? 'utf-8' : (file.validation?.encoding || file.artifact?.encoding || 'utf-8');
+                const encoding = sourceEncoding === 'utf-8-sig' ? 'utf-8' : sourceEncoding;
+                const text = encoding === 'utf-8' ? await blob.text() : new TextDecoder(encoding).decode(await blob.arrayBuffer());
                 UI.clearElement(content);
                 const pre = document.createElement('pre');
                 pre.className = 'preview-text';
@@ -737,7 +851,7 @@ const App = {
         document.getElementById('m-visual-theme').value = art.visual_theme_id || "";
         document.getElementById('m-chart-style').value = art.chart_style_id || "";
         document.getElementById('m-visual-options').value = JSON.stringify(art.visual_options || {}, null, 2);
-        document.getElementById('m-render-mode').value = art.render_mode || "generated_code";
+        document.getElementById('m-render-mode').value = art.render_mode || "";
         document.getElementById('m-data-binding').value = JSON.stringify(art.data_binding || {}, null, 2);
         this.updateModalPresetOptions(art);
         document.getElementById('m-cols').value = (art.columns || []).join(', ');
@@ -816,7 +930,7 @@ const App = {
             chart_style_id: document.getElementById('m-chart-style').value || undefined,
             visual_options: visualOptions,
             data_binding: Object.keys(dataBinding).length ? dataBinding : undefined,
-            render_mode: document.getElementById('m-render-mode').value || 'generated_code',
+            render_mode: document.getElementById('m-render-mode').value || undefined,
             columns: document.getElementById('m-cols').value.split(',').map(s => s.trim()),
             reason: document.getElementById('m-reason').value
         };
@@ -851,11 +965,11 @@ const App = {
 
     async saveCurrentIndicator(options = {}) {
         const { idx, id, newArt } = this.currentIndicatorPayload();
-
+        const artifacts = [...this.currentSession.artifacts];
         if (idx === -1) {
-            this.currentSession.artifacts.push(newArt);
+            artifacts.push(newArt);
         } else {
-            this.currentSession.artifacts[idx] = newArt;
+            artifacts[idx] = newArt;
         }
 
         const overrides = {};
@@ -863,9 +977,10 @@ const App = {
         const isPlaceholderCode = document.getElementById('m-code').dataset.placeholderCode === '1';
         if (code && !isPlaceholderCode) overrides[id] = code;
 
-        await API.syncArtifacts(this.currentSession.job_id, this.currentSession.artifacts, overrides, {
+        await API.syncArtifacts(this.currentSession.job_id, artifacts, overrides, {
             deferPipeline: Boolean(options.deferPipeline)
         });
+        this.currentSession.artifacts = artifacts;
         return { idx, id };
     },
 
@@ -893,6 +1008,8 @@ const App = {
             preview.appendChild(loading);
             const { id } = await this.saveCurrentIndicator({ deferPipeline: true });
             await API.regenerate(this.currentSession.job_id, 'component', this.collectSettings(), id);
+            this.settingsDirty = false;
+            this.settingsSignature = null;
             this.startPolling();
         } catch (error) {
             UI.clearElement(preview);
@@ -948,8 +1065,13 @@ const App = {
         }
 
         this.indicatorPreviewLoading = true;
+        const request = ++this.indicatorPreviewRequest;
         try {
             const url = await API.getComponentPreviewObjectUrl(session.job_id, art.id, session.pdf_version);
+            if (request !== this.indicatorPreviewRequest || !document.getElementById('indicator-modal').open) {
+                URL.revokeObjectURL(url);
+                return;
+            }
             if (this.indicatorPreviewUrl) URL.revokeObjectURL(this.indicatorPreviewUrl);
             this.indicatorPreviewUrl = url;
             this.indicatorPreviewVersion = session.pdf_version;
@@ -965,17 +1087,19 @@ const App = {
                 button.textContent = 'Salvar e gerar novamente';
             }
         } catch (error) {
+            if (request !== this.indicatorPreviewRequest) return;
             UI.clearElement(preview);
             const empty = document.createElement('div');
             empty.className = 'preview-empty';
             empty.textContent = 'Não foi possível carregar a prévia renderizada.';
             preview.appendChild(empty);
         } finally {
-            this.indicatorPreviewLoading = false;
+            if (request === this.indicatorPreviewRequest) this.indicatorPreviewLoading = false;
         }
     },
 
     clearIndicatorPreview() {
+        this.indicatorPreviewRequest += 1;
         if (this.indicatorPreviewUrl) {
             URL.revokeObjectURL(this.indicatorPreviewUrl);
             this.indicatorPreviewUrl = null;
@@ -986,45 +1110,79 @@ const App = {
 
     async handleDeleteIndicator(index) {
         if (!confirm("Excluir este componente?")) return;
-        this.currentSession.artifacts.splice(index, 1);
-        await API.syncArtifacts(this.currentSession.job_id, this.currentSession.artifacts, {});
+        const artifacts = this.currentSession.artifacts.filter((_artifact, currentIndex) => currentIndex !== index);
+        await API.syncArtifacts(this.currentSession.job_id, artifacts, {});
+        this.currentSession.artifacts = artifacts;
         this.startPolling();
     },
 
     async handleDeleteIndicatorById(id, event) {
         if (event) event.stopPropagation();
         const index = this.currentSession.artifacts.findIndex(a => a.id === id);
-        if (index !== -1) this.handleDeleteIndicator(index);
+        if (index !== -1) await this.handleDeleteIndicator(index);
+    },
+
+    setLayoutFocus(enabled) {
+        this.layoutFocused = enabled;
+        document.getElementById('app-shell').classList.toggle('layout-focus', enabled);
+        const button = document.getElementById('layout-focus-btn');
+        if (button) {
+            button.textContent = enabled ? 'Restaurar painel' : 'Expandir editor';
+            button.setAttribute('aria-pressed', String(enabled));
+        }
+    },
+
+    renderReportLayout(session) {
+        const container = document.getElementById('layout-canvas');
+        if (!container) return;
+        if (!this.reportLayoutEditor) {
+            this.reportLayoutEditor = new LayoutEditor(container, {
+                onChange: (_items, dirty) => {
+                    document.getElementById('report-layout-status').textContent = dirty
+                        ? 'Alterações não salvas. Aplique para atualizar o PDF.'
+                        : 'O layout está atualizado.';
+                },
+                onEdit: id => {
+                    const index = this.currentSession.artifacts.findIndex(artifact => artifact.id === id);
+                    if (index !== -1) this.handleEditIndicator(index);
+                },
+            });
+        }
+        const artifacts = session.artifacts || [];
+        const items = (session.template || []).map(item => {
+            const artifact = artifacts.find(artifact => artifact.id === item.id);
+            return { ...item, label: artifact?.indicator || item.id, type: artifact?.type || 'graphic' };
+        });
+        const available = artifacts.filter(artifact => artifact.type !== 'metric').map(artifact => ({ id: artifact.id, label: artifact.indicator, type: artifact.type }));
+        this.reportLayoutEditor.setItems(items, { force: this.reportLayoutJobId !== session.job_id, available });
+        this.reportLayoutJobId = session.job_id;
     },
 
     async handleSaveVisualLayout() {
-        const template = [];
-        const pages = Array.from(document.querySelectorAll('.a4-page'));
-        document.querySelectorAll('.layout-block').forEach(el => {
-            const blockRect = el.getBoundingClientRect();
-            const blockCenterY = blockRect.top + blockRect.height / 2;
-            const pageEl = pages.find(page => {
-                const pageRect = page.getBoundingClientRect();
-                return blockCenterY >= pageRect.top && blockCenterY <= pageRect.bottom;
-            }) || el.closest('.a4-page');
-            const pageRect = pageEl.getBoundingClientRect();
-            template.push({
-                id: el.id.replace('block-', ''),
-                page: parseInt(pageEl.dataset.page || "1"),
-                x: Math.round((blockRect.left - pageRect.left) / MM_TO_PX),
-                y: Math.round((blockRect.top - pageRect.top) / MM_TO_PX),
-                w: Math.round(el.offsetWidth / MM_TO_PX),
-                h: Math.round(el.offsetHeight / MM_TO_PX)
-            });
-        });
-        await API.saveLayout(this.currentSession.job_id, template);
-        this.startPolling();
+        if (!this.reportLayoutEditor || !this.currentSession) return;
+        const button = document.getElementById('apply-layout-btn');
+        if (button.disabled) return;
+        const template = this.reportLayoutEditor.getItems().map(({ id, page, x, y, w, h }) => ({ id, page, x, y, w, h }));
+        button.disabled = true;
+        button.textContent = 'Aplicando...';
+        this.reportLayoutEditor.container.inert = true;
+        try {
+            await API.saveLayout(this.currentSession.job_id, template);
+            this.currentSession.template = template;
+            this.reportLayoutEditor.markSaved();
+            document.getElementById('report-layout-status').textContent = 'Layout aplicado. Atualizando o PDF...';
+            this.startPolling();
+        } catch (error) {
+            document.getElementById('report-layout-status').textContent = error.message;
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Aplicar ao PDF';
+            this.reportLayoutEditor.container.inert = false;
+        }
     },
 
     addLayoutPage() {
-        const canvas = document.getElementById('layout-canvas');
-        const pageCount = canvas.querySelectorAll('.a4-page').length;
-        canvas.appendChild(UI.createLayoutPage(pageCount + 1));
+        this.reportLayoutEditor?.addPage();
     },
 
     collectSettings() {
@@ -1048,8 +1206,18 @@ const App = {
     async handleSaveSettings(e) {
         e.preventDefault();
         const settings = this.collectSettings();
-        await API.updateSettings(this.currentSession.job_id, settings);
-        this.startPolling();
+        const button = e.target.querySelector('button[type="submit"]');
+        if (button) button.disabled = true;
+        try {
+            await API.updateSettings(this.currentSession.job_id, settings);
+            this.settingsDirty = false;
+            this.settingsSignature = null;
+            this.startPolling();
+        } catch (error) {
+            this.showNotice(error.message);
+        } finally {
+            if (button) button.disabled = false;
+        }
     },
 
     async handleRegenerate(scope) {
@@ -1061,6 +1229,8 @@ const App = {
         };
         if (!confirm(`Deseja ${labels[scope] || 'atualizar o relatório'} com o provider e modelo atuais?`)) return;
         await API.regenerate(this.currentSession.job_id, scope, this.collectSettings());
+        this.settingsDirty = false;
+        this.settingsSignature = null;
         this.startPolling();
     },
 
@@ -1071,4 +1241,4 @@ const App = {
     }
 };
 
-window.onload = () => App.init();
+window.onload = () => App.init().catch(error => App.showNotice(error.message));

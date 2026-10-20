@@ -69,7 +69,7 @@ class ArtifactValidationTests(unittest.TestCase):
         self.assertEqual(artifacts[0]["visual_options"]["top_n"], 5)
         self.assertEqual(artifacts[0]["visual_options"]["labels"]["revenue"], "Receita")
         self.assertTrue(artifacts[0]["visual_options"]["striped_rows"])
-        self.assertEqual(artifacts[0]["render_mode"], "generated_code")
+        self.assertEqual(artifacts[0]["render_mode"], "library")
         self.assertEqual(artifacts[0]["data_binding"]["source"], "sales.csv")
         self.assertEqual(artifacts[0]["data_binding"]["roles"]["dimensions"], "region")
         self.assertEqual(artifacts[0]["data_binding"]["roles"]["metrics"], "revenue")

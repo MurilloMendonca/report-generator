@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administração · Report Generator</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="account-body settings-body" data-operations="admin">
+    <main class="account-page operations-page">
+        <header class="settings-topbar"><a href="/" class="studio-brand"><span class="brand-mark" aria-hidden="true">R</span><span>Report Generator<small>Workspace</small></span></a><a href="/" class="btn btn-outline">Voltar ao estúdio <span aria-hidden="true">↗</span></a></header>
+        <nav class="settings-nav" aria-label="Configurações da conta"><a href="/account">Visão geral</a><a href="/sources">Fontes de dados</a><a href="/keys">Modelos de IA</a><a href="/usage">Uso e limites</a></nav>
+        <header class="page-heading"><span class="eyebrow">WORKSPACE / ADMINISTRAÇÃO</span><h1>Visão geral da operação.</h1><p>Gerencie contas, limites de uso e atividades do workspace.</p></header>
+        <div id="operations-notice" class="auth-message" role="status" hidden></div>
+        <div class="usage-metrics" aria-label="Resumo de uso deste mês">
+            <div class="usage-metric"><span>Chamadas de IA</span><strong id="usage-total-calls">—</strong><small>Neste mês</small></div>
+            <div class="usage-metric"><span>Tokens processados</span><strong id="usage-total-tokens">—</strong><small>Entrada e saída conhecidas</small></div>
+            <div class="usage-metric"><span>Chamadas com falha</span><strong id="usage-total-failures">—</strong><small>Registradas no período</small></div>
+            <div class="usage-metric"><span>Em andamento</span><strong id="usage-total-pending">—</strong><small>Aguardando conclusão</small></div>
+        </div>
+        <section class="account-section"><h2>Uso geral neste mês</h2><p id="usage-totals">Carregando...</p><p id="workspace-usage"></p>
+            <p class="auth-hint">A limpeza remove relatórios sem atualização há 30 dias e arquivos órfãos conforme a retenção configurada. Relatórios recentes são preservados.</p>
+            <button type="button" id="cleanup-button" class="btn btn-outline">Executar limpeza por retenção</button>
+        </section>
+        <section class="account-section"><h2>Contas</h2><p class="auth-hint">Limites em branco usam o padrão do servidor; zero significa sem limite. Desativar encerra as sessões e impede novos trabalhos e chamadas.</p>
+            <div id="admin-users"></div>
+            <nav class="operations-pagination"><button id="users-prev" type="button" class="btn btn-outline">Anteriores</button><span id="users-page"></span><button id="users-next" type="button" class="btn btn-outline">Próximas</button></nav>
+        </section>
+        <section class="account-section"><h2>Auditoria</h2><p class="auth-hint">Eventos de segurança e ações administrativas, do mais recente para o mais antigo.</p>
+            <div class="operations-scroll"><table class="operations-table"><thead><tr><th>Data</th><th>Evento</th><th>Conta / IP</th><th>Detalhes</th></tr></thead><tbody id="audit-events"></tbody></table></div>
+            <button type="button" id="audit-more" class="btn btn-outline">Carregar anteriores</button>
+        </section>
+    </main>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/operations.js"></script>
+</body>
+</html>

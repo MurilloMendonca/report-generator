@@ -1,14 +1,13 @@
 import os
 import re
-from collections import Counter
+from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
+from app.utils.tabular import JSON_EXTENSIONS, read_csv_with_detection, read_json_with_detection
+from app.utils.text_files import extract_text_metadata
 
 
-CSV_ENCODINGS = ["utf-8", "utf-8-sig", "latin-1"]
-CSV_SEPARATORS = [",", ";", "\t", "|"]
-MAX_PROFILE_ROWS = 10000
 MAX_PDF_TEXT_PAGES = 20
 MAX_PDF_TEXT_CHARS = 20000
 PDF_BINARY_MARKERS = (
@@ -41,31 +40,20 @@ def sanitize_data(obj):
     """
     if isinstance(obj, dict):
         return {k: sanitize_data(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
+    elif isinstance(obj, (list, tuple)):
         return [sanitize_data(i) for i in obj]
+    elif obj is pd.NA or obj is pd.NaT:
+        return None
+    elif isinstance(obj, (datetime, date, pd.Timestamp)):
+        return obj.isoformat()
+    elif isinstance(obj, (timedelta, pd.Timedelta)):
+        return str(obj)
+    elif isinstance(obj, np.generic):
+        return sanitize_data(obj.item())
     elif isinstance(obj, float):
         if np.isnan(obj) or np.isinf(obj):
             return None
     return obj
-
-
-def read_csv_with_detection(file_path: str) -> tuple[pd.DataFrame, dict]:
-    best = None
-    errors = []
-    for encoding in CSV_ENCODINGS:
-        for separator in CSV_SEPARATORS:
-            try:
-                df = pd.read_csv(file_path, encoding=encoding, sep=separator, nrows=MAX_PROFILE_ROWS)
-                score = (len(df.columns), -int(df.isnull().sum().sum()))
-                candidate = (score, df, {"encoding": encoding, "separator": separator})
-                if best is None or candidate[0] > best[0]:
-                    best = candidate
-            except Exception as exc:
-                errors.append(f"{encoding}/{separator}: {exc}")
-
-    if best is None:
-        raise ValueError("; ".join(errors[:3]) or "CSV parsing failed")
-    return best[1], best[2]
 
 
 def infer_column_role(series: pd.Series) -> str:
@@ -73,13 +61,14 @@ def infer_column_role(series: pd.Series) -> str:
     non_null = series.dropna()
     if non_null.empty:
         return "empty"
-    if "date" in name or "data" in name or pd.api.types.is_datetime64_any_dtype(series):
+    tokens = set(re.split(r"[\W_]+", name))
+    if tokens & {"date", "data", "datetime", "timestamp", "fecha"} or pd.api.types.is_datetime64_any_dtype(series):
         return "date"
     if name in {"year", "ano", "año"} and pd.api.types.is_numeric_dtype(series):
         numeric = pd.to_numeric(non_null, errors="coerce").dropna()
         if not numeric.empty and numeric.between(1000, 3000).all():
             return "date"
-    if any(token in name for token in ["id", "uuid", "key", "codigo", "code"]):
+    if tokens & {"id", "uuid", "key", "codigo", "código", "code"}:
         return "identifier"
     if pd.api.types.is_bool_dtype(series):
         return "boolean"
@@ -97,8 +86,8 @@ def infer_column_role(series: pd.Series) -> str:
 
 def top_values(series: pd.Series, limit: int = 5) -> list:
     values = []
-    counts = Counter(str(value) for value in series.dropna().head(MAX_PROFILE_ROWS))
-    for value, count in counts.most_common(limit):
+    counts = series.dropna().astype(str).value_counts().head(limit)
+    for value, count in counts.items():
         values.append({"value": value, "count": int(count)})
     return values
 
@@ -163,11 +152,13 @@ def dataframe_metadata(df: pd.DataFrame, display_name: str, sheet_name: str = No
 
     artifact = {
         "filename": display_name,
+        "dataframe_key": display_name,
         "shape": {"rows": int(rows), "columns": int(cols)},
         "columns": columns_info,
         "sample": redacted_sample(df),
         "profile": {
-            "sampled_rows": min(int(rows), MAX_PROFILE_ROWS),
+            "sampled_rows": int(rows),
+            "complete": True,
             "column_roles": {
                 "measures": [c["name"] for c in columns_info if c["role"] in {"measure", "percentage"}],
                 "dimensions": [c["name"] for c in columns_info if c["role"] == "dimension"],
@@ -185,7 +176,7 @@ def dataframe_metadata(df: pd.DataFrame, display_name: str, sheet_name: str = No
 
 def extract_metadata(file_path: str, original_filename: str = None) -> dict:
     """
-    Reads a CSV, Excel, or PDF file and returns metadata summarizing its structure and content.
+    Reads a CSV, Excel, JSON, JSON Lines, or PDF file and summarizes it.
     """
     ext = os.path.splitext(file_path)[1].lower()
     display_name = original_filename or os.path.basename(file_path)
@@ -194,8 +185,11 @@ def extract_metadata(file_path: str, original_filename: str = None) -> dict:
         if ext == '.csv':
             df, parser = read_csv_with_detection(file_path)
             return dataframe_metadata(df, display_name, parser=parser)
+        elif ext in JSON_EXTENSIONS:
+            df, parser = read_json_with_detection(file_path)
+            return dataframe_metadata(df, display_name, parser=parser)
         elif ext in ['.xls', '.xlsx']:
-            sheets = pd.read_excel(file_path, sheet_name=None, nrows=MAX_PROFILE_ROWS)
+            sheets = {name: df.rename(columns=str) for name, df in pd.read_excel(file_path, sheet_name=None).items()}
             if len(sheets) == 1:
                 sheet_name, df = next(iter(sheets.items()))
                 return dataframe_metadata(df, display_name, sheet_name=sheet_name)
@@ -203,6 +197,8 @@ def extract_metadata(file_path: str, original_filename: str = None) -> dict:
                 dataframe_metadata(df, display_name, sheet_name=sheet_name)
                 for sheet_name, df in sheets.items()
             ]
+            for index, sheet in enumerate(sheet_artifacts):
+                sheet["dataframe_key"] = display_name if index == 0 else f"{display_name}::{sheet['sheet_name']}"
             return sanitize_data({
                 "filename": display_name,
                 "type": "excel_workbook",
@@ -228,6 +224,8 @@ def extract_metadata(file_path: str, original_filename: str = None) -> dict:
             })
         elif ext == '.pdf':
             return extract_pdf_metadata(file_path, display_name)
+        elif ext == '.txt':
+            return extract_text_metadata(file_path, display_name)
         else:
             return {"error": f"Formato de arquivo '{ext}' não suportado."}
         

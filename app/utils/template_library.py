@@ -1,8 +1,15 @@
 import json
-import os
 import uuid
+from pathlib import Path
+
+from sqlalchemy import delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app import db
+from app.models.db import LayoutTemplate
 
 from app.utils.layout import (
+    CONTENT_BOTTOM_MM,
     CONTENT_TOP_MM,
     DEFAULT_MARGIN_MM,
     PAGE_HEIGHT_MM,
@@ -10,8 +17,10 @@ from app.utils.layout import (
     fallback_template,
 )
 
-TEMPLATE_LIBRARY_PATH = "workspace/layout_templates.json"
-GRID_MM = 5
+# Where templates lived before Postgres; read only by `app.cli import-legacy`.
+LEGACY_TEMPLATE_LIBRARY_PATH = "workspace/layout_templates.json"
+BUNDLED_TEMPLATE_LIBRARY_PATH = Path(__file__).resolve().parents[2] / "templates" / "layout_templates.json"
+GRID_MM = 1
 
 BLUEPRINTS = {
     "executive_standard": {
@@ -118,75 +127,124 @@ def _default_templates() -> list:
             "description": blueprint["description"],
             "slots": slots,
         })
+    # Only explicitly bundled designs become shared defaults. The catalog also
+    # contains saved personal layouts, whose ownership must remain unchanged.
+    existing_ids = {template["id"] for template in templates}
+    for template in json.loads(BUNDLED_TEMPLATE_LIBRARY_PATH.read_text(encoding="utf-8")):
+        if template.get("builtin") is not True or template["id"] in existing_ids:
+            continue
+        slots = sanitize_template_slots(template["slots"])
+        templates.append({
+            "id": template["id"], "name": template["name"],
+            "description": template.get("description", ""), "slots": slots,
+            "page_count": max(template.get("page_count", 1), max(slot["page"] for slot in slots)),
+        })
+        existing_ids.add(template["id"])
     return templates
 
 
-def _ensure_library_file():
-    os.makedirs(os.path.dirname(TEMPLATE_LIBRARY_PATH), exist_ok=True)
-    if not os.path.exists(TEMPLATE_LIBRARY_PATH):
-        save_layout_templates(_default_templates())
+def _ensure_default_templates(tx) -> None:
+    """Built-in templates are re-added whenever one is missing, as the JSON library did."""
+    existing = set(tx.execute(select(LayoutTemplate.id)).scalars())
+    missing = [template for template in _default_templates() if template["id"] not in existing]
+    if not missing:
         return
-    templates = load_layout_templates_raw()
-    existing_ids = {template.get("id") for template in templates if isinstance(template, dict)}
-    missing_defaults = [template for template in _default_templates() if template.get("id") not in existing_ids]
-    if missing_defaults:
-        save_layout_templates(templates + missing_defaults)
+    position = tx.execute(select(func.coalesce(func.max(LayoutTemplate.position), -1))).scalar()
+    for offset, template in enumerate(missing, start=1):
+        tx.execute(
+            pg_insert(LayoutTemplate)
+            .values(id=template["id"], position=position + offset, data=template)
+            .on_conflict_do_nothing(index_elements=[LayoutTemplate.id])
+        )
 
 
-def load_layout_templates_raw() -> list:
-    if not os.path.exists(TEMPLATE_LIBRARY_PATH):
-        return []
-    with open(TEMPLATE_LIBRARY_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data if isinstance(data, list) else []
+class TemplateNotEditable(Exception):
+    """Built-in templates can be read and copied, not changed or deleted."""
 
 
-def load_layout_templates() -> list:
-    _ensure_library_file()
-    return load_layout_templates_raw()
+def _visible(owner_id):
+    """Built-ins (no owner) plus the caller's own templates."""
+    if owner_id is None:
+        return LayoutTemplate.owner_id.is_(None)
+    return or_(LayoutTemplate.owner_id.is_(None), LayoutTemplate.owner_id == owner_id)
 
 
-def save_layout_templates(templates: list):
-    os.makedirs(os.path.dirname(TEMPLATE_LIBRARY_PATH), exist_ok=True)
-    with open(TEMPLATE_LIBRARY_PATH, "w", encoding="utf-8") as f:
-        json.dump(templates, f, indent=2, ensure_ascii=False)
+def _payload(row: LayoutTemplate) -> dict:
+    return {**row.data, "id": row.id, "builtin": row.owner_id is None}
 
 
-def get_layout_template(template_id: str) -> dict:
-    return next((t for t in load_layout_templates() if t.get("id") == template_id), None)
+def load_layout_templates(owner_id=None) -> list:
+    """Built-in templates first, then `owner_id`'s own, each in creation order."""
+    with db.transaction() as tx:
+        _ensure_default_templates(tx)
+        rows = tx.execute(
+            select(LayoutTemplate)
+            .where(_visible(owner_id))
+            .order_by(LayoutTemplate.owner_id.is_not(None), LayoutTemplate.position, LayoutTemplate.id)
+        ).scalars()
+        return [_payload(row) for row in rows if isinstance(row.data, dict)]
 
 
-def default_layout_template_id() -> str:
-    templates = load_layout_templates()
+def save_layout_templates(templates: list, owner_id=None):
+    """Replace the built-ins (owner_id None) or one owner's templates, keeping the order. Tests only."""
+    with db.transaction() as tx:
+        owned = LayoutTemplate.owner_id.is_(None) if owner_id is None else LayoutTemplate.owner_id == owner_id
+        tx.execute(delete(LayoutTemplate).where(owned))
+        for position, template in enumerate(t for t in templates if isinstance(t, dict) and t.get("id")):
+            data = {key: value for key, value in template.items() if key != "builtin"}
+            tx.add(LayoutTemplate(id=str(template["id"]), owner_id=owner_id, position=position, data=data))
+
+
+def get_layout_template(template_id: str, owner_id=None) -> dict:
+    return next((t for t in load_layout_templates(owner_id) if t.get("id") == template_id), None)
+
+
+def default_layout_template_id(owner_id=None) -> str:
+    templates = load_layout_templates(owner_id)
     return templates[0]["id"] if templates else None
 
 
-def upsert_layout_template(template_data: dict) -> dict:
-    templates = load_layout_templates()
-    template_id = template_data.get("id") or f"tpl_{uuid.uuid4().hex[:10]}"
+def upsert_layout_template(template_data: dict, owner_id, must_exist: bool = False) -> dict:
+    """Create a template for `owner_id`, or update one they own.
+
+    Raises TemplateNotEditable for a built-in and LookupError for someone
+    else's template (callers answer 404, so ids of other users stay hidden)."""
+    template_id = str(template_data.get("id") or f"tpl_{uuid.uuid4().hex[:10]}")
     template = {
         "id": template_id,
         "name": template_data.get("name") or "Novo template",
         "description": template_data.get("description", ""),
         "slots": sanitize_template_slots(template_data.get("slots", [])),
     }
+    template["page_count"] = max(
+        min(100, int(template_data.get("page_count") or 1)),
+        max((slot["page"] for slot in template["slots"]), default=1),
+    )
 
-    existing_index = next((i for i, item in enumerate(templates) if item.get("id") == template_id), None)
-    if existing_index is None:
-        templates.append(template)
-    else:
-        templates[existing_index] = template
-    save_layout_templates(templates)
-    return template
+    with db.transaction() as tx:
+        _ensure_default_templates(tx)  # so nobody can claim a built-in id before it exists
+        existing = tx.get(LayoutTemplate, template_id, with_for_update=True)
+        if existing is not None:
+            if existing.owner_id is None:
+                raise TemplateNotEditable(template_id)
+            if existing.owner_id != owner_id:
+                raise LookupError(template_id)
+            existing.data = template
+            existing.updated_at = func.now()
+        elif must_exist:
+            raise LookupError(template_id)
+        else:
+            position = tx.execute(select(func.coalesce(func.max(LayoutTemplate.position), -1) + 1)).scalar()
+            tx.add(LayoutTemplate(id=template_id, owner_id=owner_id, position=position, data=template))
+    return {**template, "builtin": False}
 
 
-def delete_layout_template(template_id: str) -> bool:
-    templates = load_layout_templates()
-    kept = [template for template in templates if template.get("id") != template_id]
-    if len(kept) == len(templates):
-        return False
-    save_layout_templates(kept)
-    return True
+def delete_layout_template(template_id: str, owner_id) -> bool:
+    """Delete one of `owner_id`'s templates. Built-ins and others' templates are never deleted."""
+    with db.transaction() as tx:
+        return tx.execute(
+            delete(LayoutTemplate).where(LayoutTemplate.id == str(template_id), LayoutTemplate.owner_id == owner_id)
+        ).rowcount > 0
 
 
 def sanitize_template_slots(slots: list) -> list:
@@ -195,7 +253,8 @@ def sanitize_template_slots(slots: list) -> list:
         slot_type = raw_slot.get("type") if raw_slot.get("type") in {"text", "graphic"} else "graphic"
         page = max(1, int(raw_slot.get("page") or 1))
         y = max(CONTENT_TOP_MM, _snap_mm(raw_slot.get("y", CONTENT_TOP_MM)))
-        h = max(10, _snap_mm(raw_slot.get("h", 40)))
+        h = min(CONTENT_BOTTOM_MM - CONTENT_TOP_MM, max(10, _snap_mm(raw_slot.get("h", 40))))
+        w = max(10, min(PAGE_WIDTH_MM, _snap_mm(raw_slot.get("w", 90))))
         if y >= PAGE_HEIGHT_MM:
             page += y // PAGE_HEIGHT_MM
             y = y % PAGE_HEIGHT_MM
@@ -206,30 +265,30 @@ def sanitize_template_slots(slots: list) -> list:
             "description": raw_slot.get("description", ""),
             "type": slot_type,
             "page": page,
-            "x": max(0, _snap_mm(raw_slot.get("x", DEFAULT_MARGIN_MM))),
-            "y": y,
-            "w": max(10, min(PAGE_WIDTH_MM, _snap_mm(raw_slot.get("w", 90)))),
+            "x": max(0, min(PAGE_WIDTH_MM - w, _snap_mm(raw_slot.get("x", DEFAULT_MARGIN_MM)))),
+            "y": max(CONTENT_TOP_MM, min(CONTENT_BOTTOM_MM - h, y)),
+            "w": w,
             "h": h,
         })
     return sanitized
 
 
-def select_layout_template(artifacts: list, template_id: str = None) -> dict:
-    templates = load_layout_templates()
+def select_layout_template(artifacts: list, template_id: str = None, owner_id=None) -> dict:
+    templates = load_layout_templates(owner_id)
     if not templates:
         return None
-    selected = get_layout_template(template_id) if template_id else None
+    selected = next((t for t in templates if t.get("id") == template_id), None) if template_id else None
     if selected:
         return selected
     return max(templates, key=lambda t: _template_score(t, artifacts))
 
 
-def build_layout_from_template(artifacts: list, template_id: str = None) -> list:
-    templates = load_layout_templates()
+def build_layout_from_template(artifacts: list, template_id: str = None, owner_id=None) -> list:
+    templates = load_layout_templates(owner_id)
     if not templates:
         return fallback_template(artifacts)
 
-    selected = select_layout_template(artifacts, template_id)
+    selected = select_layout_template(artifacts, template_id, owner_id)
 
     slots = _ordered_slots(sanitize_template_slots(selected.get("slots", [])))
     assignments = []
@@ -265,18 +324,19 @@ def build_layout_from_template(artifacts: list, template_id: str = None) -> list
 
 
 def fit_artifacts_to_template(artifacts: list, template: dict) -> list:
+    """Order the plan without deleting evidence to meet a template's capacity.
+
+    build_layout_from_template places overflow on additional pages. Slot counts
+    guide planning but must never silently discard an accepted component.
+    """
     if not template:
         return artifacts
-
-    slots = sanitize_template_slots(template.get("slots", []))
-    text_limit = sum(1 for slot in slots if slot["type"] == "text")
-    graphic_limit = sum(1 for slot in slots if slot["type"] == "graphic")
 
     metrics = [a for a in artifacts if a.get("type") == "metric"]
     text_artifacts = _prioritize_text_artifacts([a for a in artifacts if a.get("type") == "text"])
     graphic_artifacts = [a for a in artifacts if a.get("type") not in {"metric", "text"}]
 
-    return metrics + text_artifacts[:text_limit] + graphic_artifacts[:graphic_limit]
+    return metrics + text_artifacts + graphic_artifacts
 
 
 def template_constraints(template: dict) -> dict:

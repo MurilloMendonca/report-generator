@@ -1,30 +1,63 @@
 const API = {
-    async parseResponse(res, fallbackMessage) {
+    async checkResponse(res, fallbackMessage) {
         if (!res.ok) {
             let detail = fallbackMessage || 'Falha na requisição';
+            let details = null;
             try {
                 const payload = await res.json();
-                detail = payload.detail || payload.message || detail;
+                const value = payload.detail || payload.message;
+                if (Array.isArray(value)) {
+                    detail = value.map(item => typeof item === 'string' ? item : item.msg).filter(Boolean).join('; ') || detail;
+                } else if (value && typeof value === 'object') {
+                    details = value;
+                    detail = value.message || detail;
+                } else if (typeof value === 'string') {
+                    detail = value;
+                }
             } catch (error) {
                 // Keep fallback message.
             }
-            throw new Error(detail);
+            const error = new Error(res.status === 401 ? 'Sua sessão expirou. Entre novamente para continuar.' : detail);
+            error.status = res.status;
+            error.details = details;
+            if (res.status === 401) this.redirectToLogin();
+            throw error;
         }
+        return res;
+    },
+
+    async parseResponse(res, fallbackMessage) {
+        await this.checkResponse(res, fallbackMessage);
         return await res.json();
+    },
+
+    // Double-submit CSRF: the server sets a readable csrf_token cookie, and every
+    // request echoes it in X-CSRF-Token.
+    csrfToken() {
+        const cookies = (typeof document !== 'undefined' && typeof document.cookie === 'string') ? document.cookie : '';
+        const match = cookies.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
     },
 
     authHeaders(extra = {}) {
-        return extra;
+        const token = this.csrfToken();
+        return token ? { ...extra, 'X-CSRF-Token': token } : extra;
     },
 
-    async login(secret) {
-        const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ secret })
-        });
-        if (!res.ok) throw new Error('Segredo de acesso inválido');
-        return await res.json();
+    redirectToLogin() {
+        const location = typeof window !== 'undefined' ? window.location : null;
+        if (!location || typeof location.assign !== 'function' || location.pathname === '/login') return;
+        location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`);
+    },
+
+    async me() {
+        const res = await fetch('/api/auth/me', { headers: this.authHeaders() });
+        if (!res.ok) {
+            const error = new Error('Não autorizado');
+            error.status = res.status;
+            throw error;
+        }
+        return (await res.json()).user;
     },
 
     async logout() {
@@ -35,10 +68,9 @@ const API = {
         return await this.parseResponse(res, 'Não foi possível sair');
     },
 
-    async checkLogin() {
-        const res = await fetch('/api/auth/check', { headers: this.authHeaders() });
-        if (!res.ok) throw new Error('Não autorizado');
-        return await res.json();
+    async resendVerification() {
+        const res = await fetch('/api/auth/resend-verification', { method: 'POST', headers: this.authHeaders() });
+        return await this.parseResponse(res, 'Não foi possível reenviar o link');
     },
 
     async startSession(formData) {
@@ -46,10 +78,25 @@ const API = {
         return await this.parseResponse(res, 'Não foi possível iniciar a sessão');
     },
 
+    async dataSources(path = '', method = 'GET', body = undefined) {
+        const res = await fetch(`/api/data-sources${path}`, {
+            method, headers: this.authHeaders(body ? { 'Content-Type': 'application/json' } : {}),
+            ...(body ? { body: JSON.stringify(body) } : {})
+        });
+        return this.parseResponse(res, 'Não foi possível acessar as fontes de dados');
+    },
+
+    async refreshSources(jobId, sources) {
+        const res = await fetch(`/api/sessions/${jobId}/sources/refresh`, {
+            method: 'POST', headers: this.authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ sources })
+        });
+        return this.parseResponse(res, 'Não foi possível atualizar as fontes');
+    },
+
     async getRecentSessions() {
         const res = await fetch('/api/sessions', { headers: this.authHeaders() });
-        if (!res.ok) throw new Error('Não foi possível carregar as sessões recentes');
-        return await res.json();
+        return await this.parseResponse(res, 'Não foi possível carregar as sessões recentes');
     },
 
     async getModels() {
@@ -64,8 +111,7 @@ const API = {
 
     async getSession(jobId) {
         const res = await fetch(`/api/sessions/${jobId}`, { headers: this.authHeaders() });
-        if (!res.ok) throw new Error(`Sessão ${jobId} não encontrada`);
-        return await res.json();
+        return await this.parseResponse(res, `Sessão ${jobId} não encontrada`);
     },
 
     async deleteSession(jobId) {
@@ -86,7 +132,7 @@ const API = {
         const res = await fetch(`/api/sessions/${jobId}/files/${fileIndex}/${mode}${query}`, {
             headers: this.authHeaders()
         });
-        if (!res.ok) throw new Error('Não foi possível carregar o arquivo');
+        await this.checkResponse(res, 'Não foi possível carregar o arquivo');
         return await res.blob();
     },
 
@@ -145,8 +191,7 @@ const API = {
             headers: this.authHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({ scope, settings, component_id: componentId })
         });
-        if (!res.ok) throw new Error('Não foi possível atualizar o relatório');
-        return await res.json();
+        return await this.parseResponse(res, 'Não foi possível atualizar o relatório');
     },
 
     async getLayoutTemplates() {
@@ -163,11 +208,18 @@ const API = {
         return await this.parseResponse(res, 'Não foi possível executar a exploração');
     },
 
+    explorerChartUrl(jobId, turnId, chartId, download = false) {
+        if (!/^[A-Za-z0-9_-]{1,128}$/.test(String(jobId || '')) ||
+            !/^[0-9a-f]{32}$/.test(String(turnId || '')) ||
+            !/^chart_[1-3]$/.test(String(chartId || ''))) return null;
+        return `/api/sessions/${encodeURIComponent(jobId)}/explore/${turnId}/charts/${chartId}${download ? '?download=true' : ''}`;
+    },
+
     async getPdfObjectUrl(jobId, version) {
         const res = await fetch(`/api/sessions/${jobId}/pdf?v=${version}`, {
             headers: this.authHeaders()
         });
-        if (!res.ok) throw new Error('Não foi possível carregar o PDF');
+        await this.checkResponse(res, 'Não foi possível carregar o PDF');
         const blob = await res.blob();
         return URL.createObjectURL(blob);
     },
@@ -176,7 +228,7 @@ const API = {
         const res = await fetch(`/api/sessions/${jobId}/components/${encodeURIComponent(componentId)}/preview?v=${version || Date.now()}`, {
             headers: this.authHeaders()
         });
-        if (!res.ok) throw new Error('Não foi possível carregar a prévia do componente');
+        await this.checkResponse(res, 'Não foi possível carregar a prévia do componente');
         const blob = await res.blob();
         return URL.createObjectURL(blob);
     }

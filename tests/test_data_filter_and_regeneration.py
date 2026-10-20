@@ -6,16 +6,16 @@ import unittest
 import pandas as pd
 from fastapi import BackgroundTasks, HTTPException
 
-from app.main import (
+from app.routers.api import regenerate_session
+from app.services.pipeline_service import (
     apply_data_filter,
     build_files_map,
     clear_data_filter_state,
     has_data_filter_decision,
-    regenerate_session,
-    session_file_variant,
-    should_consider_data_filter,
 )
-from app.services.session_manager import create_session, get_session, get_session_path
+from app.services.web_helpers import session_file_variant
+from app.services.session_manager import delete_session, get_session
+from tests.auth_helpers import create_session, request_as
 
 
 class DataFilterTests(unittest.TestCase):
@@ -27,18 +27,9 @@ class DataFilterTests(unittest.TestCase):
             if path and os.path.exists(path):
                 os.remove(path)
 
-    def test_detects_filter_intent_in_portuguese_and_english(self):
-        self.assertTrue(should_consider_data_filter("quero excluir pokemon variantes de região"))
-        self.assertTrue(should_consider_data_filter("focus on enterprise accounts only"))
-        self.assertTrue(should_consider_data_filter("adicione uma nova coluna calculada de margem"))
-        self.assertTrue(should_consider_data_filter("group by region before generating the report"))
-        self.assertTrue(should_consider_data_filter('Não inclua nenhuma forma regional ou mega. É possível identificar isso pela presença de um "-" no nome do pokemon'))
-        self.assertTrue(should_consider_data_filter("", {"data_filter": {"needs_filter": True}}))
-        self.assertTrue(should_consider_data_filter("", {"data_preprocessing": {"needs_preprocessing": True}}))
-        self.assertFalse(should_consider_data_filter("gere um relatório exploratório dos dados"))
-
     def test_default_filter_state_is_not_treated_as_existing_decision(self):
         self.assertFalse(has_data_filter_decision({}))
+        self.assertTrue(has_data_filter_decision({"evaluated": True, "needs_preprocessing": False}))
         self.assertFalse(has_data_filter_decision({
             "needs_filter": False,
             "description": "",
@@ -51,20 +42,31 @@ class DataFilterTests(unittest.TestCase):
         }))
 
     def test_applies_preprocessing_once_and_preserves_original_upload(self):
-        source_path = f"workspace/uploads/filter_test_{uuid.uuid4().hex}.csv"
-        pd.DataFrame({
+        self.check_preprocessing(".csv")
+
+    def test_applies_json_preprocessing_in_the_sandbox(self):
+        self.check_preprocessing(".json")
+
+    def check_preprocessing(self, extension):
+        filename = f"pokemon{extension}"
+        source_path = f"workspace/uploads/filter_test_{uuid.uuid4().hex}{extension}"
+        dataframe = pd.DataFrame({
             "name": ["Pikachu", "Alolan Raichu", "Bulbasaur"],
             "variant": ["base", "regional", "base"],
             "value": [1, 2, 3],
-        }).to_csv(source_path, index=False)
+        })
+        if extension == ".json":
+            dataframe.to_json(source_path, orient="records")
+        else:
+            dataframe.to_csv(source_path, index=False)
         self.created_paths.append(source_path)
 
         session = {
             "files": [{
-                "original_filename": "pokemon.csv",
+                "original_filename": filename,
                 "path": source_path,
-                "raw_artifact": {"filename": "pokemon.csv"},
-                "artifact": {"filename": "pokemon.csv"},
+                "raw_artifact": {"filename": filename},
+                "artifact": {"filename": filename},
             }]
         }
         data_filter = {
@@ -97,7 +99,7 @@ class DataFilterTests(unittest.TestCase):
         self.assertEqual(files[0]["preprocessing_impact"]["rows_before"], 3)
         self.assertEqual(files[0]["preprocessing_impact"]["rows_after"], 2)
         self.assertEqual(files[0]["preprocessing_impact"]["columns_added"], ["value_doubled"])
-        self.assertEqual(data_filter["impact"]["pokemon.csv"]["rows_removed"], 1)
+        self.assertEqual(data_filter["impact"][filename]["rows_removed"], 1)
         processed = pd.read_csv(filtered_path)
         self.assertEqual(processed["name"].tolist(), ["Pikachu", "Bulbasaur"])
         self.assertEqual(processed["value_doubled"].tolist(), [2, 6])
@@ -156,9 +158,7 @@ class RegenerationEndpointTests(unittest.TestCase):
 
     def tearDown(self):
         for job_id in self.job_ids:
-            path = get_session_path(job_id)
-            if os.path.exists(path):
-                os.remove(path)
+            delete_session(job_id)
 
     def create_report_session(self):
         job_id = f"test-regenerate-{uuid.uuid4().hex}"
@@ -194,7 +194,7 @@ class RegenerationEndpointTests(unittest.TestCase):
         return job_id
 
     def call_regenerate(self, job_id, payload):
-        return asyncio.run(regenerate_session(job_id, BackgroundTasks(), payload))
+        return asyncio.run(regenerate_session(request_as(), job_id, BackgroundTasks(), payload))
 
     def test_regenerate_texts_removes_only_text_components_and_saves_model_settings(self):
         job_id = self.create_report_session()
@@ -215,7 +215,7 @@ class RegenerationEndpointTests(unittest.TestCase):
         self.assertIn("m_total", session["components"])
         self.assertEqual(session["settings"]["title"], "Updated")
         self.assertEqual(session["provider"], "gemini")
-        self.assertEqual(session["model_name"], "models/gemini-2.5-flash")
+        self.assertEqual(session["model_name"], "gemini-2.5-flash")
 
     def test_regenerate_graphics_removes_only_visual_components(self):
         job_id = self.create_report_session()

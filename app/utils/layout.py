@@ -32,9 +32,10 @@ def normalize_template(template: list) -> list:
             y = CONTENT_TOP_MM
 
         item["page"] = page
-        item["x"] = max(0, int(round(item.get("x", DEFAULT_MARGIN_MM))))
+        width = max(10, min(PAGE_WIDTH_MM, int(round(item.get("w", PAGE_WIDTH_MM - 2 * DEFAULT_MARGIN_MM)))))
+        item["x"] = max(0, min(PAGE_WIDTH_MM - width, int(round(item.get("x", DEFAULT_MARGIN_MM)))))
         item["y"] = y
-        item["w"] = max(10, int(round(item.get("w", PAGE_WIDTH_MM - 2 * DEFAULT_MARGIN_MM))))
+        item["w"] = width
         item["h"] = h
         normalized.append(item)
 

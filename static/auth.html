@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entrar · Report Generator</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="auth-body">
+    <div class="auth-layout">
+        <aside class="auth-brand">
+            <div class="auth-logo"><span class="auth-logo-mark"><span></span></span>Report Generator</div>
+            <div class="auth-pitch">
+                <h1>Relatórios visuais a partir dos seus dados.</h1>
+                <p>Envie planilhas e PDFs, descreva o que precisa e receba um relatório em PDF pronto para compartilhar.</p>
+                <ul class="auth-points">
+                    <li>Gráficos, indicadores e textos gerados a partir dos seus arquivos</li>
+                    <li>Ajuste o layout e o conteúdo conversando com o assistente</li>
+                    <li>Explore os dados com perguntas livres</li>
+                </ul>
+            </div>
+            <div class="auth-footnote">repgen.gengardev.com.br</div>
+        </aside>
+
+        <main class="auth-main">
+            <section class="auth-card">
+                <form id="login-form" class="auth-form" data-view="login" hidden>
+                    <h2>Entrar</h2>
+                    <p class="auth-lead">Bem-vindo de volta. Entre com seu email e senha.</p>
+                    <div class="form-group">
+                        <label for="login-email">Email</label>
+                        <input type="email" id="login-email" autocomplete="username" required maxlength="320" placeholder="voce@exemplo.com">
+                    </div>
+                    <div class="form-group">
+                        <div class="auth-label-row">
+                            <label for="login-password">Senha</label>
+                            <a href="/forgot-password">Esqueceu a senha?</a>
+                        </div>
+                        <input type="password" id="login-password" autocomplete="current-password" required maxlength="256">
+                    </div>
+                    <div class="turnstile-slot"></div>
+                    <button type="submit" class="btn auth-submit">Entrar</button>
+                    <p class="auth-switch signup-only" hidden>Ainda não tem conta? <a href="/signup">Criar conta</a></p>
+                </form>
+
+                <form id="signup-form" class="auth-form" data-view="signup" hidden>
+                    <h2>Criar conta</h2>
+                    <p class="auth-lead">Você usará suas próprias chaves de API dos provedores de IA.</p>
+                    <div class="form-group">
+                        <label for="signup-name">Nome <span class="auth-hint-inline">(opcional)</span></label>
+                        <input type="text" id="signup-name" autocomplete="name" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-email">Email</label>
+                        <input type="email" id="signup-email" autocomplete="email" required maxlength="320" placeholder="voce@exemplo.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-password">Senha</label>
+                        <input type="password" id="signup-password" autocomplete="new-password" required minlength="12" maxlength="256">
+                        <small class="auth-hint">Pelo menos <span class="password-min">12</span> caracteres. Uma frase longa é mais segura que símbolos.</small>
+                    </div>
+                    <div class="turnstile-slot"></div>
+                    <button type="submit" class="btn auth-submit">Criar conta</button>
+                    <p class="auth-switch">Já tem conta? <a href="/login">Entrar</a></p>
+                </form>
+
+                <form id="forgot-form" class="auth-form" data-view="forgot-password" hidden>
+                    <h2>Recuperar senha</h2>
+                    <p class="auth-lead">Informe seu email e enviaremos um link para criar uma nova senha.</p>
+                    <div class="form-group">
+                        <label for="forgot-email">Email</label>
+                        <input type="email" id="forgot-email" autocomplete="email" required maxlength="320" placeholder="voce@exemplo.com">
+                    </div>
+                    <div class="turnstile-slot"></div>
+                    <button type="submit" class="btn auth-submit">Enviar link</button>
+                    <p class="auth-switch"><a href="/login">Voltar para o login</a></p>
+                </form>
+
+                <form id="reset-form" class="auth-form" data-view="reset-password" hidden>
+                    <h2>Nova senha</h2>
+                    <p class="auth-lead">Escolha uma nova senha. Todas as suas sessões abertas serão encerradas.</p>
+                    <div class="form-group">
+                        <label for="reset-password">Nova senha</label>
+                        <input type="password" id="reset-password" autocomplete="new-password" required minlength="12" maxlength="256">
+                        <small class="auth-hint">Pelo menos <span class="password-min">12</span> caracteres.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="reset-confirm">Repita a nova senha</label>
+                        <input type="password" id="reset-confirm" autocomplete="new-password" required maxlength="256">
+                    </div>
+                    <button type="submit" class="btn auth-submit">Redefinir senha</button>
+                </form>
+
+                <div class="auth-form" data-view="verify-email" hidden>
+                    <h2>Confirmando email</h2>
+                    <p class="auth-lead">Só um instante...</p>
+                </div>
+
+                <div class="auth-form" data-view="confirm-email" hidden>
+                    <h2>Confirmando novo email</h2>
+                    <p class="auth-lead">Só um instante...</p>
+                </div>
+
+                <div id="auth-message" class="auth-message" role="status" hidden></div>
+                <div id="auth-error" class="auth-error" role="alert"></div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+</body>
+</html>

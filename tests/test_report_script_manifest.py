@@ -4,7 +4,7 @@ import unittest
 import uuid
 
 from app.services.executor_service import execute_script
-from app.services.llm_service import assemble_script
+from app.services.llm.script import assemble_script
 
 
 class ReportScriptManifestTests(unittest.TestCase):

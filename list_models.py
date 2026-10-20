@@ -1,46 +1,24 @@
-import os
-from dotenv import load_dotenv
-from openai import OpenAI
+"""List models with an explicit key (or a hidden prompt), never a server env key."""
+import argparse
+from getpass import getpass
 
-load_dotenv()
+from app.services.credential_service import CredentialValidationError, validate_key
+from app.services.llm.providers.registry import ADAPTERS
 
-def list_gemini_models():
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        print("Erro: GEMINI_API_KEY não encontrada no .env")
-        return
 
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--provider", choices=ADAPTERS, required=True)
+    parser.add_argument("--api-key", help="Provider key; omit to enter it at a hidden prompt")
+    args = parser.parse_args()
     try:
-        from google import genai
-    except ImportError:
-        print("Erro: instale google-genai com `pip install -r requirements.txt`")
-        return
-
-    client = genai.Client(api_key=api_key)
-    print("Modelos disponíveis para generateContent:")
-    for model in client.models.list():
-        actions = getattr(model, "supported_actions", None) or getattr(model, "supported_generation_methods", [])
-        if not actions or "generateContent" in actions:
-            print(f"- {model.name}")
-
-
-def list_deepseek_models():
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    if not api_key:
-        print("Erro: DEEPSEEK_API_KEY não encontrada no .env")
-        return
-
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-    print("Modelos DeepSeek disponíveis:")
-    for m in client.models.list().data:
-        print(f"- {m.id}")
-
-
-def list_models():
-    list_gemini_models()
-    print()
-    list_deepseek_models()
+        models = validate_key(args.provider, args.api_key or getpass("API key: "))
+    except CredentialValidationError as exc:
+        print(str(exc))
+        return 1
+    print("\n".join(models))
+    return 0
 
 
 if __name__ == "__main__":
-    list_models()
+    raise SystemExit(main())

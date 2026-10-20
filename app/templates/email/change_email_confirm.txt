@@ -1,0 +1,11 @@
+Subject: Confirme seu novo email no $app_name
+Olá,
+
+Confirme que este passa a ser o email da sua conta:
+
+$link
+
+O link vale por 24 horas. Se você não pediu essa alteração, ignore esta mensagem.
+
+---
+Confirm this as your account's new email (link valid for 24 hours). If you didn't ask for it, ignore this message.

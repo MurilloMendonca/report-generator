@@ -12,7 +12,8 @@ from app.services.cleanup_service import (
     get_workspace_usage,
     WORKSPACE_DIRS
 )
-from app.services.session_manager import create_session, get_session_path, get_session_lock_path
+from app.services.session_manager import get_session
+from tests.auth_helpers import create_session
 
 class TestRetention(unittest.TestCase):
     def setUp(self):
@@ -55,10 +56,6 @@ class TestRetention(unittest.TestCase):
             with open(p, "w") as f:
                 f.write("test content")
         
-        # Add session JSON and lock to checks but don't overwrite them
-        files_to_check.append(get_session_path(self.job_id))
-        files_to_check.append(get_session_lock_path(self.job_id))
-        
         # 3. Add an exploratory script (prefix match)
         explore_script = os.path.join(WORKSPACE_DIRS["scripts"], f"explore_{self.job_id}.py")
         with open(explore_script, "w") as f:
@@ -76,7 +73,8 @@ class TestRetention(unittest.TestCase):
         for p in files_to_check:
             self.assertFalse(os.path.exists(p), f"File {p} should be deleted")
         
-        self.assertGreaterEqual(removed_count, len(files_to_check))
+        self.assertIsNone(get_session(self.job_id))
+        self.assertGreaterEqual(removed_count, len(files_to_check) + 1)  # files plus the session row
 
     def test_cleanup_expired_artifacts(self):
         # Create an old orphan file

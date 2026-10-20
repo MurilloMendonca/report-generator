@@ -7,24 +7,16 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body class="template-editor-body">
-    <div id="login-gate" class="login-gate">
-        <form id="login-form" class="login-panel">
-            <h1>Templates de Layout</h1>
-            <p>Informe o segredo de acesso para continuar.</p>
-            <div class="form-group">
-                <label>Segredo:</label>
-                <input type="password" id="access-secret" autocomplete="current-password" required>
-            </div>
-            <button type="submit" class="btn" style="width: 100%;">Entrar</button>
-            <div id="login-error" class="login-error"></div>
-        </form>
-    </div>
-
     <div id="app-shell" class="app-shell" style="display:none">
     <aside class="template-panel">
         <div class="template-panel-header">
             <h2>Templates de layout</h2>
             <a href="/" class="btn btn-outline">Estúdio de Relatórios</a>
+        </div>
+        <div class="account-bar">
+            <span id="account-name" class="account-name"></span>
+            <a href="/account" class="account-link">Conta</a>
+            <button type="button" id="logout-btn" class="account-link account-logout">Sair</button>
         </div>
 
         <div class="form-group">
@@ -32,7 +24,7 @@
             <select id="template-select"></select>
         </div>
 
-        <div class="template-actions">
+        <div class="template-actions template-library-actions">
             <button class="btn" id="new-template-btn">Novo</button>
             <button class="btn btn-outline" id="duplicate-template-btn">Duplicar</button>
             <button class="btn btn-danger" id="delete-template-btn">Excluir</button>
@@ -47,67 +39,25 @@
                 <label>Descrição</label>
                 <textarea id="template-description" class="template-description"></textarea>
             </div>
-            <div class="template-actions">
-                <button type="button" class="btn btn-secondary" id="add-text-btn">Adicionar texto</button>
-                <button type="button" class="btn btn-secondary" id="add-graphic-btn">Adicionar gráfico</button>
-                <button type="button" class="btn btn-outline" id="add-page-btn">Adicionar página</button>
-            </div>
-            <button type="submit" class="btn template-save-btn">Salvar template</button>
         </form>
-
-        <div class="slot-inspector" id="slot-inspector">
-            <h3>Bloco selecionado</h3>
-            <div class="form-group">
-                <label>Nome</label>
-                <input type="text" id="slot-name" placeholder="Introdução, gráfico principal, conclusão">
-            </div>
-            <div class="form-group">
-                <label>Descrição</label>
-                <textarea id="slot-description" class="template-description" placeholder="Que tipo de conteúdo se encaixa melhor aqui"></textarea>
-            </div>
-            <div class="form-group">
-                <label>Tipo</label>
-                <select id="slot-type">
-                    <option value="text">Texto</option>
-                    <option value="graphic">Gráfico</option>
-                </select>
-            </div>
-            <div class="slot-grid">
-                <div class="form-group">
-                    <label>Página</label>
-                    <input type="number" id="slot-page" min="1">
-                </div>
-                <div class="form-group">
-                    <label>X</label>
-                    <input type="number" id="slot-x" min="0">
-                </div>
-                <div class="form-group">
-                    <label>Y</label>
-                    <input type="number" id="slot-y" min="0">
-                </div>
-                <div class="form-group">
-                    <label>Largura</label>
-                    <input type="number" id="slot-w" min="10">
-                </div>
-                <div class="form-group">
-                    <label>Altura</label>
-                    <input type="number" id="slot-h" min="10">
-                </div>
-            </div>
-            <button class="btn btn-danger" id="remove-slot-btn">Remover bloco</button>
-        </div>
+        <p class="template-library-hint">Defina os espaços de texto e gráficos. O conteúdo será preenchido ao gerar o relatório.</p>
     </aside>
 
     <main class="template-workspace">
-        <div class="template-toolbar">
-            <span id="save-status">As alterações são salvas em workspace/layout_templates.json</span>
+        <div class="editor-workspace-header">
+            <div>
+                <h1>Desenhe seu template</h1>
+                <span id="save-status" role="status" aria-live="polite">Carregando templates de layout...</span>
+            </div>
+            <button type="submit" form="template-form" class="btn" id="save-template-btn">Salvar template</button>
         </div>
-        <div class="layout-canvas template-canvas" id="template-canvas"></div>
+        <div class="layout-editor-host" id="template-canvas"></div>
     </main>
     </div>
 
     <script src="/static/js/api.js"></script>
     <script src="/static/js/utils.js"></script>
+    <script src="/static/js/layout_editor.js"></script>
     <script src="/static/js/templates.js"></script>
 </body>
 </html>

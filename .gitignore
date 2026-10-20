@@ -2,7 +2,6 @@
 venv
 .env
 GEMINI.md
-AGENTS.md
 workspace/
 docs/TCC/
 tests/canonical/generated_pdfs/*.pdf
@@ -11,3 +10,6 @@ tests/canonical/results/
 # Python cache
 __pycache__/
 *.py[cod]
+
+backups/
+secrets/

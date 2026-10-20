@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modelos de IA · Report Generator</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body class="account-body settings-body keys-body">
+    <main id="app-shell" class="account-page" style="display:none">
+        <header class="settings-topbar"><a href="/" class="studio-brand"><span class="brand-mark" aria-hidden="true">R</span><span>Report Generator<small>Workspace</small></span></a><a href="/" class="btn btn-outline">Voltar ao estúdio <span aria-hidden="true">↗</span></a></header>
+        <nav class="settings-nav" aria-label="Configurações da conta"><a href="/account">Visão geral</a><a href="/sources">Fontes de dados</a><a href="/keys" aria-current="page">Modelos de IA</a><a href="/usage">Uso e limites</a></nav>
+        <header class="page-heading"><span class="eyebrow">WORKSPACE / MODELOS DE IA</span><h1>A inteligência por trás dos relatórios.</h1><p>Conecte seus provedores de IA e escolha os modelos que vão analisar seus dados.</p></header>
+        <div class="settings-info"><span class="info-symbol" aria-hidden="true">✧</span><p>Os modelos de IA analisam seus dados e escrevem o relatório. Para conectar APIs que fornecem dados, acesse <a href="/sources">Fontes de dados</a>.</p></div>
+        <p class="auth-hint">Suas chaves ficam criptografadas. O uso é cobrado diretamente na sua conta do provedor.</p>
+        <details class="account-section">
+            <summary>Como obter uma chave de API</summary>
+            <p>Entre no painel do provedor, configure o acesso à API e crie uma chave. Copie-a e salve no cartão correspondente abaixo.</p>
+            <ul>
+                <li><a href="https://aistudio.google.com/api-keys" target="_blank" rel="noopener noreferrer">Google Gemini: Google AI Studio → API keys</a></li>
+                <li><a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">DeepSeek: Platform → API keys</a></li>
+                <li><a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic: Claude Console → API keys</a></li>
+                <li><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI: Platform → API keys</a></li>
+                <li><a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter: Settings → API keys</a></li>
+            </ul>
+            <p>O uso é cobrado na sua conta do provedor. Configure os limites de gasto disponíveis no painel dele. Depois de salvar, escolha o modelo em Preferências de modelos. Acompanhe as chamadas em <a href="/usage">Seu uso</a>.</p>
+        </details>
+        <div id="keys-notice" class="auth-message" role="status" hidden></div>
+        <p id="keys-unverified" class="auth-message" hidden>Confirme seu email antes de adicionar uma chave. <a href="/account">Abrir sua conta</a></p>
+        <div class="section-heading provider-section-heading"><span class="step-number">01</span><div><h2>Conecte seus provedores</h2><p>Adicione pelo menos uma chave para começar.</p></div></div><div id="credential-cards"></div>
+        <section class="account-section">
+            <div class="section-heading"><span class="step-number">02</span><div><h2>Preferências de modelos</h2><p>Escolha seu modelo padrão e uma alternativa.</p></div></div>
+            <p class="auth-hint">A alternativa é usada se o provedor principal ficar indisponível. Ela usa uma das suas próprias chaves.</p>
+            <form id="model-preferences-form" class="account-form">
+                <div class="form-group"><label for="default-provider">Provedor padrão</label><select id="default-provider"></select></div>
+                <div class="form-group"><label for="default-model">Modelo padrão</label><select id="default-model"></select></div>
+                <div class="form-group"><label for="fallback-provider">Provedor alternativo</label><select id="fallback-provider"></select></div>
+                <div class="form-group"><label for="fallback-model">Modelo alternativo</label><select id="fallback-model"></select></div>
+                <label class="account-confirm"><input type="checkbox" id="anthropic-server-fallback" checked> Permitir que a Anthropic use um modelo alternativo quando o Opus 5.5 não atender ao pedido. O uso é cobrado na mesma chave.</label>
+                <button type="submit" class="btn">Salvar preferências</button>
+            </form>
+        </section>
+    </main>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/keys.js"></script>
+</body>
+</html>

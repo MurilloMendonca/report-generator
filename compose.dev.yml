@@ -1,0 +1,25 @@
+# Local Postgres for development and the test suite (not used in production):
+#   docker compose -f compose.dev.yml up -d
+# Dev:   DATABASE_URL=postgresql+psycopg://repgen:repgen@127.0.0.1:5433/repgen
+# Tests: use the repgen_test database on the same server; it is created and
+#        emptied automatically on each run (override with TEST_DATABASE_URL).
+services:
+  postgres-dev:
+    image: postgres:17.6-alpine
+    container_name: pdf-report-postgres-dev
+    environment:
+      POSTGRES_USER: repgen
+      POSTGRES_PASSWORD: repgen
+      POSTGRES_DB: repgen
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U repgen -d repgen"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  postgres-dev:

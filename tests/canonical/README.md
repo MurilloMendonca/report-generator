@@ -39,6 +39,18 @@ Run one case:
 venv/bin/python tests/canonical/run_canonical_sessions.py --case sales_ops
 ```
 
+Run the same case with each new provider using keys already stored on your account:
+
+```bash
+venv/bin/python tests/canonical/run_canonical_sessions.py --provider anthropic --owner-email you@example.com --case sales_ops
+venv/bin/python tests/canonical/run_canonical_sessions.py --provider openai --owner-email you@example.com --case sales_ops
+venv/bin/python tests/canonical/run_canonical_sessions.py --provider openrouter --owner-email you@example.com --case sales_ops
+```
+
+`--provider` overrides the playbook's provider and selects that provider's default model. Add `--model` to choose another model. Without `--owner-email`, reports belong to the dedicated `canonical-tests@example.com` account (no password). For local env keys instead of stored credentials, explicitly set `APP_ENV=development PDF_REPORT_DEV_SERVER_KEYS=1` and configure the selected provider's `*_API_KEY`. `--env-file /private/path/to/keys.env` can load that configuration without printing keys. Production refuses the dev flag.
+
+All new canonical reports use `workspace/tenants/{owner}/reports/{report_id}/` for uploads, derived data, scripts and outputs. `--dry-run` does not create an account, report or fixture.
+
 Run the preprocessing case:
 
 ```bash
@@ -68,7 +80,7 @@ The runner validates:
 - PDF text does not contain cut-off ellipses
 - first page can be rasterized for manual visual review
 - chart code avoids known annotation/legend overlap patterns
-- preprocessing cases produce a derived file under `workspace/filtered`
+- preprocessing cases produce a derived file in the report's `filtered/` folder and the generated script uses that file
 - computed preprocessing columns appear in processed metadata
 
 Results are saved locally to `tests/canonical/results/`.

@@ -9,35 +9,51 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
-    <div id="login-gate" class="login-gate">
-        <form id="login-form" class="login-panel">
-            <h1>Report Generator</h1>
-            <p>Informe o segredo de acesso para continuar.</p>
-            <div class="form-group">
-                <label>Segredo:</label>
-                <input type="password" id="access-secret" autocomplete="current-password" required>
-            </div>
-            <button type="submit" class="btn" style="width: 100%;">Entrar</button>
-            <div id="login-error" class="login-error"></div>
-        </form>
-    </div>
-
-    <div id="app-shell" class="app-shell" style="display:none">
+    <div id="app-shell" class="app-shell is-starting" style="display:none">
     <div class="sidebar">
-        <h2>Report Generator</h2>
+        <a class="studio-brand" href="/"><span class="brand-mark" aria-hidden="true">R</span><span>Report Generator<small>Seu estúdio de relatórios</small></span></a>
+        <div class="account-bar">
+            <span id="account-name" class="account-name"></span>
+            <a href="/account" class="account-link">Conta</a>
+            <button type="button" id="logout-btn" class="account-link account-logout">Sair</button>
+        </div>
+        <div id="verify-banner" class="verify-banner" hidden>
+            Confirme seu email para criar relatórios. Enviamos um link para <b id="verify-email-address"></b>.
+            <button type="button" id="resend-verification-btn" class="account-link">Reenviar link</button>
+            <span id="verify-banner-status"></span>
+        </div>
+        <nav class="studio-nav" aria-label="Workspace">
+            <a href="/" aria-current="page"><span aria-hidden="true">+</span> Novo relatório</a>
+            <a href="/sources"><span aria-hidden="true">▤</span> Fontes de dados</a>
+            <a href="/keys"><span aria-hidden="true">✧</span> Modelos de IA</a>
+            <a href="/usage"><span aria-hidden="true">◷</span> Uso e limites</a>
+        </nav>
         <a id="new-session-link" href="/" class="btn btn-secondary new-session-link" style="display:none">+ Criar nova sessão</a>
         <a href="/templates" class="btn btn-outline" style="margin-bottom: 1rem; text-align: center; text-decoration: none;">Editar Templates</a>
         
         <div id="file-workspace" class="file-workspace" style="display:none">
             <div class="workspace-section-header">
-                <label>Arquivos</label>
+                <label>Dados do relatório</label>
                 <span id="file-summary">0 arquivos</span>
             </div>
             <div class="file-dropzone" id="file-dropzone">
                 <div class="file-tray" id="file-tray"></div>
-                <button class="btn btn-outline add-file-btn" type="button" data-action="trigger-add-file">+ Adicionar Dados</button>
+                <button class="btn btn-outline add-file-btn" type="button" data-action="trigger-add-file">+ Enviar arquivos</button>
             </div>
-            <input type="file" id="add-file-input" style="display:none" multiple>
+            <input type="file" id="add-file-input" accept=".csv,.xls,.xlsx,.json,.jsonl,.ndjson,.txt,.pdf" style="display:none" multiple>
+            <details class="api-source-details">
+                <summary>Fontes de dados</summary>
+                <a href="/sources" target="_blank" rel="noopener">Configurar fontes</a>
+                <button id="reload-sources-btn" type="button" class="account-link">Recarregar lista</button>
+                <form id="saved-source-form">
+                    <div id="report-source-list"></div>
+                    <button id="import-sources-btn" type="submit" class="btn btn-outline">Adicionar selecionados</button>
+                    <button id="refresh-sources-btn" type="button" class="btn btn-outline">Atualizar selecionados</button>
+                    <small>Atualizar busca novos dados e gera novamente o relatório. As versões anteriores dos dados ficam no histórico.</small>
+                    <span id="source-import-status" role="status"></span>
+                </form>
+            </details>
+            <details id="source-snapshot-history" class="api-source-details" hidden><summary>Histórico de importações</summary><ul id="source-snapshot-list"></ul></details>
         </div>
 
         <div class="chat-history" id="chat-history">
@@ -49,40 +65,38 @@
             <button type="submit" class="btn" style="width:100%; margin-top: 0.5rem;">Enviar Feedback</button>
         </form>
         
-        <div id="initial-form" class="upload-section">
-            <form id="upload-form">
-                <div class="form-group">
-                    <label>Provedor:</label>
-                    <select id="provider" name="provider">
-                        <option value="gemini">Google Gemini</option>
-                        <option value="deepseek" selected>DeepSeek</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Modelo:</label>
-                    <select id="model_name" name="model_name"></select>
-                    <p id="model-default-notice" class="model-default-notice" hidden></p>
-                </div>
-                <div class="form-group">
-                    <label>Arquivos de dados e contexto:</label>
-                    <input type="file" id="file" name="files" multiple required>
-                </div>
-                <div class="form-group">
-                    <label>Objetivo do Relatório (opcional):</label>
-                    <textarea name="prompt" placeholder="Deixe em branco para gerar um relatório exploratório dos dados."></textarea>
-                </div>
-                <button type="submit" class="btn" style="width:100%; height: 48px; font-size: 1rem;">Iniciar Geração</button>
-            </form>
-            <div class="recent-section">
-                <h3>Recentes</h3>
-                <div id="recent-sessions" class="recent-sessions">
-                    <div class="recent-empty">Nenhuma sessão recente.</div>
-                </div>
-            </div>
-        </div>
+
     </div>
 
     <div class="main-content">
+        <div id="workspace-notice" class="workspace-notice" role="status" aria-live="polite" hidden></div>
+
+        <div id="initial-form" class="new-report-page">
+            <header class="page-heading"><span class="eyebrow">ESTÚDIO / NOVO RELATÓRIO</span><h1>Dos seus dados à próxima decisão.</h1><p>Escolha os dados, conte o que quer descobrir e crie seu relatório.</p></header>
+            <form id="upload-form" class="report-create-grid">
+                <section class="setup-card report-data-card" aria-labelledby="report-data-title">
+                    <div class="section-heading"><span class="step-number">01</span><div><h2 id="report-data-title">Escolha seus dados</h2><p>Combine fontes conectadas e arquivos, se precisar.</p></div></div>
+                    <div class="source-picker-heading"><h3>Fontes de dados</h3><a href="/sources" target="_blank" rel="noopener">Gerenciar fontes ↗</a></div>
+                    <div id="initial-source-list" class="initial-source-list"><p class="source-empty">Carregando suas fontes…</p></div>
+                    <div class="source-picker-footer"><span id="initial-source-count" role="status">Nenhum conjunto selecionado</span><button id="reload-initial-sources-btn" type="button" class="text-button">Atualizar lista</button></div>
+                    <div class="input-divider"><span>ou envie arquivos</span></div>
+                    <label for="file" class="upload-label"><span class="upload-symbol" aria-hidden="true">↑</span><strong>Adicione dados e documentos</strong><span>CSV, Excel, JSON, JSON Lines, TXT ou PDF</span></label>
+                    <input type="file" id="file" name="files" accept=".csv,.xls,.xlsx,.json,.jsonl,.ndjson,.txt,.pdf" multiple aria-describedby="upload-help">
+                    <small id="upload-help">Você pode selecionar vários arquivos com nomes diferentes.</small>
+                    <p class="data-copy-note">Cada fonte selecionada cria uma cópia dos dados para este relatório. Você pode atualizá-la depois.</p>
+                </section>
+                <section class="setup-card report-brief-card" aria-labelledby="report-brief-title">
+                    <div class="section-heading"><span class="step-number">02</span><div><h2 id="report-brief-title">Dê uma direção</h2><p>O que seu relatório precisa mostrar?</p></div></div>
+                    <div class="form-group"><label for="report-prompt">Objetivo <span class="optional-label">opcional</span></label><textarea id="report-prompt" name="prompt" rows="5" placeholder="Ex.: Analise as vendas do trimestre, destaque os produtos mais rentáveis e compare os resultados por região."></textarea><small>Em branco, criamos uma análise exploratória dos seus dados.</small></div>
+                    <div class="model-section-heading"><h3>Modelo de IA</h3><a href="/keys">Configurar modelos ↗</a></div>
+                    <div class="form-group"><label for="provider">Provedor</label><select id="provider" name="provider"><option value="gemini">Google Gemini</option><option value="deepseek" selected>DeepSeek</option><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option></select></div>
+                    <div class="form-group"><label for="model_name">Modelo</label><select id="model_name" name="model_name"></select><p id="model-default-notice" class="model-default-notice" hidden></p></div>
+                    <div class="create-report-action"><button type="submit" class="btn">Gerar relatório <span aria-hidden="true">→</span></button><small>Você poderá ajustar o conteúdo e o layout depois.</small></div>
+                </section>
+            </form>
+            <section class="recent-section"><div class="source-picker-heading"><h2>Continue de onde parou</h2><span class="optional-label">Relatórios recentes</span></div><div id="recent-sessions" class="recent-sessions"><div class="recent-empty">Seus relatórios aparecerão aqui.</div></div></section>
+        </div>
+
         <div class="header" id="header-progress" style="display:none;">
             <div class="progress-section">
                 <div id="status-text" class="status-text" style="margin-right: 1.5rem; min-width: 150px;">Processando...</div>
@@ -96,7 +110,7 @@
 
         <div class="tabs">
             <button class="tab active" type="button" data-tab-target="tab-pdf">Visualização</button>
-            <button class="tab" type="button" data-tab-target="tab-design">Editor de Layout 🎨</button>
+            <button class="tab" type="button" data-tab-target="tab-design">Layout</button>
             <button class="tab" type="button" data-tab-target="tab-artifacts">Componentes</button>
             <button class="tab" type="button" data-tab-target="tab-script">Script completo 🐍</button>
             <button class="tab" type="button" data-tab-target="tab-settings">Configurações ⚙️</button>
@@ -109,14 +123,17 @@
         </div>
 
         <div id="tab-design" class="tab-content" style="padding:0">
-            <div class="canvas-area">
-                <div style="margin-bottom: 1.5rem; color: white; display: flex; gap: 1.5rem; align-items: center;">
-                    <span style="font-size: 1rem; opacity: 0.9;">📐 Organize os blocos na página A4 para o PDF final.</span>
-                    <button class="btn btn-secondary" type="button" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" data-action="add-layout-page">+ Página</button>
-                    <button class="btn btn-secondary" type="button" style="box-shadow: 0 4px 12px rgba(0,0,0,0.3);" data-action="save-visual-layout">💾 Aplicar Layout & Renderizar</button>
+            <div class="editor-workspace-header">
+                <div>
+                    <h3>Organize seu relatório</h3>
+                    <span id="report-layout-status" role="status" aria-live="polite">Ajuste os blocos e aplique para atualizar o PDF.</span>
                 </div>
-                <div class="layout-canvas" id="layout-canvas"></div>
+                <div class="editor-header-actions">
+                    <button class="btn btn-outline" type="button" id="layout-focus-btn" data-action="toggle-layout-focus" aria-pressed="false">Expandir editor</button>
+                    <button class="btn" type="button" id="apply-layout-btn" data-action="save-visual-layout">Aplicar ao PDF</button>
+                </div>
             </div>
+            <div class="layout-editor-host" id="layout-canvas"></div>
         </div>
 
         <div id="tab-artifacts" class="tab-content">
@@ -145,6 +162,9 @@
                             <select id="s-provider" name="provider">
                                 <option value="gemini">Google Gemini</option>
                                 <option value="deepseek">DeepSeek</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="openrouter">OpenRouter</option>
                             </select>
                         </div>
                         <div class="form-group" style="flex: 1;">
@@ -232,10 +252,11 @@
 
         <div id="tab-explore" class="tab-content">
             <h3 style="color: var(--md-sys-color-primary)">Consultas Ad-hoc (Explorador)</h3>
-            <div id="explore-chat"></div>
-            <form id="explore-form" style="display: flex; gap: 0.75rem; margin-top: 1rem;">
-                <input type="text" id="explore-input" placeholder="Ex: Qual o valor total da coluna X?" style="flex: 1;" required>
-                <button type="submit" class="btn">Consultar</button>
+            <p class="explore-description">Converse com seus dados: peça cálculos, comparações e gráficos. As consultas não alteram o relatório.</p>
+            <div id="explore-chat" role="log" aria-label="Conversa do explorador" aria-live="polite" aria-relevant="additions"></div>
+            <form id="explore-form">
+                <input type="text" id="explore-input" aria-label="Pergunta ou pedido de gráfico" placeholder="Ex: Mostre um gráfico de barras por categoria" maxlength="6000" required>
+                <button type="submit" id="explore-submit" class="btn">Consultar</button>
             </form>
         </div>
 
@@ -307,6 +328,7 @@
 	                        <div class="form-group">
 	                            <label>Modo de renderização:</label>
 	                            <select id="m-render-mode">
+	                                <option value="">Automático</option>
 	                                <option value="generated_code">Código gerado</option>
 	                                <option value="hybrid">Híbrido</option>
 	                                <option value="library">Biblioteca</option>
@@ -360,7 +382,9 @@
     <!-- Scripts -->
     <script src="/static/js/api.js"></script>
     <script src="/static/js/utils.js"></script>
+    <script src="/static/js/layout_editor.js"></script>
     <script src="/static/js/ui.js"></script>
+    <script src="/static/js/saved_sources.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

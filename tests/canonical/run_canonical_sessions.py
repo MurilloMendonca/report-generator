@@ -14,14 +14,19 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
-from app.main import DEFAULT_EXPLORATORY_PROMPT, DEFAULT_SETTINGS, run_pipeline, run_script_generation
-from app.services.llm_service import refine_session_modular
-from app.services.pipeline_service import clear_data_filter_state, should_consider_data_filter
+from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT, DEFAULT_SETTINGS, run_pipeline, run_script_generation, summarize_render_manifest
+from app.services.web_helpers import append_refinement_message, process_chat_refinement
 from app.services.session_manager import add_log, create_session, get_session, update_session
+from app.services.crypto import dev_server_keys_enabled
+from app.services.llm.client import llm_operation_context
+from app.services.llm.credentials import resolve_api_key
+from app.services.llm.providers.registry import ADAPTERS
+from app.services.redaction import install_log_redaction
+from app.utils.model_config import DEFAULT_MODEL_BY_PROVIDER, current_model_name
+from app.utils.report_paths import ReportPaths
 
 
 CANONICAL_DIR = Path(__file__).parent
-UPLOAD_DIR = ROOT / "workspace" / "uploads"
 RESULTS_DIR = CANONICAL_DIR / "results"
 GENERATED_PDFS_DIR = CANONICAL_DIR / "generated_pdfs"
 
@@ -41,15 +46,16 @@ def ensure_fixtures():
         education_outcomes()
 
 
-def create_canonical_session(case: dict) -> str:
+def create_canonical_session(case: dict, owner_id=None) -> str:
     job_id = f"canonical-{case['id']}-{uuid.uuid4().hex[:8]}"
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    owner_id = owner_id or canonical_owner_id()
+    paths = ReportPaths.for_new_report(job_id, str(owner_id)).ensure()
 
     files = []
     for relative_path in case["files"]:
         source = CANONICAL_DIR / relative_path
         suffix = source.suffix
-        target = UPLOAD_DIR / f"{uuid.uuid4()}{suffix}"
+        target = ROOT / paths.uploads / f"{uuid.uuid4()}{suffix}"
         shutil.copy2(source, target)
         files.append({
             "original_filename": source.name,
@@ -85,51 +91,43 @@ def create_canonical_session(case: dict) -> str:
         "pdf_version": 0,
         "retry_count": 0,
         "explore_history": [],
-    })
+        **paths.session_fields(),
+    }, owner_id=owner_id)
     return job_id
 
 
+def canonical_owner_id(email="canonical-tests@example.com"):
+    """Canonical reports belong to a dedicated account without a password."""
+    from app.services import auth_service
+    user = auth_service.get_user_by_email(email)
+    if user is None and email != "canonical-tests@example.com":
+        raise RuntimeError("The requested canonical-test owner does not exist.")
+    user = user or auth_service.create_user(email, None, display_name="Canonical tests", verified=True)
+    if user.status != "active" or user.email_verified_at is None:
+        raise RuntimeError("Canonical tests require an active, verified owner.")
+    return user.id
+
+
+def select_cases(playbook, provider=None, model_name=None, case_ids=None):
+    """Override a playbook for one provider without changing its source file."""
+    if model_name and not provider:
+        raise ValueError("--model requires --provider")
+    if provider and provider not in ADAPTERS:
+        raise ValueError("Unknown provider")
+    wanted = set(case_ids or [])
+    if wanted - {case["id"] for case in playbook}:
+        raise ValueError("Unknown canonical case")
+    cases = [dict(case) for case in playbook if not wanted or case["id"] in wanted]
+    for case in cases:
+        if provider:
+            case["provider"] = provider
+            case["model_name"] = current_model_name(provider, model_name or DEFAULT_MODEL_BY_PROVIDER[provider])
+    return cases
+
+
 def apply_refinement(job_id: str, prompt: str):
-    session = get_session(job_id)
-    history = session.get("refinement_history", [])
-    history.append(prompt)
-    full_goal = session["initial_prompt"] + "\nRefinement History:\n- " + "\n- ".join(history)
-
-    if should_consider_data_filter(prompt):
-        add_log(job_id, f"Canonical data filter refinement: {prompt}")
-        files = clear_data_filter_state(session.get("files", []))
-        update_session(job_id, {
-            "files": files,
-            "data_filter": {},
-            "data_preprocessing": {},
-            "artifacts": [],
-            "template": [],
-            "components": {},
-            "calculated_metrics": {},
-            "refinement_history": history,
-            "current_goal": full_goal,
-        })
-        run_pipeline(job_id)
-        return
-
-    add_log(job_id, f"Canonical refinement: {prompt}")
-    new_state = refine_session_modular(session, prompt)
-    new_state.update({"refinement_history": history, "current_goal": full_goal})
-
-    if new_state.get("needs_full_regeneration"):
-        update_session(job_id, {
-            "artifacts": [],
-            "template": [],
-            "components": {},
-            "calculated_metrics": {},
-            "refinement_history": history,
-            "current_goal": full_goal,
-        })
-        run_pipeline(job_id)
-    else:
-        update_session(job_id, new_state)
-        if new_state.get("needs_script_update"):
-            run_script_generation(job_id)
+    append_refinement_message(job_id, "user", prompt)
+    process_chat_refinement(job_id, prompt)
 
 
 def validate_session(job_id: str, case: dict, artifact_dir: Path | None = None, save_artifacts: bool = True) -> dict:
@@ -139,6 +137,14 @@ def validate_session(job_id: str, case: dict, artifact_dir: Path | None = None, 
 
     pdf_path = session.get("pdf_path")
     pdf_exists = bool(pdf_path and os.path.exists(pdf_path))
+    manifest_path = Path(f"{pdf_path}.manifest.json") if pdf_path else None
+    manifest = None
+    if manifest_path and manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            pass
+    checks.extend(validate_component_outcomes(session, manifest))
     checks.append(check("pdf_exists", pdf_exists, pdf_path or "missing"))
     if pdf_exists:
         checks.append(check("pdf_size_gt_20kb", os.path.getsize(pdf_path) > 20_000, os.path.getsize(pdf_path)))
@@ -193,10 +199,23 @@ def validate_session(job_id: str, case: dict, artifact_dir: Path | None = None, 
         "review_pdf_path": artifacts.get("review_pdf_path"),
         "passed": all(item["passed"] for item in checks),
         "checks": checks,
+        "render_summary": summarize_render_manifest(manifest or {}),
+        "llm_usage": session.get("llm_usage", {}),
     }
     if save_artifacts and artifact_dir:
         write_json(artifact_dir / "checks.json", result)
     return result
+
+
+def validate_component_outcomes(session: dict, manifest: dict | None) -> list[dict]:
+    expected = {item["id"] for item in session.get("template", [])}
+    components = (manifest or {}).get("components", [])
+    rendered = {item.get("id") for item in components if item.get("status") == "rendered"}
+    invalid = [{"id": item.get("id"), "status": item.get("status")} for item in components if item.get("status") != "rendered"]
+    return [
+        check("component_manifest_present", manifest is not None, "missing" if manifest is None else "present"),
+        check("all_components_rendered", rendered == expected and not invalid, {"missing": sorted(expected - rendered), "invalid": invalid}),
+    ]
 
 
 def check(name: str, passed: bool, detail):
@@ -286,7 +305,11 @@ def validate_expected_preprocessing(session: dict, expected: dict | None = None)
 
     checks.append(check("data_preprocessing_needed", (data_filter.get("needs_preprocessing") or data_filter.get("needs_filter")) is True, data_filter))
     checks.append(check("data_preprocessing_has_output_path", bool(filtered_files), [f.get("preprocessed_path") or f.get("filtered_path") for f in files]))
-    checks.append(check("script_uses_filtered_file", "workspace/filtered" in session.get("script", ""), "workspace/filtered"))
+    processed_paths = [str(file_info.get("preprocessed_path") or file_info["filtered_path"]) for file_info in filtered_files]
+    script = session.get("script", "")
+    checks.append(check("script_uses_filtered_file", bool(processed_paths) and all(
+        path in script or str(Path(path).resolve()) in script for path in processed_paths
+    ), processed_paths))
 
     if expected.get("filter"):
         row_changes = []
@@ -403,8 +426,8 @@ def has_non_na_metrics(metrics: dict) -> bool:
     return any(value not in (None, "", "N/A") and "Error" not in str(value) for value in metrics.values())
 
 
-def run_case(case: dict, apply_refinements: bool, run_dir: Path, save_artifacts: bool) -> dict:
-    job_id = create_canonical_session(case)
+def run_case(case: dict, apply_refinements: bool, run_dir: Path, save_artifacts: bool, owner_id=None) -> dict:
+    job_id = create_canonical_session(case, owner_id=owner_id)
     run_pipeline(job_id)
     if apply_refinements:
         for prompt in case.get("refinement_prompts", []):
@@ -415,33 +438,38 @@ def run_case(case: dict, apply_refinements: bool, run_dir: Path, save_artifacts:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run canonical DeepSeek report-generation sessions.")
+    parser = argparse.ArgumentParser(description="Run canonical report-generation sessions for any configured provider.")
+    parser.add_argument("--provider", choices=ADAPTERS, help="Override the provider for every selected case.")
+    parser.add_argument("--model", help="Override the model (requires --provider).")
+    parser.add_argument("--owner-email", default="canonical-tests@example.com", help="Account whose provider keys the tests use.")
+    parser.add_argument("--env-file", type=Path, help="Load a private environment file, without printing its contents.")
     parser.add_argument("--case", action="append", help="Case id to run. Can be passed multiple times.")
     parser.add_argument("--with-refinements", action="store_true", help="Apply refinement prompts after first generation.")
     parser.add_argument("--no-save-artifacts", action="store_true", help="Skip PDF/text/screenshot artifact capture.")
     parser.add_argument("--dry-run", action="store_true", help="Only print the playbook without LLM calls.")
     args = parser.parse_args()
 
-    load_dotenv()
-    ensure_fixtures()
-    cases = load_playbook()
-    if args.case:
-        wanted = set(args.case)
-        cases = [case for case in cases if case["id"] in wanted]
+    load_dotenv(args.env_file, override=True) if args.env_file else load_dotenv()
+    install_log_redaction()
+    cases = select_cases(load_playbook(), args.provider, args.model, args.case)
 
     if args.dry_run:
         print(json.dumps(cases, indent=2, ensure_ascii=False))
         return
 
-    if not os.getenv("DEEPSEEK_API_KEY"):
-        raise RuntimeError("DEEPSEEK_API_KEY is required for canonical sessions.")
+    dev_server_keys_enabled()  # rejects production use of the dev escape hatch
+    owner_id = canonical_owner_id(args.owner_email)
+    for provider in {case.get("provider", "deepseek") for case in cases}:
+        with llm_operation_context(user_id=owner_id):
+            resolve_api_key(owner_id, provider)
+    ensure_fixtures()
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    run_id = str(int(time.time()))
+    run_id = f"{int(time.time())}-{args.provider or 'mixed'}-{uuid.uuid4().hex[:6]}"
     run_dir = RESULTS_DIR / run_id
     if not args.no_save_artifacts:
         run_dir.mkdir(parents=True, exist_ok=True)
-    results = [run_case(case, apply_refinements=args.with_refinements, run_dir=run_dir, save_artifacts=not args.no_save_artifacts) for case in cases]
+    results = [run_case(case, apply_refinements=args.with_refinements, run_dir=run_dir, save_artifacts=not args.no_save_artifacts, owner_id=owner_id) for case in cases]
     output_path = run_dir / "canonical_results.json" if not args.no_save_artifacts else RESULTS_DIR / f"canonical_results_{run_id}.json"
     write_json(output_path, results)
     print(json.dumps(results, indent=2, ensure_ascii=False))

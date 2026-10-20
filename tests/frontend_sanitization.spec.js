@@ -80,6 +80,10 @@ class Element {
         nodes.forEach(node => this.appendChild(node));
     }
 
+    get firstChild() {
+        return this.children[0] || null;
+    }
+
     addEventListener() {}
 
     focus() {
@@ -249,6 +253,7 @@ const context = {
     window: {},
     structuredClone: global.structuredClone,
     Event: class {},
+    confirm: () => true,
     Utils: {
         makeDraggable() {},
         formatJson(value) {
@@ -265,6 +270,7 @@ const context = {
 context.window = context;
 
 vm.createContext(context);
+vm.runInContext(fs.readFileSync(require.resolve('./../static/js/api.js'), 'utf8') + '\nthis.API = API;', context);
 
 const uiSource = fs.readFileSync(require.resolve('./../static/js/ui.js'), 'utf8') + '\nthis.UI = UI;';
 vm.runInContext(uiSource, context);
@@ -274,6 +280,8 @@ vm.runInContext(appSource, context);
 
 const templatesSource = fs.readFileSync(require.resolve('./../static/js/templates.js'), 'utf8') + '\nthis.TemplateEditor = TemplateEditor;';
 vm.runInContext(templatesSource, context);
+vm.runInContext(fs.readFileSync(require.resolve('./../static/js/layout_editor.js'), 'utf8') + '\nthis.LayoutEditor = LayoutEditor;', context);
+context.TemplateEditor.editor = new context.LayoutEditor(context.document.getElementById('template-canvas'), { allowAdd: true });
 
 const malicious = '<img src=x onerror=alert(1)><script>alert(2)</script>';
 
@@ -328,11 +336,11 @@ assert.strictEqual(previewContainer.children[1].textContent, 'Resumo');
 context.TemplateEditor.currentTemplate = {
     id: 'template-x',
     name: 'Template X',
-    slots: [{ slot_id: 'slot-1', name: 'Texto', description: '', type: 'text', page: 1, x: 10, y: 20, w: 50, h: 30 }],
+    slots: [{ slot_id: 'slot-1', name: 'Texto', description: '', type: 'text', page: 1, x: 10, y: 30, w: 50, h: 30 }],
 };
 context.TemplateEditor.selectedSlotId = 'slot-1';
 context.TemplateEditor.renderCanvas();
-context.TemplateEditor.renderInspector();
+context.TemplateEditor.editor.select('slot-1');
 const templateCanvas = context.document.getElementById('template-canvas');
 assert.strictEqual(templateCanvas.children.length > 0, true);
 const selectableSlot = templateCanvas.querySelector('.template-slot[data-slot-id="slot-1"]');
@@ -340,13 +348,14 @@ assert.strictEqual(selectableSlot.textContent.includes('Texto'), true);
 assert.strictEqual(selectableSlot.tabIndex, 0);
 assert.strictEqual(selectableSlot.getAttribute('role'), 'button');
 assert.strictEqual(selectableSlot.getAttribute('aria-label').includes('Use as setas para mover'), true);
-context.TemplateEditor.moveSelectedSlot(2, 3);
-assert.strictEqual(selectableSlot.style.left, `${(10 + 2) * context.MM_TO_PX}px`);
-assert.strictEqual(selectableSlot.style.top, `${(20 + 3) * context.MM_TO_PX}px`);
-assert.strictEqual(templateCanvas.querySelector('.a4-page').style['--page-label'], '"Página do template 1"');
+context.TemplateEditor.editor.modifySelected(item => { item.x += 2; item.y += 3; });
+const movedSlot = templateCanvas.querySelector('.template-slot[data-slot-id="slot-1"]');
+assert.strictEqual(movedSlot.style.left, `${(10 + 2) * context.MM_TO_PX}px`);
+assert.strictEqual(movedSlot.style.top, `${(30 + 3) * context.MM_TO_PX}px`);
+assert.strictEqual(templateCanvas.querySelector('.a4-page').getAttribute('aria-label'), 'Página 1');
 
 context.TemplateEditor.newTemplate();
-context.TemplateEditor.addSlot('text');
+context.TemplateEditor.editor.addBlock('text');
 
 const chat = context.document.getElementById('chat-history');
 context.UI.renderRefinementChat({
@@ -359,6 +368,30 @@ context.UI.renderRefinementChat({
 });
 assert.strictEqual(chat.textContent.includes(malicious), true);
 assert.strictEqual(chat.children.some(child => child.tagName === 'SCRIPT' || child.tagName === 'IMG'), false);
+
+const explorer = context.document.getElementById('explore-chat');
+const explorerSession = {job_id:'safe-session',explore_history:[
+    {role:'user',content:malicious},
+    {role:'assistant',content:malicious,turn_id:'a'.repeat(32),charts:[
+        {id:'chart_1',title:malicious,caption:malicious,url:'javascript:alert(1)',width:800,height:400},
+        {id:'../../escape',title:'Invalid attachment',url:'https://attacker.test/image.png'},
+    ]},
+]};
+context.UI.renderExploreChat(explorerSession);
+assert.strictEqual(explorer.textContent.includes(malicious), true);
+assert.strictEqual(explorer.querySelectorAll('img').length, 1, 'only the validated chart should create an image');
+assert.strictEqual(explorer.querySelectorAll('script').length, 0);
+assert.strictEqual(explorer.querySelector('img').src, `/api/sessions/safe-session/explore/${'a'.repeat(32)}/charts/chart_1`);
+assert.strictEqual(explorer.querySelector('img').alt, malicious);
+assert.strictEqual(explorer.querySelector('.explore-chart-download').href.endsWith('?download=true'), true);
+const stableChart = explorer.querySelector('img');
+context.UI.renderExploreChat(explorerSession);
+assert.strictEqual(explorer.querySelector('img'), stableChart, 'polling must preserve existing image elements');
+context.UI.renderExploreChat(explorerSession, {prompt:'Next chart',historyLength:2});
+assert.strictEqual(context.document.getElementById('explore-submit').disabled, true);
+assert.strictEqual(explorer.querySelectorAll('.pending').length, 1);
+context.UI.renderExploreChat({...explorerSession,explore_history:[...explorerSession.explore_history,{role:'assistant',content:'Failed',status:'error'}]});
+assert.strictEqual(explorer.querySelector('.explore-retry').dataset.prompt, malicious);
 
 const canvas = context.document.getElementById('template-canvas');
 context.TemplateEditor.currentTemplate = {
@@ -380,8 +413,8 @@ context.TemplateEditor.selectedSlotId = 'slot-1';
 context.TemplateEditor.renderCanvas();
 const slot = canvas.querySelector('.template-slot[data-slot-id="slot-1"]');
 assert(slot, 'template slot should render');
-assert.strictEqual(slot.children[0].tagName, 'SPAN');
-assert.strictEqual(slot.children[1].tagName, 'SMALL');
+assert.strictEqual(slot.querySelector('.editor-block-label').textContent, malicious);
+assert.strictEqual(slot.querySelector('.editor-block-kind').tagName, 'SMALL');
 assert.strictEqual(slot.children.some(child => child.tagName === 'SCRIPT' || child.tagName === 'IMG'), false);
 
 const focusTarget = context.document.createElement('button');
@@ -395,4 +428,41 @@ context.App.indicatorModalFocusTarget = focusTarget;
 context.App.restoreIndicatorModalFocus();
 assert.strictEqual(context.document.activeElement, focusTarget);
 
-process.stdout.write('ok');
+async function checkFilePreviews() {
+    const modal = context.document.getElementById('file-preview-modal');
+    modal.showModal = () => { modal.open = true; };
+    const requests = [];
+    context.URL = { createObjectURL: () => 'blob:file-preview', revokeObjectURL() {} };
+    context.API.getFileBlob = async (...args) => {
+        requests.push(args);
+        return { text: async () => args[3] === 'preprocessed' ? 'value\n2\n' : 'value\n1\n' };
+    };
+
+    for (const pathField of ['preprocessed_path', 'filtered_path']) {
+        context.App.currentSession = {
+            job_id: 'preview-session',
+            files: [{ original_filename: 'data.csv', mime_type: 'text/csv', [pathField]: 'processed.csv' }],
+        };
+        for (const variant of ['original', 'preprocessed']) {
+            await context.App.previewFileVariant(0, variant);
+            assert.strictEqual(modal.open, true, 'opening a preprocessed file must reach the preview modal');
+            const body = context.document.getElementById('file-preview-body');
+            const tabs = body.querySelectorAll('.file-preview-tab');
+            assert.strictEqual(tabs.length, 2);
+            assert.strictEqual(tabs.filter(tab => tab.classList.contains('active')).length, 1);
+            assert.strictEqual(tabs.find(tab => tab.classList.contains('active')).dataset.variant, variant);
+            assert.strictEqual(body.querySelector('.preview-text').textContent, variant === 'preprocessed' ? 'value\n2\n' : 'value\n1\n');
+            assert.strictEqual(context.document.getElementById('file-preview-title').textContent, variant === 'preprocessed' ? 'data_preprocessed.csv' : 'data.csv');
+            assert.deepStrictEqual(requests.at(-1), ['preview-session', 0, 'preview', variant]);
+        }
+    }
+
+    context.App.currentSession.files = [{ original_filename: 'data.csv', mime_type: 'text/csv' }];
+    await context.App.previewFile(0);
+    assert.strictEqual(context.document.getElementById('file-preview-body').querySelectorAll('.file-preview-tab').length, 0);
+}
+
+checkFilePreviews().then(() => process.stdout.write('ok')).catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+});

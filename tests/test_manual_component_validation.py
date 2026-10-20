@@ -2,7 +2,7 @@ import unittest
 
 from fastapi import HTTPException
 
-from app.main import validate_component_code
+from app.services.web_helpers import validate_component_code
 
 
 class ManualComponentValidationTests(unittest.TestCase):

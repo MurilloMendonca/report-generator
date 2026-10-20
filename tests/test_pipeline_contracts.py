@@ -8,13 +8,12 @@ from app.services.pipeline_service import (
     _advance_render_modes_after_failure,
     _apply_binding_warning_render_fallbacks,
     _failed_components_from_manifest,
-    is_visual_label_refinement,
     run_pipeline,
     run_script_generation,
-    should_consider_data_filter,
 )
-from app.services.session_manager import create_session, get_session, get_session_path, get_session_lock_path
+from app.services.session_manager import delete_session, get_session
 from app.utils.template_library import get_layout_template
+from tests.auth_helpers import create_session
 
 
 class PipelineContractTests(unittest.TestCase):
@@ -24,9 +23,7 @@ class PipelineContractTests(unittest.TestCase):
 
     def tearDown(self):
         for job_id in self.job_ids:
-            for path in [get_session_path(job_id), get_session_lock_path(job_id)]:
-                if os.path.exists(path):
-                    os.remove(path)
+            delete_session(job_id)
         for path in self.created_paths:
             if os.path.exists(path):
                 os.remove(path)
@@ -35,15 +32,6 @@ class PipelineContractTests(unittest.TestCase):
         job_id = f"test-contract-{uuid.uuid4().hex}"
         self.job_ids.append(job_id)
         return job_id
-
-    def test_friendly_label_feedback_is_visual_not_data_preprocessing(self):
-        prompt = (
-            'Troque o nome das legendas dos gráficos por nomes mais amigáveis, '
-            'por exemplo base_stat_total por Total de Stats Base'
-        )
-
-        self.assertTrue(is_visual_label_refinement(prompt))
-        self.assertFalse(should_consider_data_filter(prompt))
 
     def test_binding_warning_advances_library_to_hybrid(self):
         artifacts = [{
@@ -189,7 +177,8 @@ class PipelineContractTests(unittest.TestCase):
                 f"    pdf.cell(w, 8, {component_id!r})"
             )
 
-        with patch("app.services.pipeline_service.generate_artifacts", return_value=artifacts), \
+        with patch("app.services.pipeline_service.generate_data_filter", return_value={"needs_preprocessing": False, "description": "", "code": ""}) as preprocessing, \
+             patch("app.services.pipeline_service.generate_artifacts", return_value=artifacts), \
              patch("app.services.pipeline_service.generate_report_title", return_value="Título Contrato"), \
              patch("app.services.pipeline_service.calculate_metric_value", return_value=123.45), \
              patch("app.services.pipeline_service.generate_template", return_value=template), \
@@ -199,9 +188,12 @@ class PipelineContractTests(unittest.TestCase):
              patch("app.services.pipeline_service.validate_report_plan", side_effect=lambda plan, *args, **kwargs: (plan, [])), \
              patch("app.services.pipeline_service.fit_artifacts_to_template", side_effect=lambda items, *_args, **_kwargs: items):
             run_pipeline(job_id)
+            run_pipeline(job_id)
+            preprocessing.assert_called_once()
 
         session = get_session(job_id)
         self.assertEqual(session["current_step"], "completed")
+        self.assertTrue(session["data_preprocessing"]["evaluated"])
         self.assertTrue(session["status"].startswith("Relatório concluído"))
         self.assertEqual(session["settings"]["title"], "Título Contrato")
         self.assertIn("t_summary", session["components"])
@@ -211,8 +203,19 @@ class PipelineContractTests(unittest.TestCase):
         self.assertTrue(os.path.exists(f"{session['pdf_path']}.manifest.json"))
 
     def test_document_only_pipeline_uses_text_template_and_document_metrics(self):
+        self.check_document_only_pipeline(".pdf")
+
+    def test_txt_only_pipeline_uses_document_insights_and_text_template(self):
+        self.check_document_only_pipeline(".txt")
+
+    def test_txt_with_blank_excerpt_is_not_sent_to_pdf_reader(self):
+        self.check_document_only_pipeline(".txt", excerpt="   ")
+
+    def check_document_only_pipeline(self, extension, excerpt="O orçamento aprovado foi de 10 milhões de euros em 2024."):
         job_id = self.new_job_id()
-        upload_path = f"workspace/uploads/{uuid.uuid4().hex}.pdf"
+        filename = f"brief{extension}"
+        document_type = "text" if extension == ".txt" else "pdf"
+        upload_path = f"workspace/uploads/{uuid.uuid4().hex}{extension}"
         with open(upload_path, "wb") as f:
             f.write(b"%PDF-1.3\n% test\n")
         self.created_paths.append(upload_path)
@@ -222,20 +225,20 @@ class PipelineContractTests(unittest.TestCase):
             "initial_prompt": "Resuma o documento e destaque métricas relevantes",
             "current_goal": "Resuma o documento e destaque métricas relevantes",
             "files": [{
-                "original_filename": "brief.pdf",
+                "original_filename": filename,
                 "path": upload_path,
                 "raw_artifact": {
-                    "filename": "brief.pdf",
-                    "type": "pdf",
+                    "filename": filename,
+                    "type": document_type,
                     "pages": 1,
-                    "text_excerpt": "O orçamento aprovado foi de 10 milhões de euros em 2024.",
+                    "text_excerpt": excerpt,
                     "text_preview": ["O orçamento aprovado foi de 10 milhões de euros em 2024."],
                 },
                 "artifact": {
-                    "filename": "brief.pdf",
-                    "type": "pdf",
+                    "filename": filename,
+                    "type": document_type,
                     "pages": 1,
-                    "text_excerpt": "O orçamento aprovado foi de 10 milhões de euros em 2024.",
+                    "text_excerpt": excerpt,
                     "text_preview": ["O orçamento aprovado foi de 10 milhões de euros em 2024."],
                 },
             }],
@@ -281,14 +284,15 @@ class PipelineContractTests(unittest.TestCase):
                 "value": 10,
                 "unit": "milhões de euros",
                 "period": "2024",
-                "source": "brief.pdf",
+                "source": filename,
                 "confidence": "high",
                 "evidence": "orçamento aprovado foi de 10 milhões de euros em 2024",
             }],
             "warnings": [],
         }
 
-        with patch("app.services.pipeline_service.generate_document_insights", return_value=insights), \
+        with patch("app.services.pipeline_service.generate_document_insights", return_value=insights) as extract_text, \
+             patch("app.services.pipeline_service.generate_document_insights_from_pdf_file") as extract_pdf, \
              patch("app.services.pipeline_service.generate_artifacts", return_value=artifacts), \
              patch("app.services.pipeline_service.generate_report_title", return_value="Relatório Documental"), \
              patch("app.services.pipeline_service.generate_all_texts", return_value=text_map), \
@@ -296,10 +300,13 @@ class PipelineContractTests(unittest.TestCase):
              patch("app.services.pipeline_service.validate_report_plan", side_effect=lambda plan, *args, **kwargs: (plan, [])):
             run_pipeline(job_id)
 
+        extract_text.assert_called_once()
+        extract_pdf.assert_not_called()
         session = get_session(job_id)
         self.assertEqual(session["current_step"], "completed")
         self.assertEqual(session["settings"]["selected_template_id"], "document_text_only")
         self.assertEqual(session["calculated_metrics"]["m_budget"]["source_type"], "document")
+        self.assertEqual(session["document_insights"][filename]["extraction_source"], "extracted_text")
 
     def test_document_only_pipeline_sends_unusable_pdf_to_document_model(self):
         job_id = self.new_job_id()
@@ -457,7 +464,7 @@ class PipelineContractTests(unittest.TestCase):
 
         session = get_session(job_id)
         artifact = next(item for item in session["artifacts"] if item["id"] == "g_top_pokemon_table")
-        self.assertEqual(artifact["data_binding"]["roles"]["dimensions"], "name")
+        self.assertEqual(artifact["data_binding"]["roles"]["dimensions"], ["name", "type_1"])
         self.assertEqual(artifact["data_binding"]["roles"]["metrics"], "base_stat_total")
         self.assertEqual(artifact["visual_warnings"], [])
         self.assertIn("from pdf_report_renderers.runtime import", session["script"])

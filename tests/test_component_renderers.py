@@ -6,7 +6,7 @@ import uuid
 import pandas as pd
 
 from app.services.executor_service import execute_script
-from app.services.llm_service import assemble_script
+from app.services.llm.script import assemble_script
 from app.utils.component_library import list_presets
 from app.utils.component_renderers import (
     library_component_code,

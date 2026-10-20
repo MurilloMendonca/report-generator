@@ -1,0 +1,62 @@
+# Used only by scripts/load-check.sh, with a unique Compose project per run.
+# No production volumes, credentials, published ports or external networks.
+services:
+  load-check:
+    image: repgen-load-check:local
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    command: ["python", "-m", "tests.load_check", "--users", "${REPGEN_LOAD_USERS:-10}"]
+    environment:
+      APP_ENV: test
+      TEST_DATABASE_URL: postgresql+psycopg://repgen:load-check-only@load-postgres:5432/repgen_load_test
+      PDF_REPORT_AUTO_MIGRATE: "1"
+      PDF_REPORT_REQUIRE_BWRAP: "1"
+      PDF_REPORT_ALLOW_UNSAFE_SANDBOX: "0"
+      MPLBACKEND: Agg
+      MPLCONFIGDIR: /tmp/matplotlib
+      PDF_REPORT_MAX_CONCURRENT_JOBS: ${PDF_REPORT_MAX_CONCURRENT_JOBS:-2}
+      PDF_REPORT_MAX_JOBS_PER_USER: ${PDF_REPORT_MAX_JOBS_PER_USER:-1}
+      PDF_REPORT_DB_POOL_SIZE: ${PDF_REPORT_DB_POOL_SIZE:-10}
+      PDF_REPORT_DB_MAX_OVERFLOW: ${PDF_REPORT_DB_MAX_OVERFLOW:-10}
+    volumes:
+      - ./tests:/app/tests:ro
+      - load-workspace:/app/workspace
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=unconfined
+      - apparmor=unconfined
+    depends_on:
+      load-postgres:
+        condition: service_healthy
+
+  load-postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: repgen
+      POSTGRES_PASSWORD: load-check-only
+      POSTGRES_DB: repgen_load_test
+    volumes:
+      - load-postgres-data:/var/lib/postgresql/data
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U repgen -d repgen_load_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  load-workspace:
+  load-postgres-data:
+
+networks:
+  default:
+    internal: true

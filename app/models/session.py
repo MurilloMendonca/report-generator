@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from app.utils.model_config import DEFAULT_PROVIDER, current_model_name
 
 
 CURRENT_SESSION_SCHEMA_VERSION = 1
@@ -74,6 +75,7 @@ class DataFilterState(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     needs_filter: bool = False
+    evaluated: bool = False
     needs_preprocessing: bool = False
     description: str = ""
     code: str = ""
@@ -105,13 +107,17 @@ class ReportSession(BaseModel):
     run_history: list[dict[str, Any]] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
     files: list[SessionFile] = Field(default_factory=list)
+    source_import: dict[str, Any] = Field(default_factory=dict)
+    source_snapshot_history: list[dict[str, Any]] = Field(default_factory=list)
     initial_prompt: str = ""
     current_goal: str = ""
     is_exploratory: bool = False
     refinement_history: list[str] = Field(default_factory=list)
     refinement_messages: list[dict[str, Any]] = Field(default_factory=list)
+    pending_refinement: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     artifact_validation: list[dict[str, Any]] = Field(default_factory=list)
+    render_summary: dict[str, Any] = Field(default_factory=dict)
     template: list[dict[str, Any]] = Field(default_factory=list)
     components: dict[str, str] = Field(default_factory=dict)
     calculated_metrics: dict[str, Any] = Field(default_factory=dict)
@@ -122,8 +128,9 @@ class ReportSession(BaseModel):
     script: str = ""
     script_path: str | None = None
     pdf_path: str | None = None
-    provider: str = "deepseek"
-    model_name: str = "deepseek-v4-flash"
+    storage_dir: str | None = None  # per-report folder; absent on legacy sessions
+    provider: str = DEFAULT_PROVIDER
+    model_name: str = ""
     data_filter: DataFilterState = Field(default_factory=DataFilterState)
     data_preprocessing: DataFilterState = Field(default_factory=DataFilterState)
     pdf_version: int = 0
@@ -163,6 +170,9 @@ class ReportSession(BaseModel):
     @model_validator(mode="after")
     def migrate_session(self):
         self.schema_version = CURRENT_SESSION_SCHEMA_VERSION
+        for artifact in self.artifacts:
+            if artifact.get('id') in self.components and artifact.get('type') not in {'metric', 'text'} and not artifact.get('render_mode'):
+                artifact['render_mode'] = 'generated_code'
         if not self.current_goal:
             self.current_goal = self.initial_prompt
         if not self.refinement_messages and self.refinement_history:
@@ -172,9 +182,8 @@ class ReportSession(BaseModel):
                 if str(item).strip()
             ]
         if not self.provider:
-            self.provider = "deepseek"
-        if not self.model_name:
-            self.model_name = "deepseek-v4-flash"
+            self.provider = DEFAULT_PROVIDER
+        self.model_name = current_model_name(self.provider, self.model_name)
         self.run_sequence = int(self.run_sequence or 0)
         self.active_run_id = int(self.active_run_id or 0)
         if not self.active_run_source and self.active_run_id:
