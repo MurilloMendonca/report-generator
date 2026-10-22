@@ -6,6 +6,7 @@ import time
 
 from app.utils.layout import normalize_template
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
+from app.utils.pdf_text import narrative_measurement
 from app.services.llm import client
 from app.services.llm.client import llm_operation_context
 from app.services.llm.components import slot_by_artifact_id
@@ -23,7 +24,7 @@ def text_layout_guidance(text_artifacts: list, template: list, settings: dict = 
         block = blocks_by_id.get(artifact_id)
         if not block:
             continue
-        capacity = estimate_text_block_capacity(block, settings)
+        capacity = estimate_text_block_capacity(block, settings, artifact.get('indicator'))
         guidance.append({
             "id": artifact_id,
             "indicator": artifact.get("indicator", artifact_id),
@@ -107,17 +108,13 @@ def generate_all_texts(
         return {}
 
 
-def estimate_text_block_capacity(block: dict, settings: dict = None) -> dict:
-    settings = settings or {}
-    font_size = settings.get("font_size", 10) or 10
-    line_height = settings.get("line_height", 5) or 5
-    title_reserve = 6 if (block.get("h") or 0) < 55 else 7
-    body_height = max(1, (block.get("h") or 0) - title_reserve)
-    chars_per_line = max(18, int((block.get("w") or 0) * 0.62 * (10 / font_size)))
-    max_lines = max(1, int(body_height / max(line_height, 1)))
+def estimate_text_block_capacity(block: dict, settings: dict = None, title: str | None = None) -> dict:
+    measured = narrative_measurement('', block, settings, title)
+    chars_per_line = measured['chars_per_line']
+    max_lines = max(1, measured['max_lines'])
     raw_words = chars_per_line * max_lines / 6.2
-    target_words = max(24, int(raw_words * 0.92))
-    soft_max_words = max(target_words + 8, int(raw_words * 1.08))
+    target_words = max(1, int(raw_words * 0.92))
+    soft_max_words = max(target_words + 1, int(raw_words * 1.08))
     return {
         "chars_per_line": chars_per_line,
         "max_lines": max_lines,
@@ -145,8 +142,8 @@ def condense_texts_to_fit(texts_map: dict, text_artifacts: list, template: list,
             text = texts_map.get(artifact_id)
             if not block or not text:
                 continue
-            capacity = estimate_text_block_capacity(block, settings)
-            lines = estimated_line_count(text, capacity["chars_per_line"])
+            capacity = estimate_text_block_capacity(block, settings, artifact.get('indicator'))
+            lines = narrative_measurement(text, block, settings, artifact.get('indicator'))['body_lines']
             overflow_threshold = max(capacity["max_lines"] + 1, int(capacity["max_lines"] * 1.18))
             if lines > overflow_threshold:
                 overflow_items.append({

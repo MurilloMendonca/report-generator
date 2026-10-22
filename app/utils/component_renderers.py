@@ -61,6 +61,8 @@ def runtime_api_prompt_reference(preset_id: str | None = None) -> str:
     - Keep generated code small. Do not paste runtime helper bodies into the component function.
     - If the standard helper is close, prepare/transform `options`, `artifact`, or a small dataframe and call the helper.
     - For translated or friendly labels, prefer `artifact["visual_options"]["labels"]`; do not rename dataframe columns just to change axis labels, legends, or table headers.
+    - Render tables through `_render_table_image(...)` after any data transformations. It measures and wraps headers/cells, allocates column widths and row heights, and keeps text inside the layout slot. Do not recreate tables with equal-width cells or truncate labels by character count.
+    - Other chart helpers measure titles, legends, ticks, annotations and central values. Preserve full category names and identities; display fitting must never merge categories. Custom charts should finish with `_save_chart_to_pdf(...)`, preserving the figure aspect ratio without tight-bbox cropping.
     - For `render_mode: "library"` adapters that truly need data transformation, copy the needed dataframe, update `artifact`/`dataframes` consistently, and call `render_visual_component(...)`.
     - If the user explicitly asks for a custom table/chart, use runtime helper behavior as the base and override only the specific visual detail.
     """).strip()
@@ -138,6 +140,10 @@ def sandbox_runtime_source() -> str:
     from app.utils.component_library import COMPONENT_PRESETS, VISUAL_THEMES, CHART_STYLES
 
     contracts = Path(__file__).with_name("visual_contracts.py").read_text(encoding="utf-8")
+    fitting_helpers = "\n\n".join(
+        Path(__file__).with_name(filename).read_text(encoding="utf-8")
+        for filename in ("chart_layout.py", "pdf_text.py")
+    )
     catalog = (f"\nVISUAL_THEMES = {VISUAL_THEMES!r}\nCHART_STYLES = {CHART_STYLES!r}\n"
                f"PRESET_ROLES = { {key: value['data_roles'] for key, value in COMPONENT_PRESETS.items()}!r}\n"
                f"PRESET_OPTIONS = { {key: value['default_options'] for key, value in COMPONENT_PRESETS.items()}!r}\n")
@@ -334,6 +340,8 @@ def sandbox_runtime_source() -> str:
 
     def _save_chart_to_pdf(fig, pdf, x, y, w, h):
         _apply_chart_theme(fig)
+        if len(fig.axes) == 1 and not fig.axes[0].tables and not getattr(fig, '_report_fitted', False):
+            _fit_chart_layout(fig, fig.axes[0], w, h)
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
             try:
                 fig.savefig(tmp.name, dpi=300)
@@ -354,23 +362,23 @@ def sandbox_runtime_source() -> str:
         except Exception:
             pass
         lines = textwrap.wrap(clean, width=width) or [clean]
+        if len(lines) > 2:
+            lines[1] = lines[1].rstrip(' .') + '…'
         return '\n'.join(lines[:2])
 
 
     def _set_axis_chart_title(ax, title, w=None):
-        wrapped = _wrapped_chart_title(title, w)
-        if not wrapped:
+        if not str(title or '').strip():
             return 0
-        line_count = wrapped.count('\n') + 1
         ax.set_title(
-            wrapped,
+            str(title),
             loc='center',
             pad=CHART_TITLE_PAD,
             fontsize=CHART_TITLE_FONTSIZE,
             fontweight=CHART_TITLE_FONTWEIGHT,
             color=CHART_THEME.get('text_color', '#111827'),
         )
-        return line_count
+        return 1
 
 
     def _chart_top_margin(title_lines):
@@ -388,9 +396,13 @@ def sandbox_runtime_source() -> str:
 
 
     def _draw_table_title(fig, title, w=None):
-        wrapped = _wrapped_chart_title(title, w)
-        if not wrapped:
+        if not str(title or '').strip():
             return 0
+        renderer = fig.canvas.get_renderer()
+        measure = _table_text_measurer(fig, renderer, CHART_TITLE_FONTSIZE, CHART_TITLE_FONTWEIGHT)
+        wrapped, shortened = _wrap_table_text(title, fig.bbox.width * 0.94, measure, 2)
+        if shortened:
+            _COMPONENT_OUTCOME.setdefault('warnings', []).append('Table title was shortened with an ellipsis to fit the layout slot')
         line_count = wrapped.count('\n') + 1
         fig.text(
             0.5,
@@ -401,8 +413,106 @@ def sandbox_runtime_source() -> str:
             fontsize=CHART_TITLE_FONTSIZE,
             fontweight=CHART_TITLE_FONTWEIGHT,
             color=CHART_THEME.get('text_color', '#111827'),
+            usetex=False,
+            parse_math=False,
         )
         return line_count
+
+
+    def _table_text_measurer(fig, renderer, font_size, weight='normal'):
+        from matplotlib.text import Text
+        probe = Text(fontsize=font_size, fontweight=weight, usetex=False, parse_math=False)
+        probe.set_figure(fig)
+        cache = {}
+
+        def measure(value):
+            if value not in cache:
+                probe.set_text(value)
+                bounds = probe.get_window_extent(renderer)
+                cache[value] = (bounds.width, bounds.height)
+            return cache[value]
+        return measure
+
+
+    def _wrap_table_text(value, width, measure, max_lines=32):
+        original = str(value)
+        lines = []
+        stopped = False
+
+        def prefix_length(text, available):
+            low, high = 0, len(text)
+            while low < high:
+                middle = (low + high + 1) // 2
+                if measure(text[:middle])[0] <= available:
+                    low = middle
+                else:
+                    high = middle - 1
+            return low
+
+        # Bound work for arbitrary uploaded strings; any omission is marked visibly.
+        for paragraph in original[:4096].replace('\r\n', '\n').replace('\r', '\n').split('\n'):
+            line = ''
+            for word in paragraph.split():
+                while word:
+                    candidate = f'{line} {word}' if line else word
+                    if measure(candidate)[0] <= width:
+                        line = candidate
+                        break
+                    if line:
+                        lines.append(line)
+                        line = ''
+                    else:
+                        count = max(1, prefix_length(word, width))
+                        lines.append(word[:count])
+                        word = word[count:]
+                    if len(lines) >= max_lines:
+                        stopped = True
+                        break
+                if stopped:
+                    break
+            if stopped:
+                break
+            lines.append(line)
+            if len(lines) > max_lines:
+                stopped = True
+                break
+        shortened = stopped or len(original) > 4096
+        lines = lines[:max_lines] or ['']
+        if shortened:
+            last = lines[-1].rstrip()
+            lines[-1] = last[:prefix_length(last, max(0, width - measure('…')[0]))].rstrip() + '…'
+        return '\n'.join(lines), shortened
+
+
+    def _table_cell_layout(fig, renderer, grid, numeric, width, font_size, body_lines=32, header_lines=32):
+        regular = _table_text_measurer(fig, renderer, font_size)
+        bold = _table_text_measurer(fig, renderer, font_size, 'bold')
+        padding = renderer.points_to_pixels(2)
+        minimum, demand = [], []
+        for column in range(len(grid[0])):
+            measurements = [bold if row == 0 else regular for row in range(len(grid))]
+            widths = [max((measure(line)[0] for line in grid[row][column][:4096].split('\n')), default=0)
+                      for row, measure in enumerate(measurements)]
+            number_width = max((widths[row] for row in range(1, len(grid)) if numeric[row][column]), default=0)
+            minimum.append(max(renderer.points_to_pixels(12), number_width) + 2 * padding)
+            demand.append(max(widths))
+        minimum = np.array(minimum)
+        if minimum.sum() > width:
+            return None
+        weights = np.sqrt(np.maximum(np.minimum(demand, width) - minimum, 1))
+        widths = minimum + (width - minimum.sum()) * weights / weights.sum()
+        wrapped, heights, shortened = [], [], False
+        for row, values in enumerate(grid):
+            measure = bold if row == 0 else regular
+            cells = []
+            for column, value in enumerate(values):
+                text, omitted = _wrap_table_text(value, widths[column] - 2 * padding, measure, header_lines if row == 0 else body_lines)
+                cells.append(text)
+                shortened = shortened or omitted
+            wrapped.append(cells)
+            heights.append(max(measure('Ag')[1], *(measure(text)[1] for text in cells)) + 2 * padding)
+        return {'text': wrapped, 'widths': widths, 'heights': heights, 'font_size': font_size,
+                'shortened': shortened, 'padding': padding}
 
 
     def _render_table_image(pdf, dataframe, x, y, w, h, title=None, theme=None, options=None):
@@ -419,15 +529,17 @@ def sandbox_runtime_source() -> str:
         if options.get('show_totals') and len(df) > max_rows:
             df = pd.concat([df.head(max_rows - 1), df.tail(1)])
         df = df.iloc[:max_rows, :max_cols]
-        df = df.fillna('')
-        for column in df.columns:
-            df[column] = df[column].map(
-                lambda value: _format_visual_number(value, options)
-                if isinstance(value, (int, float, np.integer, np.floating))
-                else str(value)[:42]
-            )
-        fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4))
+        numeric = [[False] * len(df.columns)]
+        grid = [[str(column) for column in df.columns]]
+        for values in df.itertuples(index=False, name=None):
+            missing = [bool(pd.isna(value)) if pd.api.types.is_scalar(value) else False for value in values]
+            numbers = [isinstance(value, (int, float, np.integer, np.floating)) and not absent for value, absent in zip(values, missing)]
+            grid.append([_format_visual_number(value, options) if number else '' if absent else str(value)
+                         for value, number, absent in zip(values, numbers, missing)])
+            numeric.append(numbers)
+        fig, ax = plt.subplots(figsize=(w / 25.4, h / 25.4), dpi=300)
         ax.axis('off')
+        fig.subplots_adjust(left=0.02, right=0.98, top=_table_top_margin(0), bottom=0.02)
         title_lines = _draw_table_title(fig, title, w)
         if df.empty:
             _COMPONENT_OUTCOME.update(status='empty', message='No rows available for the table')
@@ -435,17 +547,65 @@ def sandbox_runtime_source() -> str:
             _save_chart_to_pdf(fig, pdf, x, y, w, h)
             return
         table_bbox = _table_bbox_for_title(title_lines)
+        renderer = fig.canvas.get_renderer()
+        axes_bounds = ax.get_window_extent(renderer)
+        if title_lines:
+            title_bottom = fig.texts[-1].get_window_extent(renderer).y0 - renderer.points_to_pixels(3)
+            table_bbox[3] = max(0, (title_bottom - axes_bounds.y0) / axes_bounds.height - table_bbox[1])
+        width = axes_bounds.width * table_bbox[2]
+        height = axes_bounds.height * table_bbox[3]
+        min_font = 4.5
+        # Numeric values stay intact; if necessary reduce visible columns instead of cutting digits.
+        while len(grid[0]) > 1 and _table_cell_layout(fig, renderer, grid, numeric, width, min_font) is None:
+            grid = [row[:-1] for row in grid]
+            numeric = [row[:-1] for row in numeric]
+        layout = None
+        for font_size in np.arange(max(min_font, CHART_TABLE_FONTSIZE), min_font - 0.01, -0.5):
+            layout = _table_cell_layout(fig, renderer, grid, numeric, width, font_size)
+            if layout and sum(layout['heights']) <= height:
+                break
+        else:
+            for body_lines, header_lines in ((3, 3), (2, 3), (1, 3), (1, 2), (1, 1)):
+                layout = _table_cell_layout(fig, renderer, grid, numeric, width, min_font, body_lines, header_lines)
+                if layout and sum(layout['heights']) <= height:
+                    break
+            else:
+                while len(grid) > (3 if options.get('show_totals') else 2):
+                    index = -2 if options.get('show_totals') else -1
+                    grid.pop(index)
+                    numeric.pop(index)
+                    layout = _table_cell_layout(fig, renderer, grid, numeric, width, min_font, 1, 1)
+                    if layout and sum(layout['heights']) <= height:
+                        break
+        if not layout or sum(layout['heights']) > height:
+            _COMPONENT_OUTCOME.update(status='empty', code='layout_too_small', message='Table slot is too small; enlarge it or select fewer columns')
+            ax.text(0.5, 0.4, 'Amplie a tabela', ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE, clip_on=True)
+            _save_chart_to_pdf(fig, pdf, x, y, w, h)
+            return
+        if len(grid) - 1 < len(df) or len(grid[0]) < len(df.columns):
+            warning = 'Table rows or columns were limited to fit the layout slot'
+            if warning not in _COMPONENT_OUTCOME.setdefault('warnings', []):
+                _COMPONENT_OUTCOME['warnings'].append(warning)
+        if layout['shortened']:
+            _COMPONENT_OUTCOME.setdefault('warnings', []).append('Table text was shortened with ellipses to fit the layout slot')
         table = ax.table(
-            cellText=df.values,
-            colLabels=[str(c)[:28] for c in df.columns],
+            cellText=layout['text'][1:],
+            colLabels=layout['text'][0],
+            colWidths=layout['widths'] / axes_bounds.width,
             cellLoc='center',
             loc='upper center',
             bbox=table_bbox,
         )
         table.auto_set_font_size(False)
-        font_size = max(4, CHART_TABLE_FONTSIZE - (1 if h < 65 else 0) - (1 if len(df.columns) > 5 else 0))
-        table.set_fontsize(font_size)
+        table.set_fontsize(layout['font_size'])
         for (row, col), cell in table.get_celld().items():
+            cell.set_height(layout['heights'][row] / axes_bounds.height)
+            cell.PAD = layout['padding'] / layout['widths'][col]
+            cell.get_text().set_usetex(False)
+            cell.get_text().set_parse_math(False)
+            cell.get_text().set_fontweight('bold' if row == 0 else 'normal')
+            cell.get_text().set_clip_path(cell)
+            cell.get_text().set_clip_on(True)
             cell.set_edgecolor(table_theme.get('border', '#d1d5db'))
             cell.set_linewidth(0.4)
             if row == 0:
@@ -455,7 +615,6 @@ def sandbox_runtime_source() -> str:
             else:
                 cell.set_facecolor(table_theme.get('alt_row_bg', '#f9fafb') if options.get('striped_rows', True) and row % 2 == 0 else table_theme.get('row_bg', '#ffffff'))
                 cell.get_text().set_color(theme.get('text_color', '#111827'))
-        fig.subplots_adjust(left=0.02, right=0.98, top=_table_top_margin(title_lines), bottom=0.02)
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
 
@@ -519,7 +678,7 @@ def sandbox_runtime_source() -> str:
         Axes.legend = legend
         plt.legend = plt_legend
         _STANDARD_CHART_STYLE_INSTALLED = True
-    """).strip() + "\n\n" + library_renderer_source() + "\n"
+    """).strip() + "\n\n" + fitting_helpers + "\n\n" + library_renderer_source() + "\n"
 
 
 def library_renderer_source() -> str:
@@ -708,7 +867,7 @@ def library_renderer_source() -> str:
 
     def _library_empty_chart(pdf, x, y, w, h, title=None, message='Dados indisponiveis'):
         _COMPONENT_OUTCOME.update(status='empty', message=str(message))
-        fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
+        fig, ax = plt.subplots(figsize=(max(w, 1) / 25.4, max(h, 1) / 25.4))
         ax.axis('off')
         title_lines = _set_axis_chart_title(ax, title, w)
         ax.text(0.5, 0.5, str(message), ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE, color=CHART_THEME.get('muted_text_color', '#6b7280'))
@@ -785,7 +944,7 @@ def library_renderer_source() -> str:
         show_values = bool(options.get('show_values'))
         colors = _chart_colors(12)
         single_color = options.get('bar_color') or options.get('color')
-        fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
+        fig, ax = plt.subplots(figsize=(max(w, 1) / 25.4, max(h, 1) / 25.4))
 
         if series_col:
             grouped = _library_aggregate(df, [category_col, series_col], value_col, aggregation)
@@ -808,7 +967,8 @@ def library_renderer_source() -> str:
             grouped = selected
             pivot = grouped.pivot_table(index=category_col, columns=series_col, values=value_col, aggfunc='sum', fill_value=0)
             pivot = pivot.reindex(categories)
-            pivot.plot(kind='barh' if orientation == 'horizontal' else 'bar', ax=ax, color=[single_color] * len(pivot.columns) if single_color else _chart_colors(len(pivot.columns)))
+            pivot.plot(kind='barh' if orientation == 'horizontal' else 'bar', ax=ax, edgecolor='none', linewidth=0,
+                       color=[single_color] * len(pivot.columns) if single_color else _chart_colors(len(pivot.columns)))
             if orientation == 'horizontal':
                 ax.invert_yaxis()
             if show_values:
@@ -820,28 +980,30 @@ def library_renderer_source() -> str:
                     for bar in container:
                         bar.set_hatch(hatches[index % len(hatches)])
                         bar.set_edgecolor('#111111')
-                        bar.set_linewidth(0.6)
+                        bar.set_linewidth(0.3)
             category_label = _library_display_label(category_col, options)
             ax.set_xlabel(measure_label if orientation == 'horizontal' else category_label)
-            ax.set_ylabel(category_label if orientation == 'horizontal' else measure_label)
+            ax.set_ylabel(category_label if orientation == 'horizontal' and w >= 100 else measure_label if orientation != 'horizontal' else '')
             ax.legend(title=options.get('legend_title') or _library_display_label(series_col, options), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
-            ax.tick_params(axis='x', rotation=30)
+            ax.tick_params(axis='x', rotation=0)
         else:
             grouped = _library_aggregate(df, [category_col], value_col, aggregation)
             grouped = _library_limit_top(grouped, value_col, top_n, bool(options.get('aggregate_others')) and aggregation in {'sum', 'count'}, category_col, options.get('sort', 'desc'))
             if grouped.empty:
                 _library_empty_chart(pdf, x, y, w, h, title)
                 return
-            labels = [str(item)[:32] for item in grouped[category_col].fillna('')]
+            labels = [str(item) for item in grouped[category_col].fillna('')]
             values = grouped[value_col].fillna(0).tolist()
+            positions = np.arange(len(labels))
             if orientation == 'vertical':
-                bars = ax.bar(labels, values, color=single_color or colors[: len(values)])
-                ax.tick_params(axis='x', rotation=30)
+                bars = ax.bar(positions, values, color=single_color or colors[: len(values)], edgecolor='none', linewidth=0)
+                ax.set_xticks(positions, labels)
                 ax.set_ylabel(measure_label)
                 if show_values:
                     ax.bar_label(bars, labels=[_format_visual_number(v, options) for v in values], padding=2, fontsize=CHART_LABEL_FONTSIZE)
             else:
-                bars = ax.barh(labels, values, color=single_color or colors[: len(values)])
+                bars = ax.barh(positions, values, color=single_color or colors[: len(values)], edgecolor='none', linewidth=0)
+                ax.set_yticks(positions, labels)
                 ax.invert_yaxis()
                 ax.set_xlabel(measure_label)
                 if show_values:
@@ -851,8 +1013,10 @@ def library_renderer_source() -> str:
             axis = ax.yaxis if orientation == 'vertical' else ax.xaxis
             axis.set_major_formatter(mpl.ticker.FuncFormatter(lambda value, _pos: _format_visual_number(value, options)))
 
-        title_lines = _set_axis_chart_title(ax, title, w)
-        fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
+        ax.margins(**({'y': 0.2} if orientation == 'vertical' else {'x': 0.2}))
+        _set_axis_chart_title(ax, title, w)
+        _fit_chart_layout(fig, ax, w, h, category_axis='x' if orientation == 'vertical' else 'y',
+                          category_labels=[str(item) for item in pivot.index] if series_col else labels)
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def render_line_chart(pdf, dataframes, x, y, w, h, *, date, value, source=None, series=None, title=None, options=None):
@@ -894,7 +1058,7 @@ def library_renderer_source() -> str:
         if work.empty:
             _library_empty_chart(pdf, x, y, w, h, title)
             return
-        fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
+        fig, ax = plt.subplots(figsize=(max(w, 1) / 25.4, max(h, 1) / 25.4))
         marker = 'o' if options.get('show_markers', True) else None
         if series_col:
             grouped = work.groupby([date_col, series_col], dropna=False)[value_col].agg(aggregation).reset_index()
@@ -925,6 +1089,8 @@ def library_renderer_source() -> str:
         if options.get('show_values'):
             for line in ax.lines:
                 for point_x, point_y in zip(line.get_xdata(), line.get_ydata()):
+                    if np.ma.is_masked(point_y) or pd.isna(point_y):
+                        continue
                     ax.annotate(_format_visual_number(point_y, options), (point_x, point_y), xytext=(0, 4), textcoords='offset points', ha='center', fontsize=CHART_LABEL_FONTSIZE)
         title_lines = _set_axis_chart_title(ax, title, w)
         if is_year_axis:
@@ -932,12 +1098,13 @@ def library_renderer_source() -> str:
             if len(year_ticks) <= 12:
                 ax.set_xticks(year_ticks)
             ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda x, _pos: f'{int(x)}' if float(x).is_integer() else ''))
-        ax.set_xlabel(date_label if not options.get('hide_x_label') else '')
+        ax.set_xlabel(date_label if not options.get('hide_x_label') and not (series_col and h < 65) else '')
         ax.set_ylabel(_library_measure_label(value_col, options, aggregation))
         if options.get('format'):
             ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda value, _pos: _format_visual_number(value, options)))
-        ax.tick_params(axis='x', rotation=30)
-        fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
+        ax.tick_params(axis='x', rotation=0)
+        ax.margins(y=0.2)
+        _fit_chart_layout(fig, ax, w, h)
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def render_scatter_plot(pdf, dataframes, x, y, w, h, *, x_value, y_value, source=None, color=None, title=None, options=None):
@@ -965,7 +1132,7 @@ def library_renderer_source() -> str:
         if work.empty:
             _library_empty_chart(pdf, x, y, w, h, title)
             return
-        fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
+        fig, ax = plt.subplots(figsize=(max(w, 1) / 25.4, max(h, 1) / 25.4))
         if color_col:
             work[color_col] = work[color_col].fillna('Sem categoria').astype(str)
             categories = list(work[color_col].unique())
@@ -984,7 +1151,7 @@ def library_renderer_source() -> str:
                 ax.scatter(subset[x_col], subset[y_col], s=24, alpha=0.85 if _monochrome_charts() else 0.72,
                            color=colors[index], marker=marker,
                            edgecolors='#111111' if _monochrome_charts() else 'none',
-                           linewidths=0.4, label=str(category)[:24])
+                           linewidths=0.4, label=str(category))
             ax.legend(title=options.get('legend_title'), loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=False)
         else:
             ax.scatter(work[x_col], work[y_col], s=24, alpha=0.72, color=options.get('color') or _chart_colors(1)[0])
@@ -1005,7 +1172,7 @@ def library_renderer_source() -> str:
         if options.get('format'):
             ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda value, _pos: _format_visual_number(value, options)))
             ax.yaxis.set_major_formatter(mpl.ticker.FuncFormatter(lambda value, _pos: _format_visual_number(value, options)))
-        fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
+        _fit_chart_layout(fig, ax, w, h)
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def render_donut_chart(pdf, dataframes, x, y, w, h, *, category, value, source=None, title=None, options=None):
@@ -1033,15 +1200,19 @@ def library_renderer_source() -> str:
         if grouped.empty:
             _library_empty_chart(pdf, x, y, w, h, title)
             return
-        labels = [str(item)[:24] for item in grouped[category_col].fillna('')]
+        labels = [str(item) for item in grouped[category_col].fillna('')]
         values = grouped[value_col].tolist()
-        fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
-        autopct = '%1.0f%%' if options.get('show_percent', True) else None
-        ax.pie(values, labels=labels, colors=_chart_colors(len(values)), startangle=90, autopct=autopct, wedgeprops={'width': 0.42, 'edgecolor': 'white'})
-        ax.text(0, 0, _format_visual_number(sum(values), options), ha='center', va='center', fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT)
+        fig, ax = plt.subplots(figsize=(max(w, 1) / 25.4, max(h, 1) / 25.4))
+        wedges, _ = ax.pie(values, colors=_chart_colors(len(values)), startangle=90, wedgeprops={'width': 0.42, 'edgecolor': 'white'})
+        if options.get('show_percent', True):
+            labels = [f'{label} · {number / sum(values):.1%}' for label, number in zip(labels, values)]
+        ax.legend(wedges, labels, frameon=False)
+        center = ax.text(0, 0, _format_visual_number(sum(values), options), ha='center', va='center', fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT)
         title_lines = _set_axis_chart_title(ax, title, w)
-        ax.axis('equal')
-        fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
+        ax.axis('off')
+        ax.set_aspect('equal', adjustable='box')
+        if _fit_chart_layout(fig, ax, w, h):
+            _fit_chart_value(fig, ax, center, 0.43, 0.3)
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def render_gauge_chart(pdf, dataframes, x, y, w, h, *, value, source=None, target=None, title=None, options=None):
@@ -1074,17 +1245,21 @@ def library_renderer_source() -> str:
             return
         ratio = float(actual) / maximum
         from matplotlib.patches import Wedge
-        fig, ax = plt.subplots(figsize=(max(w, 20) / 25.4, max(h, 20) / 25.4))
+        fig, ax = plt.subplots(figsize=(max(w, 1) / 25.4, max(h, 1) / 25.4))
         ax.set_xlim(-1.2, 1.2)
         ax.set_ylim(-0.2, 1.2)
         ax.axis('off')
+        ax.set_aspect('equal', adjustable='box')
         ax.add_patch(Wedge((0, 0), 1, 0, 180, width=0.28, facecolor=CHART_THEME.get('grid_color', '#e5e7eb'), edgecolor='white'))
         ax.add_patch(Wedge((0, 0), 1, 0, 180 * max(0, min(1, ratio)), width=0.28, facecolor=_chart_colors(1)[0], edgecolor='white'))
         label = f"{ratio * 100:.0f}%" if options.get('show_center_value', True) else _format_visual_number(actual, options)
-        ax.text(0, 0.2, label, ha='center', va='center', fontsize=max(11, CHART_TITLE_FONTSIZE + 4), fontweight='bold')
-        ax.text(0, -0.04, _format_visual_number(actual, options), ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE, color=CHART_THEME.get('muted_text_color', '#6b7280'))
+        center = ax.text(0, 0.2, label, ha='center', va='center', fontsize=max(11, CHART_TITLE_FONTSIZE + 4), fontweight='bold')
+        actual_label = _format_visual_number(actual, options)
+        footer = ax.text(0, -0.04, actual_label, ha='center', va='center', fontsize=CHART_LABEL_FONTSIZE, color=CHART_THEME.get('muted_text_color', '#6b7280')) if label != actual_label else None
         title_lines = _set_axis_chart_title(ax, title, w)
-        fig.tight_layout(pad=0.8, rect=(0, 0, 1, _chart_top_margin(title_lines) if title_lines else 1))
+        if _fit_chart_layout(fig, ax, w, h):
+            if _fit_chart_value(fig, ax, center) and footer is not None:
+                _fit_chart_value(fig, ax, footer, height_fraction=0.16)
         _save_chart_to_pdf(fig, pdf, x, y, w, h)
 
     def render_summary_table(pdf, dataframes, x, y, w, h, *, dimensions, metrics, source=None, title=None, options=None):

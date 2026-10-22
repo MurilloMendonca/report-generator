@@ -285,6 +285,9 @@ context.TemplateEditor.editor = new context.LayoutEditor(context.document.getEle
 
 const malicious = '<img src=x onerror=alert(1)><script>alert(2)</script>';
 
+assert.strictEqual(context.App.isRenderableIndicator({ id: 'total', type: 'metric' }, { components: { total: 'stale code' } }), false);
+assert.strictEqual(context.App.isRenderableIndicator({ id: 'total', type: 'metric', render_mode: 'library', component_preset_id: 'bar_ranked' }, {}), false);
+
 const recentSessions = context.document.getElementById('recent-sessions');
 context.UI.renderRecentSessions([{
     job_id: 'job-1',

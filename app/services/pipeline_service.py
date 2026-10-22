@@ -999,6 +999,17 @@ def run_execution(job_id: str, run_id: int | None = None):
             append_stage_event(job_id, "render", "end", status="ok", duration_ms=duration * 1000, provider=session.get('provider'), model_name=session.get('model_name'), details=render_summary)
             return
 
+        layout_ids = [item['id'] for item in manifest.get('components', []) if item.get('code') == 'layout_too_small']
+        if layout_ids:
+            set_session_stage(job_id, "failed", 100, {
+                "code": "layout_too_small", "message": "O espaço reservado é insuficiente para alguns componentes. Amplie os blocos no layout ou reduza as categorias e séries exibidas.",
+                "stage": "render", "retryable": False, "component_ids": layout_ids,
+            })
+            add_log(job_id, f"Componentes com espaço insuficiente: {', '.join(layout_ids)}")
+            append_stage_event(job_id, "render", "end", status="error", duration_ms=duration * 1000,
+                               provider=session.get('provider'), model_name=session.get('model_name'), details=render_summary)
+            return
+
         empty_ids = [item['id'] for item in manifest.get('components', []) if item.get('status') == 'empty']
         if empty_ids:
             set_session_stage(job_id, "failed", 100, {

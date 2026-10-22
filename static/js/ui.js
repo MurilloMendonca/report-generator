@@ -435,10 +435,10 @@ const UI = {
             editBtn.className = 'btn btn-outline';
             editBtn.style.padding = '4px 8px';
             editBtn.type = 'button';
-            editBtn.dataset.action = 'edit-indicator';
+            editBtn.dataset.action = type === 'metric' ? 'view-metric-data' : 'edit-indicator';
             editBtn.dataset.index = i;
-            editBtn.setAttribute('aria-label', `Editar componente ${art.indicator || ''}`);
-            editBtn.textContent = '✏️';
+            editBtn.setAttribute('aria-label', type === 'metric' ? `Ver resultado de ${art.indicator || 'métrica'}` : `Editar componente ${art.indicator || ''}`);
+            editBtn.textContent = type === 'metric' ? 'Ver em Métricas & Dados' : '✏️';
             actions.appendChild(editBtn);
 
             const deleteBtn = document.createElement('button');

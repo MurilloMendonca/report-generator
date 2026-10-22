@@ -434,5 +434,103 @@ def render_g_stats(pdf, dataframes, x, y, w, h, df=None):
         self.assertIn("_draw_table_title(fig, title, w)", source)
 
 
+class TableFittingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.runtime = {}
+        exec(sandbox_runtime_source(), cls.runtime)
+
+    def render_table(self, dataframe, width=90, height=55, title=None, options=None):
+        captured = []
+        self.runtime['_save_chart_to_pdf'] = lambda fig, *_args: captured.append(fig)
+        self.runtime['begin_component_render']('library')
+        self.runtime['_render_table_image'](object(), dataframe, 0, 0, width, height, title=title, options=options)
+        figure = captured[0]
+        self.addCleanup(self.runtime['plt'].close, figure)
+        figure.canvas.draw()
+        return figure, self.runtime['component_render_outcome']()
+
+    def assert_text_fits(self, figure):
+        renderer = figure.canvas.get_renderer()
+        table = figure.axes[0].tables[0]
+        for position, cell in table.get_celld().items():
+            with self.subTest(cell=position):
+                bounds = cell.get_window_extent(renderer)
+                text_bounds = cell.get_text().get_window_extent(renderer)
+                self.assertGreaterEqual(text_bounds.x0, bounds.x0 + 0.5)
+                self.assertLessEqual(text_bounds.x1, bounds.x1 - 0.5)
+                self.assertGreaterEqual(text_bounds.y0, bounds.y0 + 0.5)
+                self.assertLessEqual(text_bounds.y1, bounds.y1 - 0.5)
+        if figure.texts:
+            title_bounds = figure.texts[0].get_window_extent(renderer)
+            self.assertGreaterEqual(title_bounds.x0, 0)
+            self.assertLessEqual(title_bounds.x1, figure.bbox.width)
+            table_top = max(cell.get_window_extent(renderer).y1 for cell in table.get_celld().values())
+            self.assertLess(table_top, title_bounds.y0)
+
+    def test_long_headers_and_descriptions_wrap_inside_cells(self):
+        dataframe = pd.DataFrame({
+            'Departamento responsável pelo atendimento': ['Relacionamento com clientes corporativos', 'Operações e infraestrutura regional'],
+            'Descrição das ações recomendadas': ['Acompanhar os chamados e revisar o prazo de resposta com a equipe.', 'Definir responsáveis e monitorar as entregas semanais.'],
+            'Receita acumulada no período (R$)': [1234567.89, 98765.43],
+        })
+        original = dataframe.copy(deep=True)
+        figure, _ = self.render_table(dataframe, title='Resumo das recomendações e resultados por departamento')
+        self.assert_text_fits(figure)
+        headers = [cell.get_text().get_text() for (row, _), cell in figure.axes[0].tables[0].get_celld().items() if row == 0]
+        self.assertTrue(any('\n' in header for header in headers))
+        self.assertEqual(' '.join(headers[0].split()), dataframe.columns[0])
+        pd.testing.assert_frame_equal(dataframe, original)
+
+    def test_dense_table_limits_text_and_keeps_total(self):
+        dataframe = pd.DataFrame({
+            'Identificador do contrato': ['CONTRATO_' + 'W' * 180] * 8 + ['Total'],
+            'Observações': ['Descrição muito extensa ' * 70] * 8 + [''],
+            'Valor': list(range(8)) + [28],
+        })
+        figure, outcome = self.render_table(dataframe, width=75, height=36, title='Resultados detalhados', options={'show_totals': True})
+        self.assert_text_fits(figure)
+        texts = [cell.get_text().get_text() for cell in figure.axes[0].tables[0].get_celld().values()]
+        self.assertIn('Total', texts)
+        self.assertIn('28', texts)
+        self.assertTrue(any('…' in text for text in texts))
+        self.assertTrue(outcome['warnings'])
+
+    def test_headers_with_wide_letters_and_explicit_newlines_fit_at_export_dpi(self):
+        dataframe = pd.DataFrame({
+            'WWWWWWWWWWWWWWWWWWWWWWWWWW': ['ID_' + 'W' * 70],
+            'Prazo\nprevisto para conclusão': ['Concluir até sexta-feira\nResponsável: equipe técnica'],
+        })
+        figure, _ = self.render_table(dataframe, width=70, height=42, title='W' * 80)
+        for dpi in (100, 300):
+            with self.subTest(dpi=dpi):
+                figure.set_dpi(dpi)
+                figure.canvas.draw()
+                self.assert_text_fits(figure)
+
+    def test_formatted_numbers_and_literal_currency_are_preserved(self):
+        dataframe = pd.DataFrame({'Cliente / contrato': ['$250.00$', 'ACME'], 'Receita': [1234567.89, -234567.89]})
+        figure, _ = self.render_table(dataframe, width=85, height=40, options={'format': ',.2f'})
+        self.assert_text_fits(figure)
+        values = [cell.get_text().get_text() for cell in figure.axes[0].tables[0].get_celld().values()]
+        self.assertIn('1,234,567.89', values)
+        self.assertIn('-234,567.89', values)
+        self.assertIn('$250.00$', values)
+
+    def test_missing_values_unicode_and_repeated_labels_fit(self):
+        dataframe = pd.DataFrame([['São José / região Sul', None, ['A', 'B']], ['Operações técnicas', pd.NA, 'Revisão concluída']], columns=['Descrição', 'Descrição', 'Observações'])
+        figure, _ = self.render_table(dataframe, width=100, height=50)
+        self.assert_text_fits(figure)
+        values = [cell.get_text().get_text() for cell in figure.axes[0].tables[0].get_celld().values()]
+        self.assertIn('São José / região Sul', values)
+        self.assertEqual(values.count('Descrição'), 2)
+
+    def test_too_small_slot_reports_the_problem_instead_of_drawing_overflow(self):
+        figure, outcome = self.render_table(pd.DataFrame({'Total': [1234567.89]}), width=30, height=8, title='Receita total')
+        self.assertEqual(len(figure.axes[0].tables), 0)
+        self.assertEqual(outcome['status'], 'empty')
+        self.assertIn('too small', outcome['message'])
+
+
 if __name__ == "__main__":
     unittest.main()

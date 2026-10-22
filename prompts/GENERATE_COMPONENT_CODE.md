@@ -42,11 +42,14 @@ def render_{id}(pdf, dataframes, x, y, w, h):
   - Do not invent different title sizes or mix bold/non-bold titles between charts. Use `ax.set_title(..., fontsize=CHART_TITLE_FONTSIZE, fontweight=CHART_TITLE_FONTWEIGHT, pad=CHART_TITLE_PAD)`.
   - Use `ax.set_xlabel(..., fontsize=CHART_LABEL_FONTSIZE)` and `ax.set_ylabel(..., fontsize=CHART_LABEL_FONTSIZE)` when axis labels are needed.
   - Use `ax.tick_params(..., labelsize=CHART_TICK_FONTSIZE)` and `ax.legend(..., fontsize=CHART_LEGEND_FONTSIZE)` when ticks or legends are used.
-- **Table Rendering**: For `type: table` or presets `table_summary`/`table_detail`, prefer `_render_table_image(pdf, dataframe, x, y, w, h, title=...)` when available. If you need custom table colors, pass them as `theme={"table": {...}}` or `options={"table_theme": {...}}`, not as arbitrary keyword arguments. Otherwise use `ax.axis('off')` and `ax.table(cellText=..., colLabels=..., loc='center')`. Adjust font sizes dynamically if `h` is small.
+- **Table Rendering**: For `type: table` or presets `table_summary`/`table_detail`, render the final dataframe through `_render_table_image(pdf, dataframe, x, y, w, h, title=...)`, or the summary/detail runtime helpers. The shared renderer measures text, wraps headers and cells (including long identifiers), allocates column widths and row heights, and reserves space for the title. Keep complete labels and values when preparing the dataframe; do not truncate them by character count or recreate equal-width `ax.table(...)` layouts. If you need custom table colors, pass them as `theme={"table": {...}}` or `options={"table_theme": {...}}`, not as arbitrary keyword arguments. Preserve the `(w, h)` aspect ratio and use `_save_chart_to_pdf`; do not use `bbox_inches='tight'` for table images because cropping changes their scale when inserted into the PDF.
 - **Radial Rendering**: For radial/donut/gauge presets, keep the visualization simple, with a readable center value or compact legend. Do not use radial charts for many categories; aggregate small categories into Others.
-- **Quality**: Always save with high DPI for professional results: `plt.savefig(tmp.name, dpi=300, bbox_inches='tight', pad_inches=0.05)`.
+- **Quality**: Save at 300 DPI through `_save_chart_to_pdf(fig, pdf, x, y, w, h)`. The shared renderer measures titles, legends, labels and annotations before export. Preserve the figure aspect ratio; do not crop with `bbox_inches='tight'` and then stretch the cropped image into the layout slot.
 - **Readability Optimization**: If a categorical column has many unique values (e.g., > 10 for pie charts or > 15 for bar charts), AGGREGATE the less significant values into an 'Others' (or equivalent in the Target Language) category.
 - **Chart Layout Safety**:
+  - Keep original category identities and complete labels in the data. Plot categories at distinct numeric positions; shorten or wrap display labels only after those positions are assigned.
+  - Prefer the shared renderer's measured fitting for titles, legends, axis labels and large central values. Shortened labels must have a visible ellipsis; never silently cut names by character count.
+  - For donuts, prefer a fitted legend with category names and percentages instead of external labels around the ring.
   - Never place legends inside the plot area when bars, lines, markers, or annotations can occupy the same region.
   - Prefer legends outside the axes, below the chart, using `ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.18), ncol=2, frameon=False, fontsize=7)` and reserve bottom margin with `fig.subplots_adjust(bottom=0.24)`.
   - If a legend is placed below the chart with a negative `bbox_to_anchor` y value, do NOT also render an x-axis label. Omit `ax.set_xlabel(...)` or set it to an empty string; category/date tick labels are enough in compact PDF blocks.
@@ -60,11 +63,7 @@ def render_{id}(pdf, dataframes, x, y, w, h):
   - Prefer `fig, ax = plt.subplots(..., constrained_layout=True)` or explicit `fig.subplots_adjust(...)`; do not rely on `plt.tight_layout()` alone when the chart has legends, long tick labels, or annotations.
 - **Clean insertion**:
   ```python
-  with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-      plt.savefig(tmp.name, dpi=300, bbox_inches='tight')
-      plt.close()
-      pdf.image(tmp.name, x=x, y=y, w=w, h=h)
-      os.unlink(tmp.name)
+  _save_chart_to_pdf(fig, pdf, x, y, w, h)
   ```
 - The report renderer uses absolute layout coordinates with automatic page breaks disabled. Never call `pdf.add_page()`, `pdf.set_auto_page_break()`, or change global page layout inside a component.
 

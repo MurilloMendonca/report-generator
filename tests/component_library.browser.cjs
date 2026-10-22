@@ -29,6 +29,7 @@ const { execFileSync } = require('child_process');
         const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
         const errors = [];
         const edits = [];
+        const previewRequests = [];
         let pending = null;
         let rejectEdit = false;
         page.on('pageerror', error => errors.push(error.message));
@@ -69,6 +70,7 @@ const { execFileSync } = require('child_process');
                 data = session;
             }
             else if (url.endsWith('/preview')) {
+                previewRequests.push(url);
                 await route.fulfill({ contentType: 'application/pdf', body: fs.readFileSync(fixture.pdf) });
                 return;
             }
@@ -77,15 +79,17 @@ const { execFileSync } = require('child_process');
         const session = {
             job_id: 'library-browser', current_step: 'completed', status: 'Concluído', progress: 100,
             files: [{ original_filename: 'data.csv', artifact: { filename: 'data.csv', columns: [{ name: 'region' }, { name: 'revenue' }, { name: 'cost' }] } }],
-            logs: [], components: {}, component_texts: { summary: 'A receita total é 30. A região Sul representa 20.' }, template: [], settings: {}, pdf_version: 0,
+            logs: [], components: { revenue_total: 'stale metric code' }, calculated_metrics: { revenue_total: 30 }, component_texts: { summary: 'A receita total é 30. A região Sul representa 20.' }, template: [], settings: {}, pdf_version: 0,
             artifacts: [{ id: 'table', type: 'table', indicator: 'Receita e custo por região', columns: ['data.csv:region', 'data.csv:revenue', 'data.csv:cost'],
                 component_preset_id: 'table_summary', render_mode: 'library', visual_options: { top_n: 5 },
                 data_binding: { source: 'data.csv', roles: { dimensions: ['region'], metrics: ['revenue', 'cost'] } } },
-                { id: 'summary', type: 'text', indicator: 'Resumo executivo', columns: [], reason: 'Contextualizar o resultado e orientar decisões.' }],
+                { id: 'summary', type: 'text', indicator: 'Resumo executivo', columns: [], reason: 'Contextualizar o resultado e orientar decisões.' },
+                { id: 'revenue_total', type: 'metric', indicator: 'Receita total', columns: ['data.csv:revenue'] }],
         };
         await page.goto(`http://127.0.0.1:${server.address().port}`, { waitUntil: 'networkidle' });
         await page.evaluate(session => { App.currentSession = session; App.showWorkspace(); App.updateUI(session); App.handleEditIndicator(-1); }, session);
         assert.strictEqual(await page.locator('#m-render-mode').inputValue(), '');
+        assert.equal(await page.locator('#m-type option[value="metric"]').count(), 0, 'calculated metrics do not belong in the visual component editor');
         assert.strictEqual(await page.evaluate(() => App.currentIndicatorPayload().newArt.render_mode), undefined);
         await page.locator('#m-type').selectOption('line');
         await page.locator('#m-preset').selectOption('line_timeseries');
@@ -105,6 +109,23 @@ const { execFileSync } = require('child_process');
 
         await page.evaluate(() => App.closeIndicatorModal());
         await page.locator('[data-tab-target="tab-artifacts"]').click();
+        await page.locator('#component-filter').selectOption('metric');
+        assert.equal(await page.locator('#artifacts-visual .component-card').count(), 1);
+        assert.equal(await page.locator('#artifacts-visual [data-action="edit-indicator"]').count(), 0, 'metrics must not offer the visual editor');
+        assert((await page.locator('#artifacts-visual').innerText()).includes('chat do relatório'));
+        const previewsBeforeMetric = previewRequests.length;
+        await page.getByRole('button', { name: 'Ver resultado de Receita total', exact: true }).click();
+        assert(await page.locator('#tab-data').isVisible());
+        assert((await page.locator('#data-artifacts-container').innerText()).includes('30'));
+        assert.equal(await page.locator('#indicator-modal').isVisible(), false);
+        await page.locator('.tab[data-tab-target="tab-artifacts"]').click();
+        await page.evaluate(() => App.handleEditIndicator(2));
+        assert(await page.locator('#tab-data').isVisible(), 'stale edit actions must also route metrics to their calculated results');
+        assert.equal(await page.evaluate(() => App.isRenderableIndicator(App.currentSession.artifacts[2])), false, 'stale metric code must never enable a PDF preview');
+        assert.equal(await page.locator('#indicator-modal').isVisible(), false);
+        assert.equal(previewRequests.length, previewsBeforeMetric, 'viewing a metric must not request a rendered preview');
+        await page.locator('.tab[data-tab-target="tab-artifacts"]').click();
+        await page.locator('#component-filter').selectOption('all');
         await page.locator('#component-search').fill('Resumo');
         assert.equal(await page.locator('#artifacts-visual .component-card').count(), 1);
         await page.locator('#component-search').fill('');

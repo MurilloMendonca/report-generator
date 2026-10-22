@@ -407,6 +407,7 @@ const App = {
             case 'delete-file':
                 await this.deleteFile(parseInt(target.dataset.fileIndex, 10));
                 break;
+            case 'view-metric-data':
             case 'edit-indicator':
                 this.handleEditIndicator(parseInt(target.dataset.index, 10));
                 break;
@@ -941,6 +942,10 @@ const App = {
         const art = index === -1 
             ? { indicator: "", type: "bar", columns: [], reason: "" } 
             : this.currentSession.artifacts[index];
+        if (art?.type === 'metric') {
+            document.querySelector('.tab[data-tab-target="tab-data"]')?.click();
+            return;
+        }
         const customCode = index === -1 ? "" : ((this.currentSession.components || {})[art.id] || "");
 
         document.getElementById('edit-index').value = index;
@@ -975,7 +980,7 @@ const App = {
     },
 
     isRenderableIndicator(art, session = this.currentSession) {
-        if (!art || !session) return false;
+        if (!art || !session || art.type === 'metric') return false;
         if (art.type === 'text' && session.component_texts?.[art.id]) return true;
         return Boolean((session.components || {})[art.id]) || this.isLibraryRenderedArtifact(art);
     },

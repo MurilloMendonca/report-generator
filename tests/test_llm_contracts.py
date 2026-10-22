@@ -247,8 +247,8 @@ class LlmContractTests(unittest.TestCase):
             settings={"title": "Test", "font": "Arial", "font_size": 10, "alignment": "J", "line_height": 5},
         )
 
-        self.assertIn("title_lines = _wrap_lines(title", script)
-        self.assertIn("pdf.multi_cell(w, title_line_height", script)
+        self.assertIn("render_runtime.render_pdf_text_block", script)
+        self.assertIn("warn=render_runtime.record_render_warning", script)
         self.assertNotIn("pdf.cell(w, 7, title", script)
 
     def test_refinement_custom_visual_uses_generated_primary_with_runtime_reference(self):

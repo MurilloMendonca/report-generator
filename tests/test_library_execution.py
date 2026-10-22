@@ -76,8 +76,44 @@ class LibraryExecutionTests(unittest.TestCase):
         self.assertTrue(result['success'], result['stderr'])
         self.assertEqual(outcome['status'], 'rendered')
 
+    def test_measured_narrative_and_small_slot_status_in_the_sandbox(self):
+        components = {'story': "def render_story(pdf, dataframes, x, y, w, h):\n    return render_text_block(pdf, 'Revisar responsabilidades e acompanhar entregas semanais. ' * 20, x, y, w, h, title='Responsabilidades operacionais e encaminhamentos prioritários')"}
+        for width, height, success in ((40, 25, True), (30, 3, False)):
+            with self.subTest(height=height):
+                script = assemble_script(components, [{'id': 'story', 'x': 10, 'y': 30, 'w': width, 'h': height}], {}, str(self.pdf),
+                                         artifacts=[{'id': 'story', 'type': 'text'}], normalize_layout=False)
+                result = execute_script(script, str(self.script_path), paths=self.paths)
+                outcome = json.loads(self.pdf.with_suffix('.pdf.manifest.json').read_text())['components'][0]
+                self.assertEqual(result['success'], success, result['stderr'])
+                if success:
+                    self.assertEqual(outcome['status'], 'rendered')
+                    self.assertTrue(outcome['warnings'])
+                else:
+                    self.assertEqual(outcome['code'], 'layout_too_small')
+
 
 class EmptyVisualRecoveryTests(unittest.TestCase):
+    def test_small_layout_explains_resizing_without_model_repair(self):
+        session = {'job_id': 'test-small-layout-render', 'script': 'pass', 'script_path': 'unused.py', 'pdf_path': 'unused.pdf'}
+        with ExitStack() as stack:
+            def mocked(name, **kwargs):
+                return stack.enter_context(patch(f'app.services.pipeline_service.{name}', **kwargs))
+            mocked('get_session', return_value=session)
+            mocked('_ensure_current_run', return_value=True)
+            mocked('add_log')
+            mocked('append_stage_event')
+            mocked('update_session')
+            mocked('execute_script', return_value={'success': False, 'stderr': 'small component'})
+            mocked('_read_render_manifest', return_value={'components': [{'id': 'chart', 'status': 'empty', 'code': 'layout_too_small'}]})
+            fallback = mocked('_advance_render_modes_after_failure')
+            fix = mocked('fix_script')
+            stage = mocked('set_session_stage')
+            run_execution('test-small-layout-render', run_id=1)
+        fallback.assert_not_called()
+        fix.assert_not_called()
+        self.assertEqual(stage.call_args.args[3]['code'], 'layout_too_small')
+        self.assertEqual(stage.call_args.args[3]['component_ids'], ['chart'])
+
     def test_empty_data_does_not_trigger_model_repair_or_generated_fallback(self):
         session = {'job_id': 'test-empty-render', 'script': 'pass', 'script_path': 'unused.py', 'pdf_path': 'unused.pdf'}
         with ExitStack() as stack:

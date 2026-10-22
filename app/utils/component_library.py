@@ -278,7 +278,7 @@ COMPONENT_PRESETS = {
         ],
         "default_options": {"top_n": 10, "striped_rows": True, "sort_desc": True},
         "compact_guidance": "Evite mais de 4 colunas em blocos estreitos.",
-        "prompt_contract": "Select only relevant columns and rows, format values, truncate long text, and render with _render_table_image when available.",
+        "prompt_contract": "Select only relevant columns and rows, format values, and use _render_table_image for measured text wrapping and cell sizing within the layout slot.",
     },
 }
 
