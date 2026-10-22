@@ -1,5 +1,8 @@
 """PDF text fitting shared by generation guidance and the sandbox renderer."""
 import re
+from pathlib import Path
+
+import matplotlib
 
 from fpdf import FPDF, XPos, YPos
 from fpdf.enums import MethodReturnValue
@@ -11,12 +14,54 @@ class TextBoxTooSmallError(ValueError):
 
 
 def safe_pdf_text(value):
-    replacements = {'–': '-', '—': '-', '―': '-', '‘': "'", '’': "'", '“': '"', '”': '"',
-                    '•': '-', '\u00a0': ' ', '…': '...'}
-    text = str(value or '')
-    for source, target in replacements.items():
-        text = text.replace(source, target)
-    return text.encode('latin-1', 'replace').decode('latin-1')
+    # Preserve currencies and punctuation. Missing glyphs must be reported,
+    # never silently replaced by question marks.
+    return str(value if value is not None else '').replace('\u00a0', ' ')
+
+
+class MissingGlyphError(ValueError):
+    render_status = 'failed'
+    render_code = 'missing_glyph'
+
+
+def configure_pdf_fonts(pdf, families=('helvetica', 'times', 'courier')):
+    """Embed the fonts already shipped with Matplotlib; no system-font dependency."""
+    registered = getattr(pdf, '_report_unicode_fonts', set())
+    directory = Path(matplotlib.get_data_path()) / 'fonts' / 'ttf'
+    for family, filename in (('helvetica', 'DejaVuSans'), ('times', 'DejaVuSerif'), ('courier', 'DejaVuSansMono')):
+        if family not in families or family in registered:
+            continue
+        for style, suffix in (('', ''), ('B', '-Bold'), ('I', '-Oblique' if family != 'times' else '-Italic'),
+                              ('BI', '-BoldOblique' if family != 'times' else '-BoldItalic')):
+            pdf.add_font('report_' + family, style, str(directory / (filename + suffix + '.ttf')))
+        registered.add(family)
+    pdf._report_unicode_fonts = registered
+
+
+def pdf_font_family(family):
+    family = str(family or '').lower()
+    family = 'helvetica' if family == 'arial' else family
+    return 'report_' + family if family in {'helvetica', 'times', 'courier'} else family
+
+
+class ReportPDF(FPDF):
+    """Preserve standard font names in existing generated component code."""
+    def set_font(self, family=None, style='', size=0):
+        mapped = pdf_font_family(family)
+        if mapped.startswith('report_'):
+            configure_pdf_fonts(self, (mapped.removeprefix('report_'),))
+        return super().set_font(mapped, style, size)
+
+    def normalize_text(self, text):
+        if self.current_font and self.is_ttf_font:
+            check_pdf_glyphs(self, text)
+        return super().normalize_text(text)
+
+
+def check_pdf_glyphs(pdf, text):
+    missing = sorted({char for char in str(text) if not char.isspace() and ord(char) not in pdf.current_font.cmap})
+    if missing:
+        raise MissingGlyphError('Font cannot render: ' + ', '.join(f'U+{ord(char):04X}' for char in missing))
 
 
 def pdf_text_lines(pdf, text, width, line_height):
@@ -50,10 +95,13 @@ def fit_pdf_text(pdf, text, width, line_height, max_lines, sentences=False):
 
 
 def _pdf_text_layout(pdf, text, title, width, height, font_family, font_size, line_height):
+    configure_pdf_fonts(pdf, (font_family.removeprefix('report_'),))
+    font_family = pdf_font_family(font_family)
     line_height = max(float(line_height), font_size * 25.4 / 72 * 1.1)
     title_line_height = max(line_height, font_size * 25.4 / 72 * 1.2)
     gap = 1 if title else 0
     pdf.set_font(font_family, 'B', font_size)
+    check_pdf_glyphs(pdf, title)
     title_limit = min(2, max(0, int((height - line_height - gap) / title_line_height))) if title else 0
     if title and title_limit < 1:
         return None
@@ -61,6 +109,7 @@ def _pdf_text_layout(pdf, text, title, width, height, font_family, font_size, li
     title_lines = pdf_text_lines(pdf, fitted_title, width, title_line_height) if fitted_title else []
     title_height = len(title_lines) * title_line_height + gap
     pdf.set_font(font_family, '', font_size)
+    check_pdf_glyphs(pdf, text)
     max_lines = max(0, int((height - title_height + 1e-8) / line_height))
     if max_lines < 1:
         return None
@@ -81,17 +130,23 @@ def narrative_measurement(text, block, settings=None, title=None):
     size, line_height = settings.get('font_size', 10) or 10, settings.get('line_height', 5) or 5
     if width <= 2 * pdf.c_margin or height <= 0:
         return {'max_lines': 0, 'body_lines': 0, 'chars_per_line': 1}
-    layout = _pdf_text_layout(pdf, safe_pdf_text(text), safe_pdf_text(title or 'Resumo'), width, height, family, size, line_height)
-    pdf.set_font(family, '', size)
-    sample = 'A receita total do período representa os resultados da análise. '
-    average_width = pdf.get_string_width(sample) / len(sample)
-    return {**(layout or {'max_lines': 0, 'body_lines': 0}),
-            'chars_per_line': max(1, int((width - 2 * pdf.c_margin) / average_width))}
+    try:
+        layout = _pdf_text_layout(pdf, safe_pdf_text(text), safe_pdf_text(title or 'Resumo'), width, height, family, size, line_height)
+        pdf.set_font(pdf_font_family(family), '', size)
+        sample = 'A receita total do período representa os resultados da análise. '
+        average_width = pdf.get_string_width(sample) / len(sample)
+        return {**(layout or {'max_lines': 0, 'body_lines': 0}),
+                'chars_per_line': max(1, int((width - 2 * pdf.c_margin) / average_width))}
+    finally:
+        for font in pdf.fonts.values():
+            font.close()
 
 
 def render_pdf_text_block(pdf, text, x, y, w, h, title=None, *, font_family='helvetica',
                           font_size=10, line_height=5, alignment='J', warn=None):
     text, title = safe_pdf_text(text), safe_pdf_text(title)
+    configure_pdf_fonts(pdf, (font_family.lower().replace('arial', 'helvetica').removeprefix('report_'),))
+    font_family = pdf_font_family(font_family)
     if w <= 2 * pdf.c_margin + font_size * 25.4 / 72 or h <= 0:
         raise TextBoxTooSmallError('Text slot is too small; enlarge the component')
     minimum = min(font_size, max(7, font_size * 0.85))
@@ -120,10 +175,13 @@ def render_pdf_text_block(pdf, text, x, y, w, h, title=None, *, font_family='hel
 
 
 def write_pdf_report_title(pdf, title, font_family='helvetica', warn=None):
+    configure_pdf_fonts(pdf, (font_family.lower().replace('arial', 'helvetica').removeprefix('report_'),))
+    font_family = pdf_font_family(font_family)
     text = ' '.join(safe_pdf_text(title or 'Relatório Analítico').split())
     width = pdf.w - pdf.l_margin - pdf.r_margin
     for size in range(16, 10, -1):
         pdf.set_font(font_family, 'B', size)
+        check_pdf_glyphs(pdf, text)
         if len(pdf_text_lines(pdf, text, width, 8)) <= 2:
             break
     fitted, shortened = fit_pdf_text(pdf, text, width, 8, 2)

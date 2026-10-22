@@ -92,7 +92,8 @@ class ComponentEditorTests(unittest.TestCase):
         self.assert_preserved_context(after)
 
     def test_scope_escape_fails_without_changing_editable_report_or_pdf(self):
-        digest = hashlib.sha256((self.paths.output / f"{self.job_id}.pdf").read_bytes()).hexdigest()
+        from pathlib import Path
+        digest = hashlib.sha256(Path(self.before['pdf_path']).read_bytes()).hexdigest()
         decision = {"intent": "visual", "scope": "report", "instruction": "Change every chart.", "settings_changes": {"visual_theme_id": "print_mono"}}
         with patch("app.services.llm.client.call_llm", return_value=json.dumps(decision)):
             self.edit("sales", {"instruction": "Improve this chart."})
@@ -101,7 +102,7 @@ class ComponentEditorTests(unittest.TestCase):
         self.assertEqual(after["artifacts"], self.before["artifacts"])
         self.assertEqual(after["components"], self.before["components"])
         self.assertEqual(after["pdf_version"], self.before["pdf_version"])
-        self.assertEqual(hashlib.sha256((self.paths.output / f"{self.job_id}.pdf").read_bytes()).hexdigest(), digest)
+        self.assertEqual(hashlib.sha256(Path(after['pdf_path']).read_bytes()).hexdigest(), digest)
         self.assert_preserved_context(after)
 
     def test_stale_version_and_overlapping_edits_are_rejected(self):
@@ -132,6 +133,38 @@ class ComponentEditorTests(unittest.TestCase):
         self.assertEqual(after["component_edit"]["status"], "failed")
         self.assertEqual(after["components"], self.before["components"])
         self.assertEqual(after["pdf_version"], self.before["pdf_version"])
+
+    def test_rejected_invisible_output_keeps_previous_pdf_bytes_and_editable_components(self):
+        from pathlib import Path
+        previous = Path(self.before['pdf_path']).read_bytes()
+        code = "def render_sales(pdf, dataframes, x, y, w, h):\n    pdf.set_text_color(255, 255, 255)\n    pdf.set_xy(x, y)\n    pdf.set_font('helvetica', size=10)\n    pdf.cell(w, 10, 'Invisible output')"
+        with patch('app.services.llm.client.call_llm', side_effect=AssertionError('Quality checks must not call a model')) as llm:
+            self.edit('sales', {'code': code, 'artifact': {**self.chart, 'render_mode': 'generated_code'}})
+        llm.assert_not_called()
+        after = get_session(self.job_id)
+        self.assertEqual(after['component_edit']['status'], 'failed')
+        self.assertEqual(after['pdf_version'], self.before['pdf_version'])
+        self.assertEqual(after['pdf_path'], self.before['pdf_path'])
+        self.assertEqual(after['render_pdf_path'], self.before['render_pdf_path'])
+        self.assertEqual(Path(after['pdf_path']).read_bytes(), previous)
+        self.assertEqual(after['components'], self.before['components'])
+        self.assertEqual(after['quality_review']['status'], 'failed')
+        self.assertTrue(any(issue['component_id'] == 'sales' and issue['code'] == 'blank_component'
+                            for issue in after['quality_review']['issues']))
+
+    def test_generated_metric_references_survive_edit_render_and_review_without_extra_calls(self):
+        from pypdf import PdfReader
+        update_session(self.job_id, {'calculated_metrics': {'total': 30, 'euro': {'value': 1250.5, 'currency': 'EUR', 'period': '2026-Q1'}}})
+        response = {'summary': 'Revenue: €{{metric:/euro/value|number:2}} in {{metric:/euro/period}}.'}
+        with patch('app.services.llm.client.call_llm', return_value=json.dumps(response)) as llm:
+            self.edit('summary', {'instruction': 'Describe the calculated euro revenue and period.'})
+        llm.assert_called_once()
+        after = get_session(self.job_id)
+        self.assertEqual(after['component_edit']['status'], 'completed', after.get('error'))
+        self.assertEqual(after['quality_review']['status'], 'passed')
+        self.assertIn('Revenue: €1250.50 in 2026-Q1.', PdfReader(after['pdf_path']).pages[0].extract_text())
+        summary = next(artifact for artifact in after['artifacts'] if artifact['id'] == 'summary')
+        self.assertEqual(summary['narrative_evidence']['references'][0]['pointer'], '/euro/value')
 
     def test_component_theme_can_return_to_global_without_a_model_call(self):
         artifact = {**self.before["artifacts"][1], "visual_theme_id": None}

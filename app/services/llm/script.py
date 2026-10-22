@@ -93,6 +93,7 @@ def assemble_script(
         "})",
         "",
         "import pdf_report_renderers.runtime as render_runtime",
+        "FPDF = render_runtime.ReportPDF",
         "from pdf_report_renderers.runtime import (",
         "    configure_visual_runtime, render_visual_component, render_bar_chart,",
         "    begin_component_render, component_render_outcome,",
@@ -112,9 +113,12 @@ def assemble_script(
         "    return render_runtime.write_pdf_report_title(pdf, title, font_family, warn=render_runtime.record_render_warning)",
         "",
         "def render_text_block(pdf, text, x, y, w, h, title=None):",
-        f"    return render_runtime.render_pdf_text_block(pdf, text, x, y, w, h, title=title, font_family={font_family!r},",
+        f"    result = render_runtime.render_pdf_text_block(pdf, text, x, y, w, h, title=title, font_family={font_family!r},",
         f"        font_size={settings.get('font_size', 10)!r}, line_height={settings.get('line_height', 5)!r},",
         f"        alignment={settings.get('alignment', 'J')!r}, warn=render_runtime.record_render_warning)",
+        "    render_runtime._COMPONENT_OUTCOME.setdefault('text_blocks', []).append({'text': result['text'], 'title': result['title'], 'shortened': result['shortened'], 'title_shortened': result['title_shortened']})",
+        "    render_runtime._COMPONENT_OUTCOME['glyph_check'] = True",
+        "    return result",
         ""
     ]
     library_wrapper_ids = set()
@@ -156,6 +160,7 @@ def assemble_script(
         script.append(f"    pdf = FPDF(format=({float(page_format[0])}, {float(page_format[1])}))")
     else:
         script.append("    pdf = FPDF()")
+    script.append(f"    render_runtime.configure_pdf_fonts(pdf, ({font_family!r},))")
     script.append("    pdf.set_auto_page_break(auto=False)")
     script.append("    current_page = 0")
     script.append("    component_manifest = []")

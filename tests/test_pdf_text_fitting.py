@@ -65,7 +65,7 @@ class PDFTextFittingTests(unittest.TestCase):
     def test_generation_guidance_counts_actual_lines_and_reserves_heading(self):
         text = 'W' * 22
         measured = narrative_measurement(text, {'w': 40, 'h': 25}, title='Resumo')
-        self.assertEqual(measured['body_lines'], 2)
+        self.assertEqual(measured['body_lines'], 3)
         long_heading = narrative_measurement(text, {'w': 40, 'h': 25}, title='Responsabilidades operacionais e encaminhamentos')
         self.assertLess(long_heading['max_lines'], measured['max_lines'])
 

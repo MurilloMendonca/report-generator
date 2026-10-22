@@ -142,7 +142,7 @@ def sandbox_runtime_source() -> str:
     contracts = Path(__file__).with_name("visual_contracts.py").read_text(encoding="utf-8")
     fitting_helpers = "\n\n".join(
         Path(__file__).with_name(filename).read_text(encoding="utf-8")
-        for filename in ("chart_layout.py", "pdf_text.py")
+        for filename in ("chart_layout.py", "pdf_text.py", "render_checks.py")
     )
     catalog = (f"\nVISUAL_THEMES = {VISUAL_THEMES!r}\nCHART_STYLES = {CHART_STYLES!r}\n"
                f"PRESET_ROLES = { {key: value['data_roles'] for key, value in COMPONENT_PRESETS.items()}!r}\n"
@@ -342,9 +342,12 @@ def sandbox_runtime_source() -> str:
         _apply_chart_theme(fig)
         if len(fig.axes) == 1 and not fig.axes[0].tables and not getattr(fig, '_report_fitted', False):
             _fit_chart_layout(fig, fig.axes[0], w, h)
+        checked_pixels = check_chart_output(fig)
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
             try:
-                fig.savefig(tmp.name, dpi=300)
+                from PIL import Image
+                # Embed exactly the pixels we reviewed, avoiding another draw.
+                Image.fromarray(checked_pixels).save(tmp.name, dpi=(300, 300))
                 pdf.image(tmp.name, x=x, y=y, w=w, h=h)
             finally:
                 plt.close(fig)

@@ -14,6 +14,7 @@
                 <button class="tab" type="button" data-shared-tab="shared-code">Código</button>
                 <button class="tab" type="button" data-shared-tab="shared-settings">Configurações</button>
                 <button class="tab" type="button" data-shared-tab="shared-data">Métricas e dados</button>
+                <button class="tab" type="button" data-shared-tab="shared-quality">Revisão</button>
                 <button class="tab" type="button" data-shared-tab="shared-files">Arquivos</button>
                 <button class="tab" type="button" data-shared-tab="shared-history">Histórico e consultas</button>
             </nav>
@@ -23,11 +24,13 @@
             <section id="shared-code" class="shared-tab"><button type="button" id="shared-copy-code" class="btn btn-outline">Copiar código</button><pre><code id="shared-script" class="language-python"></code></pre></section>
             <section id="shared-settings" class="shared-tab"></section>
             <section id="shared-data" class="shared-tab"></section>
+            <section id="shared-quality" class="shared-tab"></section>
             <section id="shared-files" class="shared-tab"></section>
             <section id="shared-history" class="shared-tab"></section>
         </section>
     </main>
     <dialog id="shared-file-modal" class="file-preview-modal" aria-labelledby="shared-file-title"><div class="file-preview-header"><h3 id="shared-file-title"></h3><button type="button" id="shared-file-close" class="btn btn-outline">Fechar</button></div><div id="shared-file-body" class="file-preview-body"></div></dialog>
+    <script src="/static/js/report_quality.js"></script>
     <script src="/static/js/shared.js"></script>
 </body>
 </html>

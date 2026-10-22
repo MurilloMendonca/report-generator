@@ -117,11 +117,13 @@
             <button class="tab" type="button" data-tab-target="tab-settings">Configurações ⚙️</button>
             <button class="tab" type="button" data-tab-target="tab-explore">Explorador 🔍</button>
             <button class="tab" type="button" data-tab-target="tab-data">Métricas & Dados</button>
+            <button class="tab" type="button" data-tab-target="tab-quality">Revisão <span id="quality-count"></span></button>
         </div>
 
         <div id="tab-pdf" class="tab-content active">
             <iframe id="pdf-viewer"></iframe>
         </div>
+        <section id="tab-quality" class="tab-content" aria-label="Revisão do relatório"></section>
 
         <div id="tab-design" class="tab-content" style="padding:0">
             <div class="editor-workspace-header">
@@ -419,6 +421,7 @@
     <script src="/static/js/utils.js"></script>
     <script src="/static/js/layout_editor.js"></script>
     <script src="/static/js/ui.js"></script>
+    <script src="/static/js/report_quality.js"></script>
     <script src="/static/js/saved_sources.js"></script>
     <script src="/static/js/app.js"></script>
     <script src="/static/js/components.js"></script>

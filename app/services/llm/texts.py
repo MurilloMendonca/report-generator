@@ -7,6 +7,7 @@ import time
 from app.utils.layout import normalize_template
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 from app.utils.pdf_text import narrative_measurement
+from app.utils.narrative_evidence import expand_references, metric_catalog
 from app.services.llm import client
 from app.services.llm.client import llm_operation_context
 from app.services.llm.components import slot_by_artifact_id
@@ -61,6 +62,7 @@ def generate_all_texts(
             f"Report Objective:\n{report_goal or 'Explore the supplied data and explain the most relevant supported findings.'}",
             f"Text Artifacts:\n{json.dumps(text_artifacts, indent=2, ensure_ascii=False)}",
             f"Calculated Metrics:\n{json.dumps(calculated_metrics, indent=2, ensure_ascii=False)}",
+            f"Metric Reference Catalog (authoritative JSON pointers):\n{json.dumps(metric_catalog(calculated_metrics), ensure_ascii=False)}",
         ]
         if report_artifacts:
             report_plan = [
@@ -131,7 +133,7 @@ def estimated_line_count(text: str, chars_per_line: int) -> int:
     return total
 
 
-def condense_texts_to_fit(texts_map: dict, text_artifacts: list, template: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, job_id: str | None = None) -> dict:
+def condense_texts_to_fit(texts_map: dict, text_artifacts: list, template: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, job_id: str | None = None, calculated_metrics: dict | None = None) -> dict:
     with llm_operation_context(job_id=job_id, operation="text_condensation", settings=settings, provider=provider, model_name=model_name):
         texts_map = dict(texts_map or {})
         blocks_by_id = {item.get("id"): item for item in normalize_template(template)}
@@ -143,7 +145,8 @@ def condense_texts_to_fit(texts_map: dict, text_artifacts: list, template: list,
             if not block or not text:
                 continue
             capacity = estimate_text_block_capacity(block, settings, artifact.get('indicator'))
-            lines = narrative_measurement(text, block, settings, artifact.get('indicator'))['body_lines']
+            measured_text = expand_references(text, calculated_metrics)[0] if calculated_metrics is not None else text
+            lines = narrative_measurement(measured_text, block, settings, artifact.get('indicator'))['body_lines']
             overflow_threshold = max(capacity["max_lines"] + 1, int(capacity["max_lines"] * 1.18))
             if lines > overflow_threshold:
                 overflow_items.append({
@@ -166,6 +169,7 @@ def condense_texts_to_fit(texts_map: dict, text_artifacts: list, template: list,
             "You are an executive editor for PDF report text blocks. Rewrite only the provided "
             "overflowing text components so they fit their exact PDF slots. Preserve the most "
             "important metrics, conclusions, and analytical meaning. Return only valid JSON."
+            " Preserve every {{metric:/pointer|format}} reference exactly, including unit and period references."
         )
         user_prompt = (
             f"Target Language: {lang}\n"

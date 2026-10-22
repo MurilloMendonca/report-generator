@@ -90,7 +90,7 @@ def shared_report_payload(session: dict, sharing: dict):
     """Expose report content, excluding account, connector, usage, and host-path data."""
     fields = ("job_id", "created_at", "updated_at", "status", "current_step", "progress", "pdf_version", "initial_prompt", "current_goal",
               "artifacts", "template", "components", "calculated_metrics", "settings", "provider", "model_name", "script", "logs",
-              "refinement_messages", "refinement_history", "explore_history", "document_insights", "semantic_model", "render_summary", "data_preprocessing", "data_filter")
+              "refinement_messages", "refinement_history", "explore_history", "document_insights", "semantic_model", "render_summary", "quality_review", "data_preprocessing", "data_filter")
     payload = {key: deepcopy(session.get(key)) for key in fields}
     payload["component_texts"] = component_texts(session)
     payload["sharing"] = sharing

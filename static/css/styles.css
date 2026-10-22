@@ -2443,3 +2443,14 @@ iframe {
     .new-report-page .recent-sessions { grid-template-columns: 1fr; }
     .new-report-page .source-picker-heading { align-items: flex-start; }
 }
+/* Report review is also available in the public read-only workspace. */
+.quality-summary { padding: 1rem; border: 1px solid var(--border-color, #d1d5db); border-radius: 10px; margin: 1rem 0; }
+.quality-passed { background: #f0fdf4; border-color: #86efac; }
+.quality-warning { background: #fffbeb; border-color: #fcd34d; }
+.quality-failed { background: #fef2f2; border-color: #fca5a5; }
+.quality-component { padding: 1rem 0; border-bottom: 1px solid #e5e7eb; overflow-wrap: anywhere; }
+.quality-component li { margin: .5rem 0; }
+.quality-component details { margin: .75rem 0; }
+.quality-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+.quality-error { color: #991b1b; }
+.quality-ok { color: #166534; }

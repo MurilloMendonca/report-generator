@@ -17,8 +17,10 @@ The current UI text is mostly Portuguese, and the default report language is Por
 5. Calculates metric artifacts by asking the LLM for short Python snippets, executing them, and storing the returned values.
 6. Selects or generates an A4 layout template with millimeter coordinates.
 7. Uses the component library for standard visuals, generates Python functions for custom visuals, and generates a shared text response for narrative components. Narratives receive the accepted report objective and analysis plan alongside calculated evidence.
-8. Assembles a standalone Python report script, executes it in a bubblewrap sandbox, and writes the PDF.
-9. If execution fails, asks the LLM to repair the whole script and retries up to five times.
+8. Assembles a standalone Python report script, executes it in a bubblewrap sandbox, and reviews a candidate PDF before publishing it. The Revisão tab lists per-component findings and metric references. Errors preserve the last published PDF; uncertain evidence is published with warnings. Reviews use deterministic checks without extra LLM calls.
+9. Repairs recoverable script errors with the LLM and retries up to five times. Quality failures require reviewing the affected component instead of spending additional model calls.
+
+Narratives can cite calculated values with JSON-pointer references such as `{{metric:/revenue/value|number:2}}`. References resolve to the actual value, with rounding only; they do not change scales. The review detects changed values/units/periods, unavailable references, currency/percentage mismatches, missing components and text, unsupported glyphs, and blank PDF regions. Chart and table helpers compare the final bitmap with a draw without text to catch invisible labels. Unreferenced numbers, shortened content, and custom renderers without those checks are flagged for human review. These checks do not verify causal interpretations or the meaning of arbitrary custom graphics. Standard PDF font choices use embedded DejaVu equivalents, preserving `€`, `£`, accents, and punctuation; fitting uses the same font metrics.
 
 The file viewer shows bounded sample tables and row/column counts for each Excel sheet, using metadata already extracted during analysis. Original and preprocessed previews use their respective samples. Preprocessed workbook downloads retain their actual Excel extension and content type.
 
@@ -170,7 +172,7 @@ It listens on `127.0.0.1:5433`. The app creates its tables on first start.
 Install bubblewrap, which isolates the LLM-generated Python (see "Security Notes"):
 
 ```bash
-sudo apt-get install bubblewrap     # Debian/Ubuntu
+sudo apt-get install bubblewrap poppler-utils     # Debian/Ubuntu
 ```
 
 On Ubuntu 24.04 and later, unprivileged user namespaces are restricted by AppArmor, which stops bubblewrap. If the app logs that bubblewrap is unavailable, allow them:

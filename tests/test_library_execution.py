@@ -76,6 +76,23 @@ class LibraryExecutionTests(unittest.TestCase):
         self.assertTrue(result['success'], result['stderr'])
         self.assertEqual(outcome['status'], 'rendered')
 
+    def test_currency_symbols_are_preserved_in_sandbox_narratives_and_table_images(self):
+        from pypdf import PdfReader
+        text = 'Receita €1250 e custo £900.'
+        script = assemble_script({'story': f'def render_story(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, {text!r}, x, y, w, h)'},
+                                 [{'id': 'story', 'x': 10, 'y': 30, 'w': 180, 'h': 40}], {}, str(self.pdf),
+                                 artifacts=[{'id': 'story', 'type': 'text'}], settings={'title': 'Moedas € e £', 'font': 'Arial'})
+        result = execute_script(script, str(self.script_path), paths=self.paths)
+        self.assertTrue(result['success'], result['stderr'])
+        self.assertIn(text, PdfReader(self.pdf).pages[0].extract_text())
+        self.artifact['component_preset_id'] = 'table_detail'
+        self.artifact['data_binding']['roles'] = {'columns': ['region', 'revenue']}
+        pd.DataFrame({'region': ['€1250', '£900'], 'revenue': [1250, 900]}).to_csv(self.csv, index=False)
+        result, outcome = self.execute()
+        self.assertTrue(result['success'], result['stderr'])
+        self.assertTrue(outcome['glyph_check'])
+        self.assertGreaterEqual(outcome['pixel_text_count'], 6)
+
     def test_measured_narrative_and_small_slot_status_in_the_sandbox(self):
         components = {'story': "def render_story(pdf, dataframes, x, y, w, h):\n    return render_text_block(pdf, 'Revisar responsabilidades e acompanhar entregas semanais. ' * 20, x, y, w, h, title='Responsabilidades operacionais e encaminhamentos prioritários')"}
         for width, height, success in ((40, 25, True), (30, 3, False)):

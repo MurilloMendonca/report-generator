@@ -16,6 +16,7 @@ from app.services.session_manager import (
 from app.services.web_helpers import validate_component_code
 from app.utils.artifact_validation import validate_report_plan
 from app.utils.component_renderers import supports_library_renderer
+from app.utils.narrative_evidence import ground_narrative
 
 
 def component_text(code: str) -> str:
@@ -67,10 +68,11 @@ def _edit_component(session: dict, component_id: str, payload: dict) -> tuple[di
                                        settings=session.get("settings"), template=session.get("template"), job_id=session["job_id"],
                                        report_goal=session.get("current_goal") or session.get("initial_prompt", ""), report_artifacts=session["artifacts"])
             texts = condense_texts_to_fit(texts, [target], session.get("template", []), provider, model,
-                                         settings=session.get("settings"), job_id=session["job_id"])
+                                         settings=session.get("settings"), job_id=session["job_id"], calculated_metrics=session.get('calculated_metrics', {}))
             text = texts[component_id]
         if not str(text).strip():
             raise ValueError("O texto do componente não pode ficar vazio.")
+        text = ground_narrative(artifact, text, session.get('calculated_metrics', {}))
         code = text_component_code(artifact, text)
     elif instruction:
         # Supply an explicit selection; the model must not expand its scope.

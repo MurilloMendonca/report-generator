@@ -118,6 +118,7 @@ class ReportSession(BaseModel):
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     artifact_validation: list[dict[str, Any]] = Field(default_factory=list)
     render_summary: dict[str, Any] = Field(default_factory=dict)
+    quality_review: dict[str, Any] = Field(default_factory=dict)
     template: list[dict[str, Any]] = Field(default_factory=list)
     components: dict[str, str] = Field(default_factory=dict)
     calculated_metrics: dict[str, Any] = Field(default_factory=dict)
@@ -128,6 +129,7 @@ class ReportSession(BaseModel):
     script: str = ""
     script_path: str | None = None
     pdf_path: str | None = None
+    render_pdf_path: str | None = None
     storage_dir: str | None = None  # per-report folder; absent on legacy sessions
     provider: str = DEFAULT_PROVIDER
     model_name: str = ""

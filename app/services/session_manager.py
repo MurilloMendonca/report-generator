@@ -225,6 +225,36 @@ def update_session(job_id: str, updates: dict):
     return _mutate(job_id, change)
 
 
+def finish_report_review(job_id: str, run_id: int, review: dict, pdf_path: str):
+    """Publish only the current run, using its own already reviewed PDF file."""
+    def change(session):
+        if int(session.get('active_run_id', 0)) != int(run_id):
+            return _NO_WRITE
+        session['quality_review'] = review
+        if review['status'] == 'failed':
+            session.update(current_step='failed', progress=100, status='Revisão encontrou problemas no relatório',
+                           error={'code': 'report_quality_failed', 'stage': 'quality_review', 'retryable': False,
+                                  'message': 'Revise os problemas na aba Revisão. A última versão válida do PDF foi preservada.'})
+        else:
+            version = int(session.get('pdf_version', 0)) + 1
+            review['published_version'] = version
+            session.update(pdf_path=pdf_path, pdf_version=version, retry_count=0, status='Concluído',
+                           current_step='completed', progress=100, error={})
+    return _mutate(job_id, change)
+
+
+def commit_generated_components(job_id: str, run_id: int, components: dict, evidence: dict):
+    """Attach narrative evidence to the current artifacts under the row lock."""
+    def change(session):
+        if int(session.get('active_run_id', 0)) != int(run_id):
+            return _NO_WRITE
+        session['components'] = components
+        for artifact in session.get('artifacts', []):
+            if artifact.get('id') in evidence:
+                artifact['narrative_evidence'] = evidence[artifact['id']]
+    return _mutate(job_id, change)
+
+
 def append_session_files(job_id: str, files: list):
     """Append sources under the row lock, preserving concurrent additions."""
     def change(session):
@@ -358,7 +388,7 @@ def preserve_report_on_failure(refine):
             "files", "data_filter", "data_preprocessing", "semantic_model",
             "document_insights", "artifacts", "artifact_validation", "template",
             "components", "calculated_metrics", "component_validation_retries",
-            "settings", "script", "script_path", "pdf_path", "retry_count",
+            "settings", "script", "script_path", "pdf_path", "render_pdf_path", "retry_count",
             "current_goal", "refinement_history", "pending_refinement",
         )
         snapshot = {key: deepcopy(original[key]) for key in fields if key in original}

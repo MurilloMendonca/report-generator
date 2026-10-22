@@ -25,12 +25,14 @@ from app.services.llm.planning import (
 from app.services.llm.script import assemble_script, fix_script
 from app.services.llm.texts import condense_texts_to_fit, generate_all_texts
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
-from app.services.session_manager import add_log, append_stage_event, get_report_owner, get_session, is_current_session_run, reserve_session_run, set_session_stage, update_session
+from app.services.session_manager import add_log, append_stage_event, commit_generated_components, finish_report_review, get_report_owner, get_session, is_current_session_run, reserve_session_run, set_session_stage, update_session
+from app.services.report_quality import review_report, review_render_failure
 from app.utils.data_analyzer import extract_metadata
 from app.utils.artifact_validation import validate_report_plan
 from app.utils.component_renderers import supports_library_renderer
 from app.utils.layout import normalize_template
 from app.utils.semantic_model import build_semantic_model
+from app.utils.narrative_evidence import ground_narrative
 from app.utils.template_library import (
     fit_artifacts_to_template,
     select_layout_template,
@@ -839,16 +841,19 @@ def _run_pipeline(job_id: str, run_id: int):
                     report_goal=session.get("current_goal") or session.get("initial_prompt", ""),
                     report_artifacts=artifacts,
                 )
-                condensed_texts_map = condense_texts_to_fit(texts_map, text_artifacts, template, provider, model_name, settings=session.get('settings'), job_id=job_id)
+                condensed_texts_map = condense_texts_to_fit(texts_map, text_artifacts, template, provider, model_name, settings=session.get('settings'), job_id=job_id, calculated_metrics=metrics_store)
                 if condensed_texts_map != texts_map:
                     add_log(job_id, "Condensando narrativas para caber nos blocos do layout...")
                     texts_map = condensed_texts_map
 
                 for art in text_artifacts:
                     text_content = texts_map.get(art['id'], "Conteúdo não disponível.")
+                    text_content = ground_narrative(art, text_content, metrics_store)
                     components[art['id']] = text_component_code(art, text_content)
 
-        update_session(job_id, {"components": components})
+        commit_generated_components(job_id, run_id, components, {
+            art['id']: art['narrative_evidence'] for art in text_artifacts if art.get('narrative_evidence')
+        })
         if _ensure_current_run(job_id, run_id, "script"):
             run_script_generation(job_id, run_id=run_id)
 
@@ -903,7 +908,7 @@ def _run_script_generation(job_id: str, run_id: int):
 
     report_paths = ReportPaths.from_session(session).ensure()
     script_path = os.path.join(report_paths.scripts, f"{job_id}.py")
-    output_pdf_path = os.path.abspath(os.path.join(report_paths.output, f"{job_id}.pdf"))
+    output_pdf_path = os.path.abspath(os.path.join(report_paths.output, f"{job_id}.r-{run_id}-{uuid.uuid4().hex}.pdf"))
     files_map = build_files_map(session)
     metadata_items = [file_info.get("artifact") for file_info in session.get("files", []) if file_info.get("artifact")]
     artifacts, validation_issues = validate_report_plan(session.get("artifacts", []), metadata_items)
@@ -968,7 +973,7 @@ def _run_script_generation(job_id: str, run_id: int):
         artifacts=artifacts,
     )
 
-    update_session(job_id, {"script": script_content, "script_path": script_path, "pdf_path": output_pdf_path, "retry_count": 0})
+    update_session(job_id, {"script": script_content, "script_path": script_path, "render_pdf_path": output_pdf_path, "retry_count": 0})
     if _ensure_current_run(job_id, run_id, "render"):
         run_execution(job_id, run_id=run_id)
 
@@ -988,15 +993,38 @@ def run_execution(job_id: str, run_id: int | None = None):
     try:
         result = execute_script(session['script'], session['script_path'], paths=ReportPaths.from_session(session))
         duration = time.perf_counter() - start_time
-        manifest = _read_render_manifest(f"{session.get('pdf_path')}.manifest.json")
+        candidate_pdf = session.get('render_pdf_path') or session.get('pdf_path')
+        manifest = _read_render_manifest(f"{candidate_pdf}.manifest.json")
         render_summary = summarize_render_manifest(manifest)
         update_session(job_id, {"render_summary": render_summary})
 
         if result["success"]:
-            new_version = session.get("pdf_version", 0) + 1
-            update_session(job_id, {"pdf_version": new_version, "retry_count": 0, "status": "Concluído", "current_step": "completed", "progress": 100, "error": {}})
+            if not _ensure_current_run(job_id, run_id, 'quality_review'):
+                return
+            set_session_stage(job_id, 'quality_review', 97)
+            append_stage_event(job_id, 'quality_review', 'start', status='in_progress')
+            review_started = time.perf_counter()
+            add_log(job_id, 'Revisando referências, caracteres e conteúdo visível do PDF...')
+            review = review_report(session, candidate_pdf, manifest)
+            if not finish_report_review(job_id, run_id, review, candidate_pdf):
+                return
+            append_stage_event(job_id, 'quality_review', 'end', status='error' if review['status'] == 'failed' else 'ok',
+                               duration_ms=(time.perf_counter() - review_started) * 1000,
+                               details={'error_count': review['error_count'], 'warning_count': review['warning_count']})
+            if review['status'] == 'failed':
+                add_log(job_id, f"Revisão bloqueou a publicação: {review['error_count']} problema(s). Consulte a aba Revisão.")
+                append_stage_event(job_id, 'render', 'end', status='error', duration_ms=duration * 1000, details=render_summary)
+                return
+            if review['warning_count']:
+                add_log(job_id, f"Revisão concluída com {review['warning_count']} aviso(s). Consulte a aba Revisão.")
             add_log(job_id, f"Relatório concluído em {duration:.1f}s")
             append_stage_event(job_id, "render", "end", status="ok", duration_ms=duration * 1000, provider=session.get('provider'), model_name=session.get('model_name'), details=render_summary)
+            return
+
+        if any(item.get('code') in {'missing_glyph', 'invisible_text'} for item in manifest.get('components', [])):
+            finish_report_review(job_id, run_id, review_render_failure(session, manifest), candidate_pdf)
+            add_log(job_id, 'A revisão encontrou texto invisível ou caracteres sem suporte. Consulte a aba Revisão.')
+            append_stage_event(job_id, 'render', 'end', status='error', duration_ms=duration * 1000, details=render_summary)
             return
 
         layout_ids = [item['id'] for item in manifest.get('components', []) if item.get('code') == 'layout_too_small']
@@ -1021,7 +1049,7 @@ def run_execution(job_id: str, run_id: int | None = None):
                                provider=session.get('provider'), model_name=session.get('model_name'), details=render_summary)
             return
 
-        failed_component_ids = _failed_components_from_manifest(f"{session.get('pdf_path')}.manifest.json")
+        failed_component_ids = _failed_components_from_manifest(f"{candidate_pdf}.manifest.json")
         fallback_payload, next_stage, changed_ids = _advance_render_modes_after_failure(session, failed_component_ids)
         if fallback_payload:
             update_session(job_id, fallback_payload)

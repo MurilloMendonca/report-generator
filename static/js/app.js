@@ -540,6 +540,7 @@ const App = {
         UI.renderLayoutCanvas(session);
         UI.renderDataArtifacts(session);
         UI.renderFullScript(session.script);
+        if (typeof ReportQuality !== 'undefined') ReportQuality.render(session);
         if (typeof Components !== 'undefined') Components.update(session);
         const signature = JSON.stringify([session.job_id, session.settings, session.provider, session.model_name]);
         if (!this.settingsDirty && signature !== this.settingsSignature) {

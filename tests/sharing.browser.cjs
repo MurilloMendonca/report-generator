@@ -28,6 +28,9 @@ const path = require('path');
             template: [{ id: 'summary', page: 1, x: 10, y: 30, w: 190, h: 40 }, { id: 'sales', page: 1, x: 10, y: 80, w: 190, h: 100 }],
             components: { summary: 'def render_summary(pdf, dataframes, x, y, w, h):\n    pass' }, component_texts: { summary: 'A receita total é 30.' },
             calculated_metrics: { total: 30 }, script: '# Código do relatório\nprint("Revenue: 30")', logs: ['Relatório concluído.'],
+            quality_review: { status: 'warning', error_count: 0, warning_count: 1, checked_at: '2026-10-22T12:00:00Z', published_version: 1,
+                components: [{ id: 'summary', page: 1, references: [{ pointer: '/total', display: '30' }] }],
+                issues: [{ component_id: 'summary', severity: 'warning', code: 'unreferenced_numbers', message: 'Confira valores, unidades e datas nos dados.' }] },
             files: [{ original_filename: 'sales.csv', mime_type: 'text/csv', has_preprocessed: true, raw_artifact: { filename: 'sales.csv' }, artifact: { filename: 'sales.csv' } }],
             refinement_messages: [{ role: 'user', content: 'Mostre os valores no gráfico.' }], explore_history: [{ role: 'assistant', content: 'A região Sul lidera.' }]
         };
@@ -67,6 +70,17 @@ const path = require('path');
         await owner.waitForFunction(() => document.getElementById('share-link-url').value.endsWith('b'.repeat(43)));
         assert.equal(creations[1].expires_in_hours, null);
         await owner.screenshot({ path: process.env.SHARE_OWNER_SCREENSHOT || '/tmp/repgen-share-owner.png', fullPage: true });
+        await owner.getByRole('button', { name: 'Fechar', exact: true }).click();
+        await owner.locator('[data-tab-target="tab-quality"]').click();
+        assert((await owner.locator('#tab-quality').innerText()).includes('Publicado com pontos para conferir'));
+        await owner.evaluate(() => App.updateUI({ ...App.currentSession, quality_review: {} }));
+        assert((await owner.locator('#tab-quality').innerText()).includes('próxima renderização'));
+        await owner.evaluate(() => App.updateUI(App.currentSession));
+        await owner.screenshot({ path: '/tmp/repgen-quality-owner.png', fullPage: true });
+        assert.equal(await owner.locator('#tab-quality').getByRole('button', { name: 'Editar componente', exact: true }).count(), 1);
+        await owner.locator('#tab-quality').getByRole('button', { name: 'Conferir métricas e fontes', exact: true }).click();
+        assert(await owner.locator('#tab-data').isVisible());
+        await owner.locator('#share-report-btn').click();
 
         const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
         const viewer = await context.newPage(); viewer.on('pageerror', error => errors.push(error.message)); await route(viewer, true);
@@ -74,6 +88,13 @@ const path = require('path');
         await viewer.getByRole('heading', { name: 'Relatório de receita', exact: true }).waitFor();
         assert((await viewer.locator('#shared-expiry').innerText()).includes('sem expiração'));
         assert.equal(await viewer.locator('form, textarea, input').count(), 0, 'anonymous viewer must contain no editing forms');
+        await viewer.getByRole('button', { name: 'Revisão', exact: true }).click();
+        await viewer.locator('#shared-quality summary').click();
+        assert((await viewer.locator('#shared-quality').innerText()).includes('/total: 30'));
+        await viewer.screenshot({ path: '/tmp/repgen-quality-shared.png', fullPage: true });
+        assert.equal(await viewer.getByRole('button', { name: 'Editar componente', exact: true }).count(), 0);
+        await viewer.locator('#shared-quality').getByRole('button', { name: 'Conferir métricas e fontes', exact: true }).click();
+        assert(await viewer.locator('#shared-data').isVisible());
         await viewer.getByRole('button', { name: 'Componentes', exact: true }).click();
         assert((await viewer.locator('#shared-components').innerText()).includes('A receita total é 30.'));
         await viewer.getByRole('button', { name: 'Código', exact: true }).click(); assert((await viewer.locator('#shared-script').innerText()).includes('Revenue: 30'));
@@ -97,6 +118,7 @@ const path = require('path');
         assert.equal(await viewer.locator('#shared-download').isVisible(), false);
         assert((await viewer.locator('#shared-notice').innerText()).includes('revogado'));
         assert.equal(await viewer.locator('#shared-script').textContent(), '', 'revocation clears previously rendered report content');
+        assert.equal(await viewer.locator('#shared-quality').textContent(), '', 'revocation clears the report review');
         assert.deepStrictEqual(errors, []);
         console.log('sharing browser checks passed');
     } finally {

@@ -46,7 +46,8 @@ const SharedReport = {
         document.getElementById('shared-goal').textContent = '';
         document.getElementById('shared-title').textContent = 'Relatório indisponível';
         document.getElementById('shared-expiry').textContent = '';
-        for (const id of ['shared-components', 'shared-layout', 'shared-script', 'shared-settings', 'shared-data', 'shared-files', 'shared-history']) document.getElementById(id).replaceChildren();
+        for (const id of ['shared-components', 'shared-layout', 'shared-script', 'shared-settings', 'shared-data', 'shared-files', 'shared-history', 'shared-quality']) document.getElementById(id)?.replaceChildren();
+        if (typeof ReportQuality !== 'undefined') ReportQuality.signature = null;
         document.getElementById('shared-file-body').replaceChildren(); document.getElementById('shared-file-modal').close();
         if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
         this.previewUrl = null; this.notice(message);
@@ -77,6 +78,7 @@ const SharedReport = {
             document.getElementById('shared-pdf-viewer').src = `${this.url('/pdf')}?v=${session.pdf_version || 0}`; this.pdfVersion = session.pdf_version;
         }
         this.renderComponents(session); this.renderLayout(session);
+        if (typeof ReportQuality !== 'undefined') ReportQuality.render(session, true);
         document.getElementById('shared-script').textContent = session.script || 'O código ainda não está disponível.';
         this.jsonPanel('shared-settings', 'Configurações do relatório', { provider: session.provider, model_name: session.model_name, ...session.settings });
         this.jsonPanel('shared-data', 'Métricas calculadas', session.calculated_metrics || {});
