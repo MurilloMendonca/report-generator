@@ -38,6 +38,8 @@ The shared table renderer previously used equal-width columns, equal-height rows
 
 Regression checks reproduce the original overflow and verify actual text bounding boxes against every cell and the title at 100/300 DPI. They cover long descriptions, wide identifiers, explicit line breaks, formatted positive/negative numbers, literal dollar signs, missing/nested values, duplicate headers, totals and tiny slots. Synthetic before/after PDFs also confirm the visual result. No provider calls are needed for table fitting.
 
+A subsequent visibility regression came from attaching clip paths before Matplotlib finalized cell positions: text bounds were correct, but exported glyphs were hidden. Those clip paths are removed. Summary/detail table export tests now compare actual PNG pixels with text visible and hidden, checking every nonempty header and cell at 100/300 DPI so geometry checks cannot miss invisible output.
+
 ## Fitting for the remaining components
 
 The follow-up audit reproduced distinct long bar categories collapsing into one position after name truncation, clipped chart titles and legends, crowded donut labels, oversized gauge values and inaccurate narrative line estimates. Bar positions now retain category identities independently of display labels. Shared measured chart layout reserves title, legend and axis space, keeps a readable plot area, wraps labels, retains identifying suffixes when shortening is necessary, and avoids overlapping optional annotations/ticks without dropping data points. Donuts use category/percentage legends, and central values fit by font size without cutting digits. Single-axis custom charts using the shared save helper receive layout fitting too.

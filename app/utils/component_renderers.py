@@ -604,8 +604,8 @@ def sandbox_runtime_source() -> str:
             cell.get_text().set_usetex(False)
             cell.get_text().set_parse_math(False)
             cell.get_text().set_fontweight('bold' if row == 0 else 'normal')
-            cell.get_text().set_clip_path(cell)
-            cell.get_text().set_clip_on(True)
+            # Matplotlib finalizes cell geometry during drawing. A clip path made
+            # from the earlier cell rectangle can hide the fitted text entirely.
             cell.set_edgecolor(table_theme.get('border', '#d1d5db'))
             cell.set_linewidth(0.4)
             if row == 0:

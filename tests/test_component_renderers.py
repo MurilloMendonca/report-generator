@@ -2,8 +2,11 @@ import json
 import os
 import unittest
 import uuid
+from io import BytesIO
 
+import numpy as np
 import pandas as pd
+from PIL import Image
 
 from app.services.executor_service import execute_script
 from app.services.llm.script import assemble_script
@@ -530,6 +533,48 @@ class TableFittingTests(unittest.TestCase):
         self.assertEqual(len(figure.axes[0].tables), 0)
         self.assertEqual(outcome['status'], 'empty')
         self.assertIn('too small', outcome['message'])
+
+    def test_exported_table_headers_and_values_actually_paint_pixels(self):
+        dataframe = pd.DataFrame({'Department': ['North', 'South'], 'Revenue': [1234, 5678]})
+        for helper, roles in (('render_summary_table', {'dimensions': ['Department'], 'metrics': ['Revenue']}),
+                              ('render_detail_table', {'columns': ['Department', 'Revenue']})):
+            figures = []
+            self.runtime['_save_chart_to_pdf'] = lambda fig, *_: figures.append(fig)
+            self.runtime['begin_component_render']('library')
+            self.runtime[helper](object(), {'data.csv': dataframe}, 0, 0, 90, 55, source='data.csv', title='Revenue by department', **roles)
+            figure = figures[0]
+            self.addCleanup(self.runtime['plt'].close, figure)
+            cells = figure.axes[0].tables[0].get_celld()
+
+            def exported_pixels():
+                output = BytesIO()
+                figure.savefig(output, format='png', dpi=dpi)
+                output.seek(0)
+                with Image.open(output) as picture:
+                    return np.asarray(picture.convert('RGB')).copy()
+
+            # Saving at another DPI triggers another table layout pass, as PDF export does.
+            for dpi in (100, 300):
+                with self.subTest(helper=helper, dpi=dpi):
+                    figure.set_dpi(dpi)
+                    for cell in cells.values():
+                        cell.get_text().set_visible(True)
+                    visible = exported_pixels()
+                    for cell in cells.values():
+                        cell.get_text().set_visible(False)
+                    hidden = exported_pixels()
+                    changed = np.any(visible != hidden, axis=2)
+                    renderer = figure.canvas.get_renderer()
+                    image_height = changed.shape[0]
+                    for position, cell in cells.items():
+                        if not cell.get_text().get_text():
+                            continue
+                        bounds = cell.get_window_extent(renderer)
+                        left, right = int(bounds.x0) + 1, int(bounds.x1)
+                        top, bottom = image_height - int(bounds.y1) + 1, image_height - int(bounds.y0)
+                        with self.subTest(cell=position):
+                            self.assertGreater(np.count_nonzero(changed[top:bottom, left:right]), 5,
+                                               'nonempty table text must be visible in the exported image')
 
 
 if __name__ == "__main__":
