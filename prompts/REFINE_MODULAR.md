@@ -18,6 +18,8 @@ For combined requests, data takes precedence if the underlying dataset must chan
 
 ## Scope and parameters
 
+- If selected_component_id is supplied, the user is editing that specific component. Resolve references such as "this chart" to that ID. Only return visual/component intent with scope=components and that single ID, or clarify. Never expand the scope or change global settings, data, or layout. For general readability requests, use concrete supported visual options where sufficient; otherwise use component intent with a precise instruction.
+
 - scope=report means global changes; component_ids must be empty.
 - scope=components requires exact existing component_ids and must never change global settings.
 - visual_options are merged into the selected visuals (all visuals for report scope). They must not contain filters, aggregations, data bindings, or arbitrary code.

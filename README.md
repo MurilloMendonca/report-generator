@@ -8,7 +8,7 @@ The current UI text is mostly Portuguese, and the default report language is Por
 
 1. Accepts one or more CSV/XLS/XLSX files plus optional PDF context files.
    The report objective is optional; blank prompts generate an exploratory report.
-2. Extracts metadata from each dataset: shape, columns, null counts, unique counts, numeric stats, and sample rows.
+2. Extracts metadata from each dataset: shape, columns, null counts, unique counts, numeric stats, and sample rows. Excel sheets keep separate dataframe keys, and the planner receives column roles and candidate relationships with key counts to help avoid joins that duplicate totals.
 3. Detects optional data preprocessing requests before analysis. This step can filter rows, create calculated columns, normalize values, aggregate records, or otherwise prepare tabular data once for all downstream metrics and components.
 4. Sends metadata and the user objective to an LLM to plan report artifacts:
    - `metric`: calculated values used by narrative text.
@@ -16,9 +16,17 @@ The current UI text is mostly Portuguese, and the default report language is Por
    - `text`: narrative report sections.
 5. Calculates metric artifacts by asking the LLM for short Python snippets, executing them, and storing the returned values.
 6. Selects or generates an A4 layout template with millimeter coordinates.
-7. Uses the component library for standard visuals, generates Python functions for custom visuals, and generates a shared text response for narrative components.
+7. Uses the component library for standard visuals, generates Python functions for custom visuals, and generates a shared text response for narrative components. Narratives receive the accepted report objective and analysis plan alongside calculated evidence.
 8. Assembles a standalone Python report script, executes it in a bubblewrap sandbox, and writes the PDF.
 9. If execution fails, asks the LLM to repair the whole script and retries up to five times.
+
+The file viewer shows bounded sample tables and row/column counts for each Excel sheet, using metadata already extracted during analysis. Original and preprocessed previews use their respective samples. Preprocessed workbook downloads retain their actual Excel extension and content type.
+
+The **Componentes** tab supports search and type filters. Its editor provides source/column selectors, aggregation and sorting, chart colors and number formats, display options appropriate to each chart, and direct text editing with an instant reading preview and word count. Technical JSON/Python controls remain available under advanced settings for visuals. Quick suggestions and a free-form instruction let users improve one selected component with AI. Progress, errors, and retry instructions stay in the editor; successful edits update the preview and report while preserving the existing layout. Manual text edits and library visual controls do not require a model call.
+
+Use **Compartilhar** in a report to create a read-only link valid for **24 hours, 7 days, 30 days, or without expiration**. Anyone with that link can open the live report without signing in, including its PDF, components and their code, full script, layout, settings, metrics, uploaded/preprocessed files, source snapshot history, logs, and existing explorer answers. The public viewer has no editing, regeneration, or new-query controls and never runs generated code or calls a model. It rechecks access and report updates every 15 seconds.
+
+Owners can list and revoke individual links. Copy a new address when it is created: the database stores only a SHA-256 token hash, so an old address cannot be retrieved after reloading the page. Expiration/revocation is checked for every public data/file request; deleting the report or disabling its owner also blocks access. Account information, provider credentials, connection secrets and usage/account limits are excluded. Host paths in displayed report code are replaced with report-relative placeholders. Share pages/responses are not cached or indexed, do not send referrers, and share tokens are redacted from application access logs. The new `report_share_links` table is installed by the usual startup/Alembic migration workflow.
 
 ## Tech Stack
 
@@ -44,6 +52,7 @@ app/
   security.py                Session cookie, CSRF, signed-in user and admin checks, client IP, headers
   routers/auth.py            Sign-up, sign-in and account routes, auth pages
   routers/api.py             Report, template and admin routes
+  routers/sharing.py         Owner share-link management and public read-only report routes
   routers/credentials.py     Owner keys and model preferences
   routers/operations.py      Usage and admin pages/APIs
   templates/email/           Email texts (Portuguese, with an English summary)
@@ -94,6 +103,9 @@ static/
   js/api.js                  HTTP client wrapper (adds the CSRF header, redirects to /login on 401)
   js/auth.js, js/account.js  Sign-in pages and account settings
   js/app.js                  Frontend state and event handling
+  js/components.js           Component search, guided controls, text drafts and scoped AI editing
+  js/sharing.js              Owner share-link creation, expiry choices and revocation
+  js/shared.js               Anonymous read-only report viewer
   js/ui.js                   UI render helpers
   js/layout_editor.js        Shared drag/resize layout editor
   js/templates.js            Template editor page logic
@@ -529,6 +541,12 @@ Reports:
 - `POST /api/sessions/{job_id}/regenerate`: regenerates `texts`, `graphics`, one `component`, or `all` using the current provider/model/settings.
 - `GET /api/sessions/{job_id}/pdf`: downloads or previews the generated PDF.
 - `GET /api/sessions/{job_id}/components/{component_id}/preview`: renders a single component to a small PDF.
+- `POST /api/sessions/{job_id}/components/{component_id}/edit`: queues a targeted component edit (202). Accepts an optional artifact definition, plain text, custom code, AI instruction, regeneration flag and base PDF version. Poll the session's `component_edit` status; concurrent or stale edits receive 409. Failed edits preserve the previous report.
+- `GET/POST /api/sessions/{job_id}/share-links`: list the owner's links or create one (`label`, `expires_in_hours`; null means no expiration, default 168). A new address is returned only at creation.
+- `DELETE /api/sessions/{job_id}/share-links/{link_id}`: revoke a link; the caller must own the report.
+- `GET /share/{token}`: public read-only workspace. No login required.
+- `GET /api/shared-reports/{token}`: sanitized report content; a valid, unexpired, non-revoked bearer link is required.
+- `GET /api/shared-reports/{token}/pdf`, `/files/{file_index}/{preview|download}`, `/source-snapshots/{snapshot_id}/download`, and `/explore/{turn_id}/charts/{chart_id}`: public report-bound downloads with the same link checks and descriptor-safe streaming. The shared API has no mutation endpoints.
 - `POST /api/sessions/{job_id}/explore`: asks an ad-hoc question about the session data. Returns `202` with the question stored and a `pending` answer; the answer (text and up to three charts) is produced in the background and replaces the pending entry in `explore_history`. Returns `409` while another question is pending.
 - `GET /api/sessions/{job_id}/explore/{turn_id}/charts/{chart_id}`: returns an explorer chart PNG. Add `?download=true` to download it.
 - `GET /api/layout-templates`: the built-in templates (`"builtin": true`) followed by your own.
@@ -589,6 +607,7 @@ Sessions are normalized by `app/models/session.py` and stored as JSONB in `repor
 - `artifacts`: LLM-planned report components.
 - `template`: positioned component blocks with `x`, `y`, `w`, and `h` in millimeters.
 - `components`: generated Python render functions keyed by artifact ID.
+- `component_edit`: latest targeted edit status (`queued`, `running`, `rendering`, `completed`, or `failed`). The session API also derives `component_texts` for plain-text editing without executing generated functions.
 - `calculated_metrics`: metric ID to calculated value.
 - `settings`: report title, font, font size, alignment, line height, and language.
 - `provider` and `model_name`: selected LLM provider/model for generation and regeneration.
@@ -636,6 +655,7 @@ Most structured LLM outputs are parsed with schema validation and clear diagnost
 The frontend is a static single-page workspace:
 
 - `static/js/app.js` owns session state, polling, form handlers, and event flow.
+- `static/js/components.js` owns component filters, guided data/display controls, text drafts, reading previews, and the component edit job feedback.
 - `static/js/api.js` wraps calls to the FastAPI endpoints.
 - `static/js/ui.js` renders logs, artifacts, files, layout canvas, metadata, settings, and full generated script.
 - `static/js/layout_editor.js` provides the drag/resize layout editor shared by the workspace and the template editor.

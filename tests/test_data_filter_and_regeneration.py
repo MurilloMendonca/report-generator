@@ -151,6 +151,16 @@ class DataFilterTests(unittest.TestCase):
         self.assertEqual(processed["filename"], "original_preprocessed.csv")
         self.assertEqual(processed["mime_type"], "text/csv")
 
+    def test_processed_workbook_keeps_its_actual_format_and_download_name(self):
+        path = f"workspace/filtered/processed_{uuid.uuid4().hex}.xlsx"
+        pd.DataFrame({"value": [2]}).to_excel(path, index=False)
+        self.created_paths.append(path)
+        for path_field in ("preprocessed_path", "filtered_path"):
+            with self.subTest(path_field=path_field):
+                processed = session_file_variant({"original_filename": "original.xls", path_field: path}, "preprocessed")
+                self.assertEqual(processed["filename"], "original_preprocessed.xlsx")
+                self.assertEqual(processed["mime_type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
 
 class RegenerationEndpointTests(unittest.TestCase):
     def setUp(self):

@@ -16,6 +16,7 @@ const App = {
     filePreviewUrl: null,
     filePreviewIndex: null,
     filePreviewVariant: 'original',
+    filePreviewRequest: 0,
     filePreviewFocusTarget: null,
     layoutTemplates: [],
     reportLayoutEditor: null,
@@ -122,6 +123,7 @@ const App = {
     isTerminalSession(session) {
         // Explorer answers arrive in the background; keep polling until they land.
         if (this.hasPendingExploration(session)) return false;
+        if (['queued', 'running', 'rendering'].includes(session?.component_edit?.status)) return false;
         if (['queued', 'running'].includes(session?.source_import?.status)) return false;
         if (session && session.current_step) {
             return ['completed', 'failed', 'awaiting_clarification', 'translation_failed'].includes(session.current_step);
@@ -283,6 +285,8 @@ const App = {
             this.clearIndicatorPreview();
             this.restoreIndicatorModalFocus();
         });
+        if (typeof Components !== 'undefined') Components.init();
+        if (typeof Sharing !== 'undefined') Sharing.init();
     },
 
     rememberIndicatorModalFocus() {
@@ -303,6 +307,8 @@ const App = {
     },
 
     closeIndicatorModal() {
+        if (typeof Components !== 'undefined' && Components.dirty && !confirm('Descartar as alterações locais deste componente?')) return;
+        if (typeof Components !== 'undefined') Components.dirty = false;
         document.getElementById('indicator-modal').close();
     },
 
@@ -371,6 +377,21 @@ const App = {
             case 'regenerate-current-indicator':
                 await this.handleRegenerateCurrentIndicator();
                 break;
+            case 'improve-component':
+                if (typeof Components !== 'undefined') await Components.submit({ improve: true });
+                break;
+            case 'open-report-sharing':
+                if (typeof Sharing !== 'undefined') await Sharing.open();
+                break;
+            case 'refresh-component-preview':
+                this.clearIndicatorPreview();
+                await this.refreshIndicatorPreview(this.currentSession);
+                break;
+            case 'reset-component-draft': {
+                if (typeof Components !== 'undefined' && Components.busy) break;
+                this.handleEditIndicator(parseInt(document.getElementById('edit-index').value, 10));
+                break;
+            }
             case 'close-file-preview':
                 this.closeFilePreview();
                 break;
@@ -518,6 +539,7 @@ const App = {
         UI.renderLayoutCanvas(session);
         UI.renderDataArtifacts(session);
         UI.renderFullScript(session.script);
+        if (typeof Components !== 'undefined') Components.update(session);
         const signature = JSON.stringify([session.job_id, session.settings, session.provider, session.model_name]);
         if (!this.settingsDirty && signature !== this.settingsSignature) {
             UI.renderTemplateOptions(this.layoutTemplates);
@@ -545,7 +567,7 @@ const App = {
             const button = document.getElementById('modal-regenerate-btn');
             if (button) {
                 button.disabled = false;
-                button.textContent = 'Salvar e gerar novamente';
+                button.textContent = typeof Components !== 'undefined' ? 'Recriar com IA' : 'Salvar e gerar novamente';
             }
         }
     },
@@ -674,20 +696,34 @@ const App = {
         return this.previewFileVariant(index, 'original');
     },
 
+    fileVariantDetails(file, variant = 'original') {
+        const filename = file.original_filename || 'arquivo';
+        if (variant !== 'preprocessed') {
+            return { filename, artifact: file.raw_artifact || file.artifact };
+        }
+        const path = file.preprocessed_path || file.filtered_path || '';
+        const extension = path.match(/\.[^.\/\\]+$/)?.[0].toLowerCase() || '.csv';
+        return {
+            filename: `${filename.replace(/\.[^.]+$/, '')}_preprocessed${extension}`,
+            artifact: file.artifact,
+        };
+    },
+
     async previewFileVariant(index, variant = 'original') {
         const file = this.currentSession.files[index];
         if (!file) return;
+        const jobId = this.currentSession.job_id;
+        const request = ++this.filePreviewRequest;
 
         const modal = document.getElementById('file-preview-modal');
+        const isCurrent = () => request === this.filePreviewRequest && this.currentSession?.job_id === jobId && modal.open;
         const title = document.getElementById('file-preview-title');
         const meta = document.getElementById('file-preview-meta');
         const body = document.getElementById('file-preview-body');
         const downloadBtn = document.getElementById('file-preview-download');
-        const filename = file.original_filename || `arquivo-${index + 1}`;
         const isPreprocessed = variant === 'preprocessed';
-        const effectiveFilename = isPreprocessed
-            ? `${filename.replace(/\.[^.]+$/, '')}_preprocessed.csv`
-            : filename;
+        const details = this.fileVariantDetails(file, variant);
+        const effectiveFilename = details.filename;
         const kind = UI.fileKind(effectiveFilename);
         const hasPreprocessed = Boolean(file.preprocessed_path || file.filtered_path);
         this.filePreviewIndex = index;
@@ -696,8 +732,8 @@ const App = {
         title.textContent = effectiveFilename;
         meta.textContent = [
             isPreprocessed ? 'Pré-processado' : 'Original',
-            UI.formatBytes(file.size_bytes || (file.artifact && file.artifact.size_bytes)),
-            isPreprocessed ? 'text/csv' : file.mime_type,
+            UI.formatBytes(isPreprocessed ? details.artifact?.size_bytes : file.size_bytes || details.artifact?.size_bytes),
+            effectiveFilename.match(/\.([^.]+)$/)?.[1].toUpperCase(),
             isPreprocessed ? (file.preprocessing_description || file.filter_description) : ''
         ]
             .filter(Boolean)
@@ -714,17 +750,28 @@ const App = {
         previewContent.appendChild(loading);
         body.appendChild(previewContent);
         const content = body.querySelector('.preview-content') || body;
-        downloadBtn.onclick = null;
-        downloadBtn.addEventListener('click', () => this.downloadFile(index, variant), { once: true });
+        downloadBtn.onclick = () => this.downloadFile(index, variant);
+        if (this.filePreviewUrl) {
+            URL.revokeObjectURL(this.filePreviewUrl);
+            this.filePreviewUrl = null;
+        }
         this.rememberFilePreviewFocus();
         modal.showModal();
 
         try {
-            const blob = await API.getFileBlob(this.currentSession.job_id, index, 'preview', variant);
-            if (this.filePreviewUrl) URL.revokeObjectURL(this.filePreviewUrl);
-            this.filePreviewUrl = URL.createObjectURL(blob);
+            if (effectiveFilename.toLowerCase().match(/\.(xlsx|xls|ods)$/)) {
+                this.renderSpreadsheetPreview(content, details.artifact);
+                return;
+            }
+            if (!['image', 'pdf', 'text', 'data'].includes(kind)) {
+                this.renderMetadataPreview(content, { artifact: details.artifact }, 'Preview direto indisponivel para este formato.');
+                return;
+            }
+            const blob = await API.getFileBlob(jobId, index, 'preview', variant);
+            if (!isCurrent()) return;
 
             if (kind === 'image') {
+                this.filePreviewUrl = URL.createObjectURL(blob);
                 UI.clearElement(content);
                 const img = document.createElement('img');
                 img.className = 'preview-image';
@@ -732,6 +779,7 @@ const App = {
                 img.src = this.filePreviewUrl;
                 content.appendChild(img);
             } else if (kind === 'pdf') {
+                this.filePreviewUrl = URL.createObjectURL(blob);
                 UI.clearElement(content);
                 const iframe = document.createElement('iframe');
                 iframe.className = 'preview-frame';
@@ -739,22 +787,18 @@ const App = {
                 iframe.src = this.filePreviewUrl;
                 content.appendChild(iframe);
             } else if (kind === 'text' || kind === 'data') {
-                if (effectiveFilename.toLowerCase().match(/\.(xlsx|xls|ods)$/)) {
-                    this.renderMetadataPreview(content, file, 'Planilhas podem ser baixadas ou usadas pelo gerador, mas nao abrem como texto no navegador.');
-                    return;
-                }
-                const sourceEncoding = isPreprocessed ? 'utf-8' : (file.validation?.encoding || file.artifact?.encoding || 'utf-8');
+                const sourceEncoding = isPreprocessed ? 'utf-8' : (file.validation?.encoding || details.artifact?.parser?.encoding || details.artifact?.encoding || 'utf-8');
                 const encoding = sourceEncoding === 'utf-8-sig' ? 'utf-8' : sourceEncoding;
                 const text = encoding === 'utf-8' ? await blob.text() : new TextDecoder(encoding).decode(await blob.arrayBuffer());
+                if (!isCurrent()) return;
                 UI.clearElement(content);
                 const pre = document.createElement('pre');
                 pre.className = 'preview-text';
                 pre.textContent = text.slice(0, 200000);
                 content.appendChild(pre);
-            } else {
-                this.renderMetadataPreview(content, file, 'Preview direto indisponivel para este formato.');
             }
         } catch (error) {
+            if (!isCurrent()) return;
             content.textContent = '';
             const empty = document.createElement('div');
             empty.className = 'preview-empty';
@@ -795,7 +839,65 @@ const App = {
         container.appendChild(empty);
     },
 
+    renderSpreadsheetPreview(container, artifact) {
+        UI.clearElement(container);
+        if (!artifact || artifact.error) {
+            const empty = document.createElement('p');
+            empty.className = 'preview-empty';
+            empty.textContent = artifact?.error || 'A amostra estará disponível após a análise. Baixe a planilha para ver os dados completos.';
+            container.appendChild(empty);
+            return;
+        }
+        const sheets = artifact.sheets?.length ? artifact.sheets : [artifact];
+        sheets.forEach((sheet, index) => {
+            const section = document.createElement('section');
+            section.className = 'spreadsheet-preview';
+            const title = document.createElement('h4');
+            title.textContent = sheet.sheet_name || artifact.filename || `Planilha ${index + 1}`;
+            section.appendChild(title);
+            const sample = Array.isArray(sheet.sample) ? sheet.sample.slice(0, 8) : [];
+            const columns = sheet.columns?.length ? sheet.columns.map(column => column.name) : Object.keys(sample[0] || {});
+            const visibleColumns = columns.slice(0, 12);
+            const summary = document.createElement('p');
+            const rowCount = Number.isFinite(sheet.shape?.rows) ? sheet.shape.rows.toLocaleString('pt-BR') : '?';
+            summary.textContent = `${rowCount} linhas · ${sheet.shape?.columns ?? columns.length} colunas. Amostra de ${sample.length} linhas${columns.length > visibleColumns.length ? ` e ${visibleColumns.length} colunas` : ''}. Baixe a planilha para ver todos os dados.`;
+            section.appendChild(summary);
+            if (visibleColumns.length) {
+                const scroll = document.createElement('div');
+                scroll.className = 'spreadsheet-table-scroll';
+                const table = document.createElement('table');
+                table.setAttribute('aria-label', title.textContent);
+                const head = document.createElement('thead');
+                const header = document.createElement('tr');
+                visibleColumns.forEach(column => {
+                    const cell = document.createElement('th');
+                    cell.setAttribute('scope', 'col');
+                    cell.textContent = column;
+                    header.appendChild(cell);
+                });
+                head.appendChild(header);
+                table.appendChild(head);
+                const body = document.createElement('tbody');
+                sample.forEach(record => {
+                    const row = document.createElement('tr');
+                    visibleColumns.forEach(column => {
+                        const cell = document.createElement('td');
+                        const value = record[column];
+                        cell.textContent = value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+                        row.appendChild(cell);
+                    });
+                    body.appendChild(row);
+                });
+                table.appendChild(body);
+                scroll.appendChild(table);
+                section.appendChild(scroll);
+            }
+            container.appendChild(section);
+        });
+    },
+
     closeFilePreview() {
+        this.filePreviewRequest += 1;
         const modal = document.getElementById('file-preview-modal');
         modal.close();
         if (this.filePreviewUrl) {
@@ -813,11 +915,8 @@ const App = {
         const blob = await API.getFileBlob(this.currentSession.job_id, index, 'download', variant);
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        const filename = file.original_filename || `arquivo-${index + 1}`;
         link.href = url;
-        link.download = variant === 'preprocessed'
-            ? `${filename.replace(/\.[^.]+$/, '')}_preprocessed.csv`
-            : filename;
+        link.download = this.fileVariantDetails(file, variant).filename;
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -838,6 +937,7 @@ const App = {
     },
 
     handleEditIndicator(index) {
+        this.clearIndicatorPreview();
         const art = index === -1 
             ? { indicator: "", type: "bar", columns: [], reason: "" } 
             : this.currentSession.artifacts[index];
@@ -859,6 +959,7 @@ const App = {
         this.updateIndicatorCodeField(art, customCode);
         document.getElementById('modal-regenerate-btn').disabled = index === -1;
         UI.renderPresetInspector(this.componentLibrary);
+        if (typeof Components !== 'undefined') Components.open(art, index, customCode);
         this.renderIndicatorPreviewPlaceholder(index);
         
         this.openIndicatorModal();
@@ -875,6 +976,7 @@ const App = {
 
     isRenderableIndicator(art, session = this.currentSession) {
         if (!art || !session) return false;
+        if (art.type === 'text' && session.component_texts?.[art.id]) return true;
         return Boolean((session.components || {})[art.id]) || this.isLibraryRenderedArtifact(art);
     },
 
@@ -931,7 +1033,7 @@ const App = {
             visual_options: visualOptions,
             data_binding: Object.keys(dataBinding).length ? dataBinding : undefined,
             render_mode: document.getElementById('m-render-mode').value || undefined,
-            columns: document.getElementById('m-cols').value.split(',').map(s => s.trim()),
+            columns: document.getElementById('m-cols').value.split(',').map(s => s.trim()).filter(Boolean),
             reason: document.getElementById('m-reason').value
         };
         return { idx, id, newArt };
@@ -976,6 +1078,10 @@ const App = {
         const code = document.getElementById('m-code').value;
         const isPlaceholderCode = document.getElementById('m-code').dataset.placeholderCode === '1';
         if (code && !isPlaceholderCode) overrides[id] = code;
+        if (idx === -1 && newArt.type === 'text' && typeof Components !== 'undefined') {
+            const text = document.getElementById('component-text').value;
+            if (text.trim()) overrides[id] = `def render_${id}(pdf, dataframes, x, y, w, h):\n    render_text_block(pdf, ${JSON.stringify(text)}, x, y, w, h, title=${JSON.stringify(newArt.indicator)})`;
+        }
 
         await API.syncArtifacts(this.currentSession.job_id, artifacts, overrides, {
             deferPipeline: Boolean(options.deferPipeline)
@@ -986,6 +1092,10 @@ const App = {
 
     async handleSaveIndicator(e) {
         e.preventDefault();
+        if (typeof Components !== 'undefined' && Components.selectedId && document.getElementById('m-type').value !== 'metric') {
+            await Components.submit();
+            return;
+        }
         try {
             await this.saveCurrentIndicator();
             this.closeIndicatorModal();
@@ -996,6 +1106,10 @@ const App = {
     },
 
     async handleRegenerateCurrentIndicator() {
+        if (typeof Components !== 'undefined' && Components.selectedId && document.getElementById('m-type').value !== 'metric') {
+            await Components.submit({ regenerate: true });
+            return;
+        }
         const button = document.getElementById('modal-regenerate-btn');
         const preview = document.getElementById('indicator-preview-body');
         try {
@@ -1055,6 +1169,11 @@ const App = {
         if (this.indicatorPreviewLoading) return;
         const idx = parseInt(document.getElementById('edit-index').value);
         const art = idx === -1 ? null : session.artifacts[idx];
+        if (typeof Components !== 'undefined' && art?.type === 'text' && session.component_texts?.[art.id]) {
+            Components.renderTextPreview(Components.dirty ? document.getElementById('component-text').value : session.component_texts[art.id], Components.dirty);
+            this.indicatorPreviewVersion = session.pdf_version;
+            return;
+        }
         if (!this.isRenderableIndicator(art, session)) {
             UI.clearElement(preview);
             const empty = document.createElement('div');
@@ -1081,10 +1200,12 @@ const App = {
             iframe.title = 'Prévia do componente';
             iframe.src = `${url}#toolbar=0&navpanes=0&view=Fit`;
             preview.appendChild(iframe);
+            const version = document.getElementById('component-preview-version');
+            if (version) version.textContent = `· versão ${session.pdf_version || 0}`;
             const button = document.getElementById('modal-regenerate-btn');
             if (button) {
-                button.disabled = false;
-                button.textContent = 'Salvar e gerar novamente';
+                button.disabled = typeof Components !== 'undefined' && Components.busy;
+                button.textContent = typeof Components !== 'undefined' ? 'Recriar com IA' : 'Salvar e gerar novamente';
             }
         } catch (error) {
             if (request !== this.indicatorPreviewRequest) return;

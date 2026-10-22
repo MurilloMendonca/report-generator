@@ -21,8 +21,9 @@ from app.routers.auth import router as auth_router
 from app.routers.credentials import router as credentials_router
 from app.routers.operations import router as operations_router
 from app.routers.sources import router as sources_router
+from app.routers.sharing import router as sharing_router
 from app.security import (
-    PUBLIC_API_PATHS, SESSION_COOKIE, add_cache_headers, add_security_headers, clear_session_cookie,
+    SESSION_COOKIE, add_cache_headers, add_security_headers, clear_session_cookie, is_public_api_request,
     csrf_ok, ensure_csrf_cookie, signup_open,
 )
 from app.services import auth_service, email_service, turnstile
@@ -66,6 +67,7 @@ app.include_router(auth_router)
 app.include_router(credentials_router)
 app.include_router(operations_router)
 app.include_router(sources_router)
+app.include_router(sharing_router)
 app.include_router(api_router)
 
 
@@ -121,7 +123,7 @@ async def require_api_access(request: Request, call_next):
         if signed_in is not None:
             request.state.user = signed_in.user
             request.state.auth_session = signed_in.session
-        elif path not in PUBLIC_API_PATHS:
+        elif not is_public_api_request(path, request.method):
             response = _reject(401, "Unauthorized")
             if token:
                 clear_session_cookie(response)

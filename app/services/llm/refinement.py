@@ -16,7 +16,7 @@ from app.utils.layout import normalize_template
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 from app.services.llm import client
 from app.services.llm.client import llm_operation_context
-from app.services.llm.components import VISUAL_COMPONENT_TYPES
+from app.services.llm.components import VISUAL_COMPONENT_TYPES, slot_by_artifact_id, visual_slot_guidance
 from app.services.llm.errors import LLMContractError
 from app.services.llm.parsing import _parse_contract_json, _raw_excerpt, parse_llm_translation_payload, strip_code_fence
 from app.services.llm.prompts import load_prompt
@@ -79,7 +79,7 @@ def parse_llm_refinement_decision(text: str, session: dict) -> dict:
         ) from exc
 
 
-def classify_refinement(session: dict, prompt: str, job_id: str | None = None) -> dict:
+def classify_refinement(session: dict, prompt: str, job_id: str | None = None, component_id: str | None = None) -> dict:
     provider = session.get("provider", DEFAULT_PROVIDER)
     model_name = session.get("model_name", DEFAULT_MODEL_NAME)
     settings = session.get("settings") or {}
@@ -116,6 +116,10 @@ def classify_refinement(session: dict, prompt: str, job_id: str | None = None) -
         ],
         "chart_styles": [{"id": style["id"], "description": style["description"]} for style in CHART_STYLES.values()],
     }
+    if component_id:
+        context["selected_component_id"] = component_id
+        context["pending_clarification"] = {}
+        context["recent_messages"] = []
     with llm_operation_context(
         job_id=job_id or session.get("job_id"), operation="refinement_routing",
         settings=settings, provider=provider, model_name=model_name,
@@ -186,10 +190,14 @@ def _refine_component_function(session: dict, artifact: dict, instruction: str, 
         )
     prompt = (
         f"Target language: {session.get('settings', {}).get('language', 'Portuguese')}\n"
+        f"Report objective: {session.get('current_goal') or session.get('initial_prompt', '')}\n"
         f"Update FUNCTION render_{suffix} for this instruction:\n{instruction}\n\n"
         f"Target component JSON:\n{json.dumps(artifact, ensure_ascii=False)}\n\n"
         f"Current code:\n{session.get('components', {}).get(component_id, 'No custom function; currently library-rendered.')}\n\n"
         f"Data schema:\n{json.dumps([file['artifact'] for file in session.get('files', []) if file.get('artifact')], ensure_ascii=False)}"
+        f"\n\nCalculated metrics (preserve their meaning and units):\n{json.dumps(session.get('calculated_metrics', {}), ensure_ascii=False)}"
+        f"\n\nLayout slot constraints:\n{json.dumps(visual_slot_guidance(slot_by_artifact_id(session.get('template', [])).get(component_id)), ensure_ascii=False)}"
+        "\nDo not invent values, change the analytical population, or replace unavailable metrics with zero."
         f"{runtime_reference}\nReturn ONLY Python code. Preserve unrelated behavior."
     )
     with llm_operation_context(

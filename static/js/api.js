@@ -194,6 +194,13 @@ const API = {
         return await this.parseResponse(res, 'Não foi possível atualizar o relatório');
     },
 
+    async editComponent(jobId, componentId, payload) {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(jobId)}/components/${encodeURIComponent(componentId)}/edit`, {
+            method: 'POST', headers: this.authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(payload)
+        });
+        return this.parseResponse(res, 'Não foi possível atualizar o componente');
+    },
+
     async getLayoutTemplates() {
         const res = await fetch('/api/layout-templates', { headers: this.authHeaders() });
         return await this.parseResponse(res, 'Não foi possível carregar os templates de layout');

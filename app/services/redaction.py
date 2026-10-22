@@ -4,6 +4,7 @@ import re
 import traceback
 
 _KEY = re.compile(r"(?<![\w-])(?:sk-(?:ant-)?[A-Za-z0-9_-]{8,}|AIza[A-Za-z0-9_-]{12,}|[A-Za-z0-9+/]{80,}={0,2})(?![\w-])")
+_SHARE_LINK = re.compile(r"(/(?:share|api/shared-reports)/)[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])")
 
 
 def redact(value, secrets=()):
@@ -11,7 +12,7 @@ def redact(value, secrets=()):
         for secret in secrets:
             if secret:
                 value = value.replace(secret, "[REDACTED]")
-        return _KEY.sub("[REDACTED]", value)
+        return _SHARE_LINK.sub(r"\1[REDACTED]", _KEY.sub("[REDACTED]", value))
     if isinstance(value, dict):
         return {redact(key, secrets): redact(item, secrets) for key, item in value.items()}
     if isinstance(value, (tuple, list)):

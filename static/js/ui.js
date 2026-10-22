@@ -399,6 +399,7 @@ const UI = {
     },
 
     renderArtifacts(artifacts, onEdit, onDelete) {
+        if (typeof Components !== 'undefined') return Components.renderList(artifacts || []);
         const container = document.getElementById('artifacts-visual');
         if (!container) return;
         UI.clearElement(container);

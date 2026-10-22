@@ -460,6 +460,65 @@ async function checkFilePreviews() {
     context.App.currentSession.files = [{ original_filename: 'data.csv', mime_type: 'text/csv' }];
     await context.App.previewFile(0);
     assert.strictEqual(context.document.getElementById('file-preview-body').querySelectorAll('.file-preview-tab').length, 0);
+
+    for (const pathField of ['preprocessed_path', 'filtered_path']) {
+        const raw = { shape: { rows: 10 }, sample: [{ value: 'original' }] };
+        const processed = { shape: { rows: 2 }, sample: [{ value: 'processed' }] };
+        context.App.currentSession.files = [{
+            original_filename: 'book.xls', mime_type: 'application/vnd.ms-excel',
+            [pathField]: '/report/filtered/book.xlsx', raw_artifact: raw, artifact: processed,
+        }];
+        const requestCount = requests.length;
+        await context.App.previewFileVariant(0, 'original');
+        let body = context.document.getElementById('file-preview-body');
+        assert(body.querySelector('td').textContent.includes('original'), 'original preview uses the raw sample');
+        await context.App.previewFileVariant(0, 'preprocessed');
+        body = context.document.getElementById('file-preview-body');
+        assert(body.querySelector('td').textContent.includes('processed'), 'processed preview uses the processed sample');
+        assert.strictEqual(context.document.getElementById('file-preview-title').textContent, 'book_preprocessed.xlsx');
+        assert(context.document.getElementById('file-preview-meta').textContent.includes('XLSX'));
+        assert.strictEqual(requests.length, requestCount, 'spreadsheet metadata previews must not download the entire workbook');
+        assert.strictEqual(context.App.fileVariantDetails(context.App.currentSession.files[0], 'preprocessed').filename, 'book_preprocessed.xlsx');
+    }
+
+    const sheetBody = context.document.getElementById('file-preview-body');
+    context.App.renderSpreadsheetPreview(sheetBody, { sheets: [
+        { sheet_name: 'Sales', shape: { rows: 100, columns: 2 }, columns: [{ name: 'region' }, { name: 'sales' }], sample: [{ region: '<img src=x onerror=alert(1)>', sales: 42 }] },
+        { sheet_name: 'Targets', shape: { rows: 1, columns: 1 }, sample: [{ target: 50 }] },
+    ] });
+    assert.strictEqual(sheetBody.querySelectorAll('table').length, 2, 'every workbook sheet has a readable sample');
+    assert.strictEqual(sheetBody.querySelector('td').textContent, '<img src=x onerror=alert(1)>');
+    assert.strictEqual(sheetBody.querySelectorAll('img').length, 0, 'sample values must render as text');
+    assert(sheetBody.textContent.includes('100 linhas'));
+    context.App.renderSpreadsheetPreview(sheetBody, null);
+    assert(sheetBody.textContent.includes('após a análise'), 'unanalyzed workbooks offer a download without a broken table');
+
+    const downloads = [];
+    context.App.downloadFile = (...args) => downloads.push(args);
+    await context.App.previewFileVariant(0, 'original');
+    await context.App.previewFileVariant(0, 'preprocessed');
+    context.document.getElementById('file-preview-download').onclick();
+    assert.deepStrictEqual(downloads, [[0, 'preprocessed']], 'download button must use only the active variant');
+
+    const pending = [];
+    context.App.currentSession.files = [{ original_filename: 'data.csv', preprocessed_path: 'data.csv' }];
+    context.API.getFileBlob = () => new Promise(resolve => pending.push(resolve));
+    const first = context.App.previewFileVariant(0, 'original');
+    const oldContent = context.document.getElementById('file-preview-body').querySelector('.preview-content');
+    const second = context.App.previewFileVariant(0, 'preprocessed');
+    pending[1]({ text: async () => 'new preview' });
+    await second;
+    pending[0]({ text: async () => 'stale preview' });
+    await first;
+    assert.strictEqual(oldContent.querySelector('.preview-text'), null, 'late responses must not render a stale preview');
+    assert.strictEqual(context.document.getElementById('file-preview-body').querySelector('.preview-text').textContent, 'new preview');
+
+    const closing = context.App.previewFileVariant(0, 'original');
+    modal.close = () => { modal.open = false; };
+    context.App.closeFilePreview();
+    pending[2]({ text: async () => 'closed preview' });
+    await closing;
+    assert.strictEqual(context.document.getElementById('file-preview-body').querySelector('.preview-text'), null, 'closing the modal invalidates pending preview requests');
 }
 
 checkFilePreviews().then(() => process.stdout.write('ok')).catch(error => {

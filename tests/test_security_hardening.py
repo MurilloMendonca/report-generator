@@ -31,6 +31,18 @@ class FakeRequest:
         self.client = None
 
 
+class SharedAccessPolicyTests(unittest.TestCase):
+    def test_public_report_policy_allows_only_recognized_read_requests(self):
+        token = "a" * 43
+        for suffix in ("", "/pdf", "/files/0/preview", "/files/0/download", f"/explore/{'b' * 32}/charts/chart_1", f"/source-snapshots/{'c' * 32}/download"):
+            path = f"/api/shared-reports/{token}{suffix}"
+            self.assertTrue(security.is_public_api_request(path, "GET"))
+            for method in ("POST", "PUT", "PATCH", "DELETE"):
+                self.assertFalse(security.is_public_api_request(path, method))
+        for path in (f"/api/shared-reports/{token}/edit", f"/api/shared-reports/{token}/files/0/delete", f"/api/sessions/{token}", "/api/shared-reports/../pdf"):
+            self.assertFalse(security.is_public_api_request(path, "GET"))
+
+
 class AdminAccessTests(unittest.TestCase):
     def test_admin_routes_need_the_admin_role(self):
         with TestClient(app) as client:

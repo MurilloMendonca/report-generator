@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer"><title>Relatório compartilhado</title><link rel="stylesheet" href="/static/css/styles.css"></head>
+<body class="shared-report-page">
+    <main class="shared-report-shell">
+        <header class="shared-report-header"><div><span class="shared-readonly-badge">Somente leitura</span><h1 id="shared-title">Relatório compartilhado</h1><p id="shared-expiry"></p></div><a id="shared-download" class="btn" hidden>Baixar PDF</a></header>
+        <div id="shared-notice" class="workspace-notice" role="status" aria-live="polite">Carregando o relatório...</div>
+        <section id="shared-content" hidden>
+            <p id="shared-goal" class="shared-goal"></p>
+            <nav class="tabs" aria-label="Conteúdo do relatório">
+                <button class="tab active" type="button" data-shared-tab="shared-pdf">PDF</button>
+                <button class="tab" type="button" data-shared-tab="shared-components">Componentes</button>
+                <button class="tab" type="button" data-shared-tab="shared-layout">Layout</button>
+                <button class="tab" type="button" data-shared-tab="shared-code">Código</button>
+                <button class="tab" type="button" data-shared-tab="shared-settings">Configurações</button>
+                <button class="tab" type="button" data-shared-tab="shared-data">Métricas e dados</button>
+                <button class="tab" type="button" data-shared-tab="shared-files">Arquivos</button>
+                <button class="tab" type="button" data-shared-tab="shared-history">Histórico e consultas</button>
+            </nav>
+            <section id="shared-pdf" class="shared-tab active"><iframe id="shared-pdf-viewer" title="PDF do relatório compartilhado"></iframe><p id="shared-pdf-empty" hidden>O PDF ainda não está disponível.</p></section>
+            <section id="shared-components" class="shared-tab"></section>
+            <section id="shared-layout" class="shared-tab"></section>
+            <section id="shared-code" class="shared-tab"><button type="button" id="shared-copy-code" class="btn btn-outline">Copiar código</button><pre><code id="shared-script" class="language-python"></code></pre></section>
+            <section id="shared-settings" class="shared-tab"></section>
+            <section id="shared-data" class="shared-tab"></section>
+            <section id="shared-files" class="shared-tab"></section>
+            <section id="shared-history" class="shared-tab"></section>
+        </section>
+    </main>
+    <dialog id="shared-file-modal" class="file-preview-modal" aria-labelledby="shared-file-title"><div class="file-preview-header"><h3 id="shared-file-title"></h3><button type="button" id="shared-file-close" class="btn btn-outline">Fechar</button></div><div id="shared-file-body" class="file-preview-body"></div></dialog>
+    <script src="/static/js/shared.js"></script>
+</body>
+</html>

@@ -305,6 +305,50 @@ def fail_source_import(job_id: str, token: str, error: dict):
     return _mutate(job_id, change)
 
 
+def queue_component_edit(job_id: str, component_id: str, token: str, base_pdf_version=None):
+    def change(session):
+        if not any(item.get("id") == component_id for item in session.get("artifacts", [])):
+            raise LookupError("Componente não encontrado.")
+        if base_pdf_version is not None and base_pdf_version != session.get("pdf_version", 0):
+            raise ValueError("O relatório foi atualizado. Reabra o componente antes de salvar.")
+        terminal = {"", "completed", "failed", "awaiting_clarification", "translation_failed"}
+        if session.get("current_step", "") not in terminal or (session.get("component_edit") or {}).get("status") in {"queued", "running", "rendering"}:
+            raise ValueError("Aguarde a atualização em andamento antes de editar outro componente.")
+        session.update(component_edit={"id": token, "component_id": component_id, "status": "queued", "message": "Aguardando a edição do componente..."},
+                       current_step="component_queued", progress=5, error={})
+    return _mutate(job_id, change)
+
+
+def set_component_edit_status(job_id: str, token: str, status: str, message: str):
+    def change(session):
+        operation = session.get("component_edit") or {}
+        if operation.get("id") != token:
+            return _NO_WRITE
+        operation.update(status=status, message=message)
+    return _mutate(job_id, change)
+
+
+def commit_component_edit(job_id: str, token: str, artifact: dict, code: str | None):
+    def change(session):
+        operation = session.get("component_edit") or {}
+        if operation.get("id") != token:
+            raise ValueError("Esta edição foi substituída por outra solicitação.")
+        component_id = operation["component_id"]
+        for index, current in enumerate(session.get("artifacts", [])):
+            if current.get("id") == component_id:
+                session["artifacts"][index] = artifact
+                break
+        else:
+            raise LookupError("O componente foi removido durante a edição.")
+        components = session.setdefault("components", {})
+        if code:
+            components[component_id] = code
+        else:
+            components.pop(component_id, None)
+        operation.update(status="rendering", message="Edição aplicada. Atualizando o PDF e a prévia...")
+    return _mutate(job_id, change)
+
+
 def preserve_report_on_failure(refine):
     """Keep the last usable report when a refinement fails before a new PDF exists."""
     @wraps(refine)
@@ -629,9 +673,10 @@ def recover_interrupted_sessions() -> list[str]:
     pending_turn = Report.state["explore_history"].contains([{"role": "assistant", "status": "pending"}])
     pending_source = or_(Report.state["source_import"].contains({"status": "queued"}),
                          Report.state["source_import"].contains({"status": "running"}))
+    pending_component = or_(*(Report.state["component_edit"].contains({"status": status}) for status in ("queued", "running", "rendering")))
     with db.transaction() as tx:
         job_ids = tx.execute(
-            select(Report.id).where(or_(Report.current_step.not_in(TERMINAL_STEPS), pending_turn, pending_source))
+            select(Report.id).where(or_(Report.current_step.not_in(TERMINAL_STEPS), pending_turn, pending_source, pending_component))
         ).scalars().all()
 
     recovered = []
@@ -640,6 +685,14 @@ def recover_interrupted_sessions() -> list[str]:
         session = get_session(job_id)
         if not session:
             continue
+        if session.get("component_edit", {}).get("status") in {"queued", "running", "rendering"}:
+            def interrupt_component(state):
+                operation = state.get("component_edit") or {}
+                if operation.get("status") not in {"queued", "running", "rendering"}:
+                    return _NO_WRITE
+                operation.update(status="failed", message=message)
+            _mutate(job_id, interrupt_component)
+            recovered.append(job_id)
         if session.get("source_import", {}).get("status") in {"queued", "running"}:
             def interrupt_source(state):
                 if state.get("source_import", {}).get("status") not in {"queued", "running"}:

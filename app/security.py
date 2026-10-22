@@ -5,6 +5,7 @@ Accounts and sessions themselves live in app/services/auth_service.py.
 import hmac
 import ipaddress
 import os
+import re
 import secrets
 import socket
 import time
@@ -32,6 +33,22 @@ PUBLIC_API_PATHS = {
     "/api/auth/reset-password",
     "/api/auth/confirm-email",
 }
+
+PUBLIC_SHARED_API_PATHS = {
+    "/api/shared-reports/{token}",
+    "/api/shared-reports/{token}/pdf",
+    "/api/shared-reports/{token}/files/{file_index}/{mode}",
+    "/api/shared-reports/{token}/explore/{turn_id}/charts/{chart_id}",
+    "/api/shared-reports/{token}/source-snapshots/{snapshot_id}/download",
+}
+PUBLIC_API_PATHS.update(PUBLIC_SHARED_API_PATHS)
+_SHARED_READ_PATH = re.compile(r"/api/shared-reports/[A-Za-z0-9_-]{1,128}(?:/pdf|/files/[0-9]+/(?:preview|download)|/explore/[a-f0-9]{32}/charts/[A-Za-z0-9_-]+|/source-snapshots/[a-f0-9]{32}/download)?")
+
+
+def is_public_api_request(path: str, method: str) -> bool:
+    return path in PUBLIC_API_PATHS - PUBLIC_SHARED_API_PATHS or (
+        method in {"GET", "HEAD"} and _SHARED_READ_PATH.fullmatch(path) is not None
+    )
 
 TURNSTILE_ORIGIN = "https://challenges.cloudflare.com"
 CONTENT_SECURITY_POLICY = (

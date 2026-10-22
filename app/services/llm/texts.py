@@ -39,16 +39,34 @@ def text_layout_guidance(text_artifacts: list, template: list, settings: dict = 
     return guidance
 
 
-def generate_all_texts(all_metadata: str, text_artifacts: list, calculated_metrics: dict, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, template: list = None, job_id: str | None = None) -> dict:
+def generate_all_texts(
+    all_metadata: str,
+    text_artifacts: list,
+    calculated_metrics: dict,
+    provider: str = DEFAULT_PROVIDER,
+    model_name: str = DEFAULT_MODEL_NAME,
+    settings: dict = None,
+    template: list = None,
+    job_id: str | None = None,
+    report_goal: str = "",
+    report_artifacts: list | None = None,
+) -> dict:
     with llm_operation_context(job_id=job_id, operation="text_generation", settings=settings, provider=provider, model_name=model_name):
         system_instruction = load_prompt("GENERATE_ALL_TEXTS.md")
         lang = settings.get('language', 'Portuguese') if settings else 'Portuguese'
         layout_guidance = text_layout_guidance(text_artifacts, template or [], settings)
         context = [
             f"Target Language: {lang}",
+            f"Report Objective:\n{report_goal or 'Explore the supplied data and explain the most relevant supported findings.'}",
             f"Text Artifacts:\n{json.dumps(text_artifacts, indent=2, ensure_ascii=False)}",
             f"Calculated Metrics:\n{json.dumps(calculated_metrics, indent=2, ensure_ascii=False)}",
         ]
+        if report_artifacts:
+            report_plan = [
+                {key: artifact[key] for key in ("id", "type", "indicator", "description", "columns", "data_binding") if key in artifact}
+                for artifact in report_artifacts
+            ]
+            context.append(f"Report Plan (intended analyses, not calculated evidence):\n{json.dumps(report_plan, indent=2, ensure_ascii=False)}")
         if layout_guidance:
             context.append(f"Layout Slots:\n{json.dumps(layout_guidance, indent=2, ensure_ascii=False)}")
         context.append(f"Data Artifacts:\n{all_metadata}")

@@ -1,13 +1,27 @@
 from collections import defaultdict
 
 
+def _dataset_metadata(files: list):
+    for file_info in files or []:
+        artifact = file_info.get("artifact") or {}
+        filename = artifact.get("filename") or file_info.get("original_filename", "")
+        sheets = artifact.get("sheets") or []
+        if sheets:
+            for index, sheet in enumerate(sheets):
+                yield {
+                    **sheet,
+                    "filename": sheet.get("dataframe_key") or (filename if index == 0 else f"{filename}::{sheet['sheet_name']}"),
+                }
+        else:
+            yield {**artifact, "filename": filename}
+
+
 def build_semantic_model(files: list) -> dict:
     datasets = []
     column_index = defaultdict(list)
 
-    for file_info in files or []:
-        artifact = file_info.get("artifact") or {}
-        filename = artifact.get("filename") or file_info.get("original_filename", "")
+    for artifact in _dataset_metadata(files):
+        filename = artifact["filename"]
         columns = artifact.get("columns", []) or []
         roles = {
             "measures": [],
@@ -22,12 +36,15 @@ def build_semantic_model(files: list) -> dict:
             role = column.get("role", "")
             if not name:
                 continue
-            normalized_name = name.split(":", 1)[-1].lower()
+            normalized_name = name.strip().casefold()
             column_index[normalized_name].append({
                 "file": filename,
                 "column": name,
                 "role": role,
+                "type": column.get("type"),
+                "rows": artifact.get("shape", {}).get("rows"),
                 "unique_values": column.get("unique_values"),
+                "null_count": column.get("null_count"),
             })
 
             if role == "measure":

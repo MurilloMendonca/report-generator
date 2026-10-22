@@ -12,6 +12,8 @@ from starlette.concurrency import run_in_threadpool
 from app.pages import render_page
 from app.security import client_key, current_user, require_admin, require_verified_user
 from app.services import quotas
+from app.models.refinement import ComponentEditRequest
+from app.services.component_service import component_texts, run_component_edit
 from app.services.cleanup_service import (
     cleanup_expired_artifacts,
     delete_entire_session,
@@ -40,6 +42,7 @@ from app.services.session_manager import (
     get_session,
     is_valid_job_id,
     list_recent_sessions,
+    queue_component_edit,
     update_session,
 )
 from app.services.web_helpers import (
@@ -328,7 +331,34 @@ async def delete_session_file(request: Request, job_id: str, file_index: int, ba
 
 @router.get("/api/sessions/{job_id}")
 async def get_session_status(request: Request, job_id: str):
-    return require_session(job_id, request)
+    session = require_session(job_id, request)
+    return {**session, "component_texts": component_texts(session)}
+
+
+@router.post("/api/sessions/{job_id}/components/{component_id}/edit", status_code=202)
+async def edit_report_component(request: Request, job_id: str, component_id: str, background_tasks: BackgroundTasks, payload: ComponentEditRequest):
+    session = require_session(job_id, request)
+    artifact = next((item for item in session.get("artifacts", []) if item.get("id") == component_id), None)
+    if artifact is None:
+        raise HTTPException(404, detail="Componente não encontrado.")
+    if payload.artifact and payload.artifact.id != component_id:
+        raise HTTPException(422, detail="A edição deve manter o ID do componente selecionado.")
+    if (payload.artifact.type if payload.artifact else artifact.get("type")) not in VISUAL_TYPES | {"text"}:
+        raise HTTPException(422, detail="Este editor aceita gráficos, tabelas e textos.")
+    if payload.code is not None:
+        validate_component_code(component_id, payload.code)
+    token = uuid.uuid4().hex
+    try:
+        queued = queue_component_edit(job_id, component_id, token, payload.base_pdf_version)
+    except ValueError as exc:
+        raise HTTPException(409, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(404, detail=str(exc)) from exc
+    edit_payload = payload.model_dump(exclude_none=True)
+    if payload.artifact:
+        edit_payload["artifact"] = payload.artifact.model_dump()
+    background_tasks.add_task(run_job, run_component_edit, job_id, token, edit_payload)
+    return {"status": "queued", "operation": queued["component_edit"]}
 
 
 @router.delete("/api/sessions/{job_id}")

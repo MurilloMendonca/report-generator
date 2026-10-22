@@ -686,6 +686,7 @@ def _run_pipeline(job_id: str, run_id: int):
                         settings=settings,
                         template_context=template_constraints(selected_template) if selected_template else None,
                         job_id=job_id,
+                        semantic_model=build_semantic_model(files),
                     )
                     if isinstance(artifacts, list) and len(artifacts) > 0:
                         validation_context = template_constraints(selected_template) if selected_template else None
@@ -835,6 +836,8 @@ def _run_pipeline(job_id: str, run_id: int):
                     settings=session.get('settings'),
                     template=template,
                     job_id=job_id,
+                    report_goal=session.get("current_goal") or session.get("initial_prompt", ""),
+                    report_artifacts=artifacts,
                 )
                 condensed_texts_map = condense_texts_to_fit(texts_map, text_artifacts, template, provider, model_name, settings=session.get('settings'), job_id=job_id)
                 if condensed_texts_map != texts_map:

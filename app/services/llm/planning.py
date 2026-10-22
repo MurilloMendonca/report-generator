@@ -25,6 +25,7 @@ def generate_artifacts(
     settings: dict = None,
     template_context: dict = None,
     job_id: str | None = None,
+    semantic_model: dict | None = None,
 ) -> list:
     with llm_operation_context(job_id=job_id, operation="artifact_plan", settings=settings, provider=provider, model_name=model_name):
         system_instruction = load_prompt("GENERATE_ARTIFACTS.md")
@@ -38,11 +39,20 @@ def generate_artifacts(
                 "Metric artifacts can exceed the visual slot counts because they are not directly rendered.\n\n"
             )
         visual_catalog = json.dumps(presets_prompt_summary(), indent=2, ensure_ascii=False)
+        semantic_context = ""
+        if semantic_model:
+            semantic_context = (
+                f"Dataset Roles and Candidate Relationships:\n{json.dumps(semantic_model, ensure_ascii=False)}\n\n"
+                "Relationships are candidates based on column names, not verified joins. "
+                "Check key uniqueness, compatible types, and data grain before combining tables; "
+                "avoid many-to-many joins that multiply metric values. Use each dataset's exact filename as its dataframe key.\n\n"
+            )
         user_prompt = (
             f"Target Language: {lang}\n"
             f"{layout_constraints}"
             f"Available Visual Component Presets:\n{visual_catalog}\n\n"
             f"Shared Data Binding JSON Schema:\n{json.dumps(DataBinding.model_json_schema(), ensure_ascii=False)}\n\n"
+            f"{semantic_context}"
             f"Data Artifacts:\n{all_metadata}\n\n"
             f"User's Initial Prompt: {prompt}"
         )

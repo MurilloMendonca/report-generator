@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 import app.routers.api as api
 from app.main import app
-from app.security import PUBLIC_API_PATHS
+from app.security import PUBLIC_API_PATHS, PUBLIC_SHARED_API_PATHS
 from app.services import auth_service, job_runner, quotas, session_manager
 from app.services.cleanup_service import delete_entire_session
 from app.utils.report_paths import TENANTS_DIR, ReportPaths
@@ -27,6 +27,12 @@ from tests.auth_helpers import TEST_PASSWORD, create_session, make_user, signed_
 
 # Routes that don't take a report id, and why that's safe.
 NOT_REPORT_SCOPED = {
+    ("GET", "/share/{token}"): "read-only bearer link, expiration/revocation checked (test_sharing)",
+    ("GET", "/api/shared-reports/{token}"): "read-only bearer link, sanitized report payload (test_sharing)",
+    ("GET", "/api/shared-reports/{token}/pdf"): "read-only bearer link, safe file streaming (test_sharing)",
+    ("GET", "/api/shared-reports/{token}/files/{file_index}/{mode}"): "read-only bearer link, safe file streaming (test_sharing)",
+    ("GET", "/api/shared-reports/{token}/explore/{turn_id}/charts/{chart_id}"): "read-only bearer link, report-bound explorer images (test_sharing)",
+    ("GET", "/api/shared-reports/{token}/source-snapshots/{snapshot_id}/download"): "read-only bearer link, report-bound historical files (test_sharing)",
     ("GET", "/sources"): "signed-in source settings page (test_saved_sources)",
     ("GET", "/api/data-sources"): "caller connections and datasets only (test_saved_sources)",
     ("POST", "/api/data-sources/connections"): "creates a caller-owned connection (test_saved_sources)",
@@ -80,6 +86,9 @@ ACCOUNT_SCOPED_PREFIX = "/api/auth/"  # public, or acts on the caller's own acco
 # A plausible request for each report route, so validation passes and the
 # ownership check is what answers.
 SAMPLE_REQUESTS = {
+    ("GET", "/api/sessions/{job_id}/share-links"): {},
+    ("POST", "/api/sessions/{job_id}/share-links"): {"json": {"expires_in_hours": 24}},
+    ("DELETE", "/api/sessions/{job_id}/share-links/{link_id}"): {},
     ("POST", "/api/sessions/{job_id}/sources/refresh"): {"json": {"sources": [{"dataset_id": "11111111-1111-1111-1111-111111111111"}]}},
     ("GET", "/api/sessions/{job_id}/source-snapshots/{snapshot_id}/download"): {},
     ("GET", "/session/{job_id}"): {},
@@ -96,6 +105,7 @@ SAMPLE_REQUESTS = {
     ("POST", "/api/sessions/{job_id}/regenerate"): {"json": {"scope": "all"}},
     ("GET", "/api/sessions/{job_id}/pdf"): {},
     ("GET", "/api/sessions/{job_id}/components/{component_id}/preview"): {},
+    ("POST", "/api/sessions/{job_id}/components/{component_id}/edit"): {"json": {"instruction": "Melhore a clareza."}},
     ("POST", "/api/sessions/{job_id}/explore"): {"data": {"prompt": "how many rows?"}},
     ("GET", "/api/sessions/{job_id}/explore/{turn_id}/charts/{chart_id}"): {},
 }
@@ -153,10 +163,12 @@ class RouteCoverageTests(IsolationTestCase):
         for method, path in SAMPLE_REQUESTS:
             self.assertIn("{job_id}", path, (method, path))
         for path in PUBLIC_API_PATHS:
-            self.assertTrue(path.startswith(ACCOUNT_SCOPED_PREFIX), path)
+            self.assertTrue(path.startswith(ACCOUNT_SCOPED_PREFIX) or path in PUBLIC_SHARED_API_PATHS, path)
+            if path in PUBLIC_SHARED_API_PATHS:
+                self.assertIn(("GET", path), NOT_REPORT_SCOPED)
 
     def test_other_users_get_404_on_every_report_route(self):
-        values = {"snapshot_id": "a" * 32, "job_id": self.job_id, "file_index": "0", "component_id": "t_intro", "turn_id": TURN_ID, "chart_id": "chart_1"}
+        values = {"link_id": "11111111-1111-1111-1111-111111111111", "snapshot_id": "a" * 32, "job_id": self.job_id, "file_index": "0", "component_id": "t_intro", "turn_id": TURN_ID, "chart_id": "chart_1"}
         with patch.object(api, "run_pipeline") as pipeline, patch.object(api, "run_script_generation") as render, \
              patch.object(api, "process_chat_refinement") as refine, patch.object(api, "complete_exploration_job") as explore, \
              TestClient(app, follow_redirects=False) as client:

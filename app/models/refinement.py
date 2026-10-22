@@ -2,9 +2,21 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.utils.visual_contracts import VisualOptions
+from app.services.llm.parsing import LlmArtifact
 
 
 HexColor = Annotated[str, Field(pattern=r"^#[0-9a-fA-F]{6}$")]
+
+
+class ComponentEditRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact: LlmArtifact | None = None
+    text: str | None = Field(default=None, max_length=30000)
+    code: str | None = Field(default=None, max_length=100000)
+    instruction: str = Field(default="", max_length=6000)
+    regenerate: bool = False
+    base_pdf_version: int | None = Field(default=None, ge=0)
 
 
 class SettingsChanges(BaseModel):

@@ -104,6 +104,7 @@
                     <div class="progress-bar" id="progress-bar"></div>
                 </div>
                 <button class="btn btn-secondary" id="download-btn" style="display:none; margin-left: 1.5rem;">Download PDF</button>
+                <button class="btn btn-outline" type="button" id="share-report-btn" data-action="open-report-sharing">Compartilhar</button>
             </div>
             <div class="log-container" id="log-container"></div>
         </div>
@@ -137,9 +138,14 @@
         </div>
 
         <div id="tab-artifacts" class="tab-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                <h3 style="margin:0; color: var(--md-sys-color-primary)">Arquitetura do Relatório</h3>
-                <button class="btn btn-secondary" type="button" data-action="edit-indicator-new">➕ Novo Indicador</button>
+            <div class="components-header">
+                <div><h3>Componentes do relatório</h3><p>Ajuste gráficos, tabelas e textos sem refazer o relatório inteiro.</p></div>
+                <button class="btn btn-secondary" type="button" data-action="edit-indicator-new">Novo componente</button>
+            </div>
+            <div class="components-toolbar">
+                <label>Buscar componente<input id="component-search" type="search" placeholder="Nome, objetivo ou coluna..."></label>
+                <label>Mostrar<select id="component-filter"><option value="all">Todos</option><option value="visual">Gráficos e tabelas</option><option value="text">Textos</option><option value="metric">Métricas</option></select></label>
+                <span id="component-count" role="status" aria-live="polite"></span>
             </div>
             <div id="artifacts-visual" class="artifact-list"></div>
         </div>
@@ -268,20 +274,21 @@
     <!-- Modals -->
     <dialog id="indicator-modal" class="indicator-modal" aria-labelledby="modal-title">
         <div class="indicator-modal-header">
-            <h3 id="modal-title">Editar Indicador</h3>
+            <div><h3 id="modal-title">Editar componente</h3><p id="component-slot-info" class="component-hint"></p></div>
             <button type="button" class="btn btn-outline" data-action="close-indicator-modal">Fechar</button>
         </div>
         <form id="modal-form">
             <input type="hidden" id="edit-index" value="-1">
+            <div id="component-editor-status" class="component-editor-status" role="status" aria-live="polite" hidden></div>
             <div class="indicator-modal-grid">
                 <div class="indicator-editor-panel">
                     <div class="form-group">
-                        <label>Nome do Componente:</label>
+                        <label for="m-name">Nome do componente</label>
                         <input type="text" id="m-name" required>
                     </div>
                     <div class="indicator-field-row">
                         <div class="form-group">
-                            <label>Tipo:</label>
+                            <label for="m-type">Tipo</label>
                             <select id="m-type">
                                 <option value="graphic">Gráfico Genérico</option>
                                 <option value="bar">Gráfico de Barras</option>
@@ -296,30 +303,49 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Colunas Alvo:</label>
-                            <input type="text" id="m-cols" placeholder="col1, col2...">
+                            <label for="m-reason">Objetivo deste componente</label>
+                            <textarea id="m-reason" class="indicator-reason" placeholder="O que o leitor deve entender?"></textarea>
                         </div>
                     </div>
+                    <div id="component-text-tools" hidden>
+                        <label for="component-text">Texto do relatório</label>
+                        <textarea id="component-text" rows="9" placeholder="Edite o texto diretamente ou peça uma melhoria abaixo."></textarea>
+                        <p id="component-word-count" class="component-hint"></p>
+                    </div>
+                    <div id="component-visual-tools">
                     <div class="indicator-field-row">
                         <div class="form-group">
-                            <label>Subtipo:</label>
-                            <input type="text" id="m-subtype" placeholder="bar, line, table...">
-                        </div>
-                        <div class="form-group">
-                            <label>Preset visual:</label>
+                            <label for="m-preset">Modelo do gráfico ou tabela</label>
                             <select id="m-preset"></select>
                         </div>
                     </div>
                     <div class="indicator-field-row">
                         <div class="form-group">
-                            <label>Tema:</label>
+                            <label for="m-visual-theme">Tema</label>
                             <select id="m-visual-theme"></select>
                         </div>
                         <div class="form-group">
-                            <label>Estilo:</label>
+                            <label for="m-chart-style">Estilo</label>
                             <select id="m-chart-style"></select>
                         </div>
                     </div>
+                    <details class="component-data-section"><summary>Dados, colunas e cálculo</summary><div id="component-data-tools" class="component-tools-grid"></div></details>
+                    <div id="component-display-tools" class="component-tools-grid"></div>
+                    </div>
+                    <section class="component-ai-tools" aria-labelledby="component-ai-title">
+                        <h4 id="component-ai-title">Melhorar com IA</h4>
+                        <p class="component-hint">Descreva a mudança. Apenas este componente será alterado.</p>
+                        <div id="component-quick-actions" class="component-quick-actions"></div>
+                        <label for="component-instruction">O que você quer melhorar?</label>
+                        <textarea id="component-instruction" rows="3" placeholder="Ex.: deixe mais legível, destaque as diferenças e use nomes mais claros."></textarea>
+                        <button class="btn btn-secondary" type="button" id="component-improve-btn" data-action="improve-component">Aplicar melhoria</button>
+                    </section>
+                    <details id="component-advanced" class="component-advanced">
+                        <summary>Configurações avançadas e código</summary>
+                        <div class="indicator-field-row">
+                            <div class="form-group"><label for="m-cols">Colunas de referência</label><input type="text" id="m-cols" placeholder="col1, col2..."></div>
+                            <div class="form-group"><label for="m-subtype">Subtipo</label><input type="text" id="m-subtype" placeholder="bar, line, table..."></div>
+                        </div>
 	                    <div class="form-group">
 	                        <label>Opções visuais (JSON):</label>
 	                        <textarea id="m-visual-options" class="indicator-visual-options" placeholder='{"top_n": 8, "show_values": true}'></textarea>
@@ -341,16 +367,13 @@
 	                    </div>
 	                    <div id="preset-inspector" class="preset-inspector" aria-live="polite"></div>
                     <div class="form-group">
-                        <label>Objetivo / Lógica:</label>
-                        <textarea id="m-reason" class="indicator-reason"></textarea>
-                    </div>
-                    <div class="form-group">
                         <label>Código Python (Customizado):</label>
                         <textarea id="m-code" class="indicator-code"></textarea>
                     </div>
+                    </details>
                 </div>
                 <div class="indicator-preview-panel">
-                    <div class="indicator-preview-title">Prévia do componente</div>
+                    <div class="indicator-preview-title">Prévia salva <span id="component-preview-version"></span><button type="button" class="btn btn-outline" data-action="refresh-component-preview">Atualizar prévia</button></div>
                     <div id="indicator-preview-body" class="indicator-preview-body">
                         <div class="preview-empty">A prévia do componente aparecerá aqui.</div>
                     </div>
@@ -358,8 +381,9 @@
             </div>
             <div class="indicator-modal-actions">
                 <button type="button" class="btn btn-outline" data-action="close-indicator-modal">Cancelar</button>
-                <button type="button" class="btn btn-secondary" id="modal-regenerate-btn" data-action="regenerate-current-indicator">Salvar e gerar novamente</button>
-                <button type="submit" class="btn">Salvar Alterações</button>
+                <button type="button" class="btn btn-outline" data-action="reset-component-draft">Desfazer alterações locais</button>
+                <button type="button" class="btn btn-secondary" id="modal-regenerate-btn" data-action="regenerate-current-indicator">Recriar com IA</button>
+                <button type="submit" class="btn" id="component-save-btn">Aplicar e atualizar prévia</button>
             </div>
         </form>
     </dialog>
@@ -379,6 +403,18 @@
     </dialog>
     </div>
 
+    <dialog id="share-report-modal" class="share-report-modal" aria-labelledby="share-report-title">
+        <div class="components-header"><h3 id="share-report-title">Compartilhar relatório</h3><button type="button" class="btn btn-outline" data-share-action="close">Fechar</button></div>
+        <p>Qualquer pessoa com o link pode visualizar o relatório completo, incluindo arquivos, componentes, código, configurações e PDF. O acesso é somente para leitura e não exige login.</p>
+        <form id="share-link-form">
+            <label for="share-link-label">Nome do link <span class="optional-label">opcional</span></label><input type="text" id="share-link-label" maxlength="100" placeholder="Ex.: Cliente ou equipe">
+            <label for="share-link-expiry">Validade</label><select id="share-link-expiry"><option value="24">24 horas</option><option value="168" selected>7 dias</option><option value="720">30 dias</option><option value="none">Sem expiração</option></select>
+            <button type="submit" class="btn" id="share-link-create">Criar link de leitura</button>
+        </form>
+        <p id="share-link-status" role="status" aria-live="polite"></p>
+        <div id="share-link-created" hidden><label for="share-link-url">Novo link</label><div class="share-link-copy"><input type="text" id="share-link-url" readonly><button type="button" class="btn btn-secondary" data-share-action="copy">Copiar link</button></div><small>Copie o endereço agora. Por segurança, links antigos não são exibidos após recarregar a página.</small></div>
+        <h4>Links criados</h4><div id="share-link-list"></div>
+    </dialog>
     <!-- Scripts -->
     <script src="/static/js/api.js"></script>
     <script src="/static/js/utils.js"></script>
@@ -386,5 +422,7 @@
     <script src="/static/js/ui.js"></script>
     <script src="/static/js/saved_sources.js"></script>
     <script src="/static/js/app.js"></script>
+    <script src="/static/js/components.js"></script>
+    <script src="/static/js/sharing.js"></script>
 </body>
 </html>

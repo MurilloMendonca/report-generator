@@ -402,10 +402,12 @@ def session_file_variant(file_info: dict, variant: str = "original") -> dict:
             raise HTTPException(status_code=404, detail="Preprocessed file not found")
         filename = file_info.get("original_filename") or os.path.basename(variant_path)
         stem, _ = os.path.splitext(filename)
+        extension = os.path.splitext(variant_path)[1].lower() or ".csv"
+        download_name = f"{stem}_preprocessed{extension}"
         return {
             "path": variant_path,
-            "filename": f"{stem}_preprocessed.csv",
-            "mime_type": "text/csv",
+            "filename": download_name,
+            "mime_type": mimetypes.guess_type(download_name)[0] or "application/octet-stream",
         }
 
     return {

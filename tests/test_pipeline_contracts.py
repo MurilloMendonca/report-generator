@@ -131,7 +131,7 @@ class PipelineContractTests(unittest.TestCase):
         create_session(job_id, {
             "job_id": job_id,
             "initial_prompt": "Relatório de contrato determinístico",
-            "current_goal": "Relatório de contrato determinístico",
+            "current_goal": "Priorize riscos operacionais para a diretoria",
             "files": [{
                 "original_filename": "sales.csv",
                 "path": upload_path,
@@ -178,11 +178,11 @@ class PipelineContractTests(unittest.TestCase):
             )
 
         with patch("app.services.pipeline_service.generate_data_filter", return_value={"needs_preprocessing": False, "description": "", "code": ""}) as preprocessing, \
-             patch("app.services.pipeline_service.generate_artifacts", return_value=artifacts), \
+             patch("app.services.pipeline_service.generate_artifacts", return_value=artifacts) as planner, \
              patch("app.services.pipeline_service.generate_report_title", return_value="Título Contrato"), \
              patch("app.services.pipeline_service.calculate_metric_value", return_value=123.45), \
              patch("app.services.pipeline_service.generate_template", return_value=template), \
-             patch("app.services.pipeline_service.generate_all_texts", return_value=text_map), \
+             patch("app.services.pipeline_service.generate_all_texts", return_value=text_map) as narratives, \
              patch("app.services.pipeline_service.condense_texts_to_fit", side_effect=lambda texts_map, *args, **kwargs: texts_map), \
              patch("app.services.pipeline_service.generate_component_code", side_effect=fake_generate_component_code), \
              patch("app.services.pipeline_service.validate_report_plan", side_effect=lambda plan, *args, **kwargs: (plan, [])), \
@@ -190,6 +190,9 @@ class PipelineContractTests(unittest.TestCase):
             run_pipeline(job_id)
             run_pipeline(job_id)
             preprocessing.assert_called_once()
+            self.assertEqual(narratives.call_args.kwargs["report_goal"], "Priorize riscos operacionais para a diretoria")
+            self.assertEqual(narratives.call_args.kwargs["report_artifacts"], artifacts)
+            self.assertEqual(planner.call_args.kwargs["semantic_model"]["datasets"][0]["filename"], "sales.csv")
 
         session = get_session(job_id)
         self.assertEqual(session["current_step"], "completed")

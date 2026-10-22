@@ -112,6 +112,20 @@ class Report(Base):
     )
 
 
+class ReportShareLink(Base):
+    """A revocable, read-only bearer link. The raw token is returned only at creation."""
+
+    __tablename__ = "report_share_links"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    report_id: Mapped[str] = mapped_column(Text, ForeignKey("reports.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, unique=True)
+    label: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    created_at: Mapped[datetime] = _created()
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class LayoutTemplate(Base):
     """Layout templates. owner_id NULL marks a built-in, readable by everyone and
     editable by nobody; other templates are private to their owner."""

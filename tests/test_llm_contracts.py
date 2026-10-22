@@ -19,7 +19,8 @@ from app.services.llm.parsing import (
     parse_llm_preprocessing_plan,
     parse_llm_text_map,
 )
-from app.services.llm.planning import generate_document_insights_from_pdf_file, generate_report_title
+from app.services.llm.planning import generate_artifacts, generate_document_insights_from_pdf_file, generate_report_title
+from app.services.llm.texts import generate_all_texts
 from app.services.llm.prompts import prompt_fingerprint
 from app.services.llm.refinement import parse_llm_refinement_decision, refine_session_modular
 from app.services.llm.script import assemble_script
@@ -121,6 +122,41 @@ class LlmContractTests(unittest.TestCase):
         self.assertEqual(title, "Título do relatório")
         self.assertEqual(captured["context"]["operation"], "title_generation")
         self.assertEqual(captured["context"]["job_id"], "job-123")
+
+    def test_narratives_receive_accepted_goal_and_plan_without_treating_plan_as_evidence(self):
+        plan = [{
+            "id": "g_delays", "type": "bar", "indicator": "Late deliveries by region",
+            "data_binding": {"source": "shipments.csv", "roles": {"category": "region", "value": "delay_days"}},
+            "code": "unused generated code",
+        }]
+        with patch("app.services.llm.client.call_llm", return_value='{"t1":"Focus on delivery reliability."}') as call:
+            texts = generate_all_texts(
+                "[]", [{"id": "t1", "indicator": "Recommendations"}], {"m_delay": "N/A"},
+                report_goal="Prioritize delivery reliability for the operations director, not revenue.",
+                report_artifacts=plan,
+            )
+        self.assertEqual(texts["t1"], "Focus on delivery reliability.")
+        prompt = call.call_args.args[3]
+        self.assertIn("Prioritize delivery reliability for the operations director, not revenue.", prompt)
+        self.assertIn("Late deliveries by region", prompt)
+        self.assertIn('"source": "shipments.csv"', prompt)
+        self.assertIn("not calculated evidence", prompt)
+        self.assertIn('"m_delay": "N/A"', prompt)
+        self.assertNotIn("unused generated code", prompt)
+        self.assertIn("never treat a planned chart", call.call_args.args[2])
+
+    def test_planner_receives_candidate_relationships_with_join_caveats(self):
+        semantic_model = {"relationships": [{"column_name": "region", "references": [
+            {"file": "book.xlsx", "unique_values": 3, "rows": 20},
+            {"file": "book.xlsx::targets", "unique_values": 3, "rows": 3},
+        ]}]}
+        with patch("app.services.llm.client.call_llm", return_value='[{"id":"t1","type":"text","indicator":"Summary"}]') as call:
+            generate_artifacts("[]", "Compare sales with targets", semantic_model=semantic_model)
+        prompt = call.call_args.args[3]
+        self.assertIn("book.xlsx::targets", prompt)
+        self.assertIn('"unique_values": 3', prompt)
+        self.assertIn("not verified joins", prompt)
+        self.assertIn("many-to-many", prompt)
 
     def test_generate_document_insights_from_pdf_uses_gemini_file_input(self):
         captured = {}
