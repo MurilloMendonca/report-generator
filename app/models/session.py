@@ -52,6 +52,7 @@ class ReportSettings(BaseModel):
     alignment: str = "J"
     line_height: int = 5
     language: str = "Portuguese"
+    page_count: int | None = Field(default=None, ge=1, le=50, strict=True)
     selected_template_id: str | None = None
     visual_theme_id: str | None = "executive_clean"
     chart_style_id: str | None = "modern"

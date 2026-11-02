@@ -225,6 +225,21 @@ def update_session(job_id: str, updates: dict):
     return _mutate(job_id, change)
 
 
+def merge_report_settings(job_id: str, settings: dict, *, provider=None, model_name=None):
+    """Merge edits under the report lock and invalidate plans when length changes."""
+    def change(session):
+        current = session.setdefault("settings", {})
+        length_changed = "page_count" in settings and settings["page_count"] != current.get("page_count")
+        current.update(settings)
+        if provider:
+            session["provider"] = provider
+        if model_name:
+            session["model_name"] = model_name
+        if length_changed:
+            session.update(artifacts=[], template=[], components={}, calculated_metrics={}, script="")
+    return _mutate(job_id, change)
+
+
 def finish_report_review(job_id: str, run_id: int, review: dict, pdf_path: str):
     """Publish only the current run, using its own already reviewed PDF file."""
     def change(session):

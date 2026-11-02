@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app import db
 from app.models.db import LayoutTemplate
+from app.utils.pagination import paginate_artifacts
 
 from app.utils.layout import (
     CONTENT_BOTTOM_MM,
@@ -283,7 +284,24 @@ def select_layout_template(artifacts: list, template_id: str = None, owner_id=No
     return max(templates, key=lambda t: _template_score(t, artifacts))
 
 
-def build_layout_from_template(artifacts: list, template_id: str = None, owner_id=None) -> list:
+def build_layout_from_template(artifacts: list, template_id: str = None, owner_id=None, page_count: int | None = None) -> list:
+    if artifacts and (page_count is not None or any(item.get("page") is not None for item in artifacts)):
+        planned = paginate_artifacts(artifacts, page_count)
+        selected = select_layout_template(planned, template_id, owner_id)
+        slots = sanitize_template_slots((selected or {}).get("slots", []))
+        blueprint_pages = sorted({slot["page"] for slot in slots})
+        layout = []
+        for page in sorted({item["page"] for item in planned}):
+            items = [item for item in planned if item["page"] == page]
+            # Keep the executive summary first and the synthesis last on their pages.
+            items.sort(key=lambda item: 0 if item["id"] == "kpi_resumo" else 2 if item["id"] == "kpi_conclusao" else 1)
+            page_slots = []
+            if blueprint_pages:
+                blueprint_page = blueprint_pages[(page - 1) % len(blueprint_pages)]
+                page_slots = [slot for slot in slots if slot["page"] == blueprint_page]
+            layout.extend(_layout_planned_page(items, page, page_slots))
+        return layout
+
     templates = load_layout_templates(owner_id)
     if not templates:
         return fallback_template(artifacts)
@@ -323,6 +341,44 @@ def build_layout_from_template(artifacts: list, template_id: str = None, owner_i
     return assignments
 
 
+def _layout_planned_page(artifacts: list, page: int, slots: list) -> list:
+    """Reuse a blueprint where it fits; otherwise give every component a readable grid cell."""
+    text_count = sum(item.get("type") == "text" for item in artifacts)
+    if (text_count <= sum(slot["type"] == "text" for slot in slots)
+            and len(artifacts) - text_count <= sum(slot["type"] == "graphic" for slot in slots)):
+        used = set()
+        layout = []
+        ordered_slots = _ordered_slots(slots)
+        text_positions = [index for index, slot in enumerate(ordered_slots) if slot["type"] == "text"]
+        reserved = {}
+        for artifact in artifacts:
+            if artifact["id"] == "kpi_resumo" and text_positions:
+                reserved[text_positions[0]] = artifact
+            elif artifact["id"] == "kpi_conclusao" and text_positions:
+                reserved[text_positions[-1]] = artifact
+        reserved_ids = {item["id"] for item in reserved.values()}
+        for index, slot in enumerate(ordered_slots):
+            pool = [item for item in artifacts if item["id"] not in reserved_ids
+                    and (item.get("type") == "text") == (slot["type"] == "text")]
+            artifact = reserved.get(index) or _pick_artifact_for_slot(pool, used, slot)
+            if artifact:
+                used.add(artifact["id"])
+                layout.append({"id": artifact["id"], "page": page, **{key: slot[key] for key in ("x", "y", "w", "h")}})
+        return layout
+
+    columns = 1 if len(artifacts) <= 3 else 2
+    rows = (len(artifacts) + columns - 1) // columns
+    gap = 5
+    width = (PAGE_WIDTH_MM - 2 * DEFAULT_MARGIN_MM - gap * (columns - 1)) // columns
+    height = (CONTENT_BOTTOM_MM - CONTENT_TOP_MM - gap * (rows - 1)) // rows
+    return [
+        {"id": item["id"], "page": page,
+         "x": DEFAULT_MARGIN_MM + index % columns * (width + gap),
+         "y": CONTENT_TOP_MM + index // columns * (height + gap), "w": width, "h": height}
+        for index, item in enumerate(artifacts)
+    ]
+
+
 def fit_artifacts_to_template(artifacts: list, template: dict) -> list:
     """Order the plan without deleting evidence to meet a template's capacity.
 
@@ -344,10 +400,12 @@ def template_constraints(template: dict) -> dict:
     return {
         "template_id": (template or {}).get("id"),
         "template_name": (template or {}).get("name"),
+        "page_count": max([slot["page"] for slot in slots] or [1]),
         "text_slots": sum(1 for slot in slots if slot["type"] == "text"),
         "graphic_slots": sum(1 for slot in slots if slot["type"] == "graphic"),
         "slots": [
             {
+                "page": slot["page"],
                 "type": slot["type"],
                 "name": slot.get("name", ""),
                 "description": slot.get("description", ""),

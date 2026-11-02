@@ -15,6 +15,57 @@ from app.utils.layout import normalize_template
 from app.utils.narrative_evidence import review_narrative
 
 
+# The sandbox renderer records English messages in its manifest; the review shows
+# them to users, so translate the known ones here. Unknown text passes through.
+_RENDER_MESSAGES = {
+    'Table rows or columns were limited to fit the layout slot':
+        'Linhas ou colunas da tabela foram limitadas para caber no espaço do componente.',
+    'Table text was shortened with ellipses to fit the layout slot':
+        'Textos da tabela foram encurtados com reticências para caber no espaço do componente.',
+    'Table title was shortened with an ellipsis to fit the layout slot':
+        'O título da tabela foi encurtado com reticências para caber no espaço do componente.',
+    'Long chart labels were shortened with ellipses to fit the layout slot':
+        'Rótulos longos do gráfico foram encurtados com reticências para caber no espaço do componente.',
+    'Long legend labels were shortened with ellipses to fit the layout slot':
+        'Rótulos longos da legenda foram encurtados com reticências para caber no espaço do componente.',
+    'Chart title was shortened with an ellipsis to fit the layout slot':
+        'O título do gráfico foi encurtado com reticências para caber no espaço do componente.',
+    'Some point/value labels were omitted to avoid overlap; plotted data is unchanged':
+        'Alguns rótulos de pontos ou valores foram omitidos para evitar sobreposição; os dados do gráfico não mudaram.',
+    'Some axis tick labels were omitted to avoid overlap; plotted data is unchanged':
+        'Alguns rótulos dos eixos foram omitidos para evitar sobreposição; os dados do gráfico não mudaram.',
+    'Some rows had no matching record in a joined table':
+        'Algumas linhas não encontraram correspondência na tabela relacionada; os campos dela ficaram vazios nessas linhas.',
+    'Scatter points were sampled deterministically':
+        'O gráfico de dispersão mostra uma amostra determinística dos pontos.',
+    'Minor scatter categories were grouped as Others; all sampled points are shown':
+        'Categorias pequenas do gráfico de dispersão foram agrupadas em Outros; todos os pontos amostrados aparecem.',
+    'Chart slot is too small; enlarge it or select fewer categories/series':
+        'O espaço do gráfico é pequeno demais. Aumente o bloco ou selecione menos categorias ou séries.',
+    'Table slot is too small; enlarge it or select fewer columns':
+        'O espaço da tabela é pequeno demais. Aumente o bloco ou selecione menos colunas.',
+    'Text slot is too small; enlarge the component':
+        'O espaço do texto é pequeno demais. Aumente o componente.',
+    'Text slot is too small for its heading and body; enlarge the component':
+        'O espaço é pequeno demais para o título e o texto. Aumente o componente.',
+}
+_RENDER_PREFIXES = (
+    ('Chart/table text has no visible pixels: ', 'Um texto do gráfico ou da tabela ficou invisível no PDF: '),
+    ('Chart font cannot render: ', 'A fonte do gráfico não tem os caracteres: '),
+    ('Font cannot render: ', 'A fonte do PDF não tem os caracteres: '),
+)
+
+
+def _render_message(message):
+    message = str(message)
+    if message in _RENDER_MESSAGES:
+        return _RENDER_MESSAGES[message]
+    for prefix, translated in _RENDER_PREFIXES:
+        if message.startswith(prefix):
+            return translated + message[len(prefix):]
+    return message
+
+
 def _literal_text(code):
     try:
         tree = ast.parse(code or '')
@@ -36,7 +87,7 @@ def review_render_failure(session, manifest):
     """Renderer checks can fail before there is a candidate PDF to inspect."""
     issues = [{'component_id': item.get('id'), 'severity': 'error',
                'code': item.get('code') or 'render_failed',
-               'message': str(item.get('error') or item.get('message') or 'O componente não foi renderizado.')[:500]}
+               'message': _render_message(item.get('error') or item.get('message') or 'O componente não foi renderizado.')[:500]}
               for item in manifest.get('components', []) if item.get('status') != 'rendered']
     return _finish({'checked_at': datetime.now(timezone.utc).isoformat(), 'candidate_version': session.get('pdf_version', 0) + 1,
                     'published_version': session.get('pdf_version', 0), 'issues': issues, 'components': [],
@@ -73,6 +124,9 @@ def review_report(session, pdf_path, manifest):
             raise ValueError('A revisão aceita PDFs com 1 a 50 páginas.')
         extracted = [page.extract_text() or '' for page in reader.pages]
         review['page_count'] = len(reader.pages)
+        requested_pages = session.get('settings', {}).get('page_count')
+        if requested_pages is not None and len(reader.pages) != requested_pages:
+            issue(None, 'error', 'page_count_mismatch', f'O relatório deve ter {requested_pages} páginas; o PDF gerado tem {len(reader.pages)}.')
         if any('\ufffd' in text for text in extracted):
             issue(None, 'error', 'replacement_character', 'O PDF contém caracteres substituídos por falha de codificação.')
     except Exception:
@@ -94,7 +148,7 @@ def review_report(session, pdf_path, manifest):
             issue(component_id, 'error', 'missing_page', 'A página do componente não existe no PDF.')
             continue
         for warning in outcome.get('warnings', []):
-            issue(component_id, 'warning', 'render_warning', str(warning)[:500])
+            issue(component_id, 'warning', 'render_warning', _render_message(warning)[:500])
         if not outcome.get('glyph_check'):
             issue(component_id, 'warning', 'custom_output_unverified', 'O código personalizado não usou os renderizadores com verificação de glifos e texto. Revise sua aparência no PDF.')
         for block in outcome.get('text_blocks', []):

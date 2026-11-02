@@ -812,6 +812,9 @@ def library_renderer_source() -> str:
         return _library_display_label(value, options)
 
     def _library_resolve_column(df, value):
+        if str(value or '').strip() in df.columns:
+            # Joined columns that clash with the base table keep their 'source:column' name.
+            return str(value).strip()
         column = _library_column_name(value)
         if not column:
             return None
@@ -859,6 +862,48 @@ def library_renderer_source() -> str:
                     raise ValueError(f'Unsupported filter operator or value: {op}')
             except (TypeError, ValueError) as exc:
                 raise VisualBindingError(f'Could not apply filter on {column}: {exc}') from exc
+        return result
+
+    _LIBRARY_JOINED_SOURCE = '__joined__'
+
+    def _library_join_key(series):
+        # Same rule as relationship detection: 7 and 7.0 match, text '07' stays distinct.
+        if pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
+            numeric = pd.to_numeric(series, errors='coerce')
+            text = numeric.astype('string')
+            integral = numeric.notna() & (numeric == numeric.round())
+            text[integral] = numeric[integral].astype('int64').astype('string')
+            return text
+        return series.astype('string').str.strip().replace('', pd.NA)
+
+    def _library_joined_frame(dataframes, binding):
+        # Many-to-one joins only: every base row keeps exactly one row.
+        base_source = binding.get('source')
+        result = _library_first_dataframe(dataframes, base_source)
+        base_rows = len(result)
+        for join in binding.get('joins') or []:
+            right = _library_first_dataframe(dataframes, join['source'])
+            left_on = _library_resolve_column(result, join['left_on'])
+            right_on = _library_resolve_column(right, join['right_on'])
+            if left_on is None:
+                raise VisualBindingError(f"Join column not found: {join['left_on']}")
+            if right_on is None:
+                raise VisualBindingError(f"Join column not found in {join['source']}: {join['right_on']}")
+            right_keys = _library_join_key(right[right_on])
+            if right_keys.dropna().duplicated().any():
+                raise VisualBindingError(f"Join key {right_on} repeats in {join['source']}; aggregate that table first so each key appears once")
+            renamed = {column: f"{join['source']}:{column}" for column in right.columns if column in result.columns or column == '__join_key__'}
+            right = right.rename(columns=renamed).assign(__join_key__=right_keys.values).dropna(subset=['__join_key__'])
+            left = result.assign(__join_key__=_library_join_key(result[left_on]).values)
+            try:
+                merged = left.merge(right, on='__join_key__', how=join.get('how') or 'left', validate='many_to_one', indicator='__join_match__')
+            except pd.errors.MergeError as exc:
+                raise VisualBindingError(f"Join with {join['source']} would duplicate rows: {exc}") from exc
+            unmatched = int((merged['__join_match__'] == 'left_only').sum())
+            if unmatched:
+                record_render_warning('Some rows had no matching record in a joined table')
+            result = merged.drop(columns=['__join_key__', '__join_match__'])
+        _COMPONENT_OUTCOME.update(joined_sources=[join['source'] for join in binding.get('joins') or []], join_input_rows=base_rows, joined_rows=len(result))
         return result
 
     def _library_dataframe(dataframes, binding):
@@ -1331,7 +1376,13 @@ def library_renderer_source() -> str:
             raise VisualBindingError('Visual configuration failed contract validation') from exc
         if not binding.get('source') and len(dataframes) > 1:
             raise VisualBindingError('Visuals with multiple datasets require an explicit source')
-        df = _library_first_dataframe(dataframes, binding.get('source'))
+        allowed_sources = {binding.get('source')}
+        if binding.get('joins'):
+            df = _library_joined_frame(dataframes, binding)
+            allowed_sources.update(join['source'] for join in binding['joins'])
+            dataframes = {**dataframes, _LIBRARY_JOINED_SOURCE: df}
+        else:
+            df = _library_first_dataframe(dataframes, binding.get('source'))
         for role in PRESET_ROLES[preset_id]:
             value = binding['roles'].get(role['name'])
             if not value:
@@ -1343,8 +1394,8 @@ def library_renderer_source() -> str:
                 raise VisualBindingError(f"Role requires a single column: {role['name']}")
             for column in values:
                 parts = re.split(r'(?<!:):(?!:)', column, maxsplit=1)
-                if len(parts) > 1 and parts[0] != binding.get('source'):
-                    raise VisualBindingError('Visual roles cannot mix data sources without preprocessing')
+                if len(parts) > 1 and parts[0] not in allowed_sources:
+                    raise VisualBindingError('Visual roles can only use the source and its joined tables')
                 if _library_resolve_column(df, column) is None:
                     raise VisualBindingError(f'Visual column not found: {column}')
         _COMPONENT_OUTCOME['render_mode'] = 'library'
@@ -1357,7 +1408,7 @@ def library_renderer_source() -> str:
             if preset_id in {'bar_ranked', 'bar_grouped'}:
                 options['aggregate_others'] = False
         options['sort'] = binding['sort']
-        source = binding.get('source')
+        source = _LIBRARY_JOINED_SOURCE if binding.get('joins') else binding.get('source')
         roles = binding.get('roles') or {}
         title = options.get('title') or artifact.get('indicator') or artifact.get('id')
 

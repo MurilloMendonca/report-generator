@@ -66,7 +66,7 @@ def generate_all_texts(
         ]
         if report_artifacts:
             report_plan = [
-                {key: artifact[key] for key in ("id", "type", "indicator", "description", "columns", "data_binding") if key in artifact}
+                {key: artifact[key] for key in ("id", "type", "page", "indicator", "description", "columns", "data_binding") if key in artifact}
                 for artifact in report_artifacts
             ]
             context.append(f"Report Plan (intended analyses, not calculated evidence):\n{json.dumps(report_plan, indent=2, ensure_ascii=False)}")

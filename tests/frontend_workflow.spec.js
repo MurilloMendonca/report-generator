@@ -16,7 +16,7 @@ const ui = new Proxy({}, { get: (_target, key) => (...args) => {
 const context = vm.createContext({
     document: { getElementById: element },
     window: { history: { replaceState() {} } },
-    UI: ui, FormData: class { set() {} delete() {} append() {} }, URL: { revokeObjectURL() {} },
+    UI: ui, FormData: class { get() { return ''; } set() {} delete() {} append() {} }, URL: { revokeObjectURL() {} },
     setTimeout: callback => { scheduled.push(callback); return scheduled.length; },
     clearTimeout() {},
 });

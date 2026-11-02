@@ -16,7 +16,13 @@ def _dataset_metadata(files: list):
             yield {**artifact, "filename": filename}
 
 
-def build_semantic_model(files: list) -> dict:
+def build_semantic_model(files: list, verified_relationships: list | None = None) -> dict:
+    """Roles per dataset plus relationships.
+
+    ``relationships`` are name-only candidates from metadata. ``verified_relationships``
+    come from app.utils.relationships, checked against the data, and are the only
+    ones a visual may join on.
+    """
     datasets = []
     column_index = defaultdict(list)
 
@@ -78,11 +84,14 @@ def build_semantic_model(files: list) -> dict:
             "reason": "Same normalized column name appears in multiple datasets",
         })
 
+    verified = list(verified_relationships or [])
     return {
         "datasets": datasets,
         "relationships": relationships,
+        "verified_relationships": verified,
         "summary": {
             "dataset_count": len(datasets),
             "relationship_candidates": len(relationships),
+            "verified_relationships": len(verified),
         },
     }

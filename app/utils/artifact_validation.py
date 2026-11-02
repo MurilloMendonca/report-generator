@@ -185,6 +185,44 @@ def infer_data_binding(artifact: dict, preset: dict, metadata_items: list) -> di
     }
 
 
+def _table_rows(name: str, metadata_items: list) -> int | None:
+    for item in metadata_tables(metadata_items):
+        if item.get("filename") == name:
+            return (item.get("shape") or {}).get("rows")
+    return None
+
+
+def validate_joins(artifact: dict, source: str | None, joins: list, sources: set, metadata_items: list,
+                   issues: list, visual_warnings: list) -> list[str]:
+    """Check each join against metadata; the renderer re-checks key uniqueness on the data."""
+    valid, available = [], [source]
+    for join in joins:
+        if not isinstance(join, dict):
+            continue
+        target, left_on, right_on = join.get("source"), str(join.get("left_on") or ""), str(join.get("right_on") or "")
+        problem = None
+        if target not in sources:
+            problem = ("data_binding_join_source_missing", f"tabela `{target}` não encontrada para a junção")
+        elif not any(column_profile(f"{name}:{split_column_reference(left_on)[1]}", metadata_items)
+                     for name in available if name):
+            problem = ("data_binding_join_column_missing", f"coluna `{left_on}` não encontrada para a junção")
+        else:
+            profile = column_profile(f"{target}:{right_on}", metadata_items)
+            rows = _table_rows(target, metadata_items)
+            if not profile:
+                problem = ("data_binding_join_column_missing", f"coluna `{target}:{right_on}` não encontrada para a junção")
+            elif rows and profile.get("unique_values") is not None and profile.get("unique_values") + (profile.get("null_count") or 0) < rows:
+                problem = ("data_binding_join_key_not_unique", f"`{target}:{right_on}` se repete; a junção duplicaria linhas")
+        if problem:
+            visual_warnings.append(problem[1])
+            issues.append({"severity": "warning", "code": problem[0], "id": artifact.get("id"),
+                           "join": join, "message": "Join is not valid for this data"})
+            continue
+        valid.append(target)
+        available.append(target)
+    return valid
+
+
 def normalize_data_binding(artifact: dict, preset: dict, metadata_items: list, issues: list) -> dict:
     inferred_binding = infer_data_binding(artifact, preset, metadata_items)
     binding = artifact.get("data_binding")
@@ -231,6 +269,9 @@ def normalize_data_binding(artifact: dict, preset: dict, metadata_items: list, i
                            "message": "Choose an explicit source for a visual with multiple datasets"})
 
     visual_warnings = []
+    joins = binding.get("joins") if isinstance(binding.get("joins"), list) else []
+    join_sources = validate_joins(artifact, source, joins, sources, metadata_items, issues, visual_warnings)
+    allowed_sources = {None, source, *join_sources}
     normalized_roles = {}
     roles = binding.get("roles") or {}
     for role in preset.get("data_roles", []):
@@ -262,11 +303,16 @@ def normalize_data_binding(artifact: dict, preset: dict, metadata_items: list, i
                                "role": role_name, "message": "Column roles must contain column names"})
                 continue
             column = normalize_binding_column(item.strip(), source)
+            if split_column_reference(column)[0] is None and not column_profile(binding_reference(source, column), metadata_items):
+                # A plain name that only exists in a joined table is qualified with that table.
+                joined = next((name for name in join_sources if column_profile(f"{name}:{column}", metadata_items)), None)
+                if joined:
+                    column = f"{joined}:{column}"
             normalized_values.append(column)
             reference = binding_reference(source, column)
             profile = column_profile(reference, metadata_items)
             kind = column_kind(profile)
-            if split_column_reference(column)[0] not in {None, source} or not profile:
+            if split_column_reference(column)[0] not in allowed_sources or not profile:
                 visual_warnings.append(f"coluna `{reference}` não encontrada na fonte selecionada")
                 issues.append({"severity": "warning", "code": "data_binding_column_missing", "id": artifact.get("id"),
                                "role": role_name, "column": reference, "message": "Column was not found in the selected source"})

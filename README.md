@@ -7,15 +7,15 @@ The current UI text is mostly Portuguese, and the default report language is Por
 ## What It Does
 
 1. Accepts one or more CSV/XLS/XLSX files plus optional PDF context files.
-   The report objective is optional; blank prompts generate an exploratory report.
-2. Extracts metadata from each dataset: shape, columns, null counts, unique counts, numeric stats, and sample rows. Excel sheets keep separate dataframe keys, and the planner receives column roles and candidate relationships with key counts to help avoid joins that duplicate totals.
+   The report objective is optional; blank prompts generate an exploratory report. The optional **Número de páginas** field accepts 1–50 pages. Leave it blank for the AI to choose a useful report length from the objective and evidence.
+2. Extracts metadata from each dataset: shape, columns, null counts, unique counts, numeric stats, and sample rows. Excel sheets keep separate dataframe keys. When a report has several tables, the app checks which columns link them on the actual values (see "Relationships between tables") and gives those verified relationships to the planner, metric code, component code and explorer.
 3. Detects optional data preprocessing requests before analysis. This step can filter rows, create calculated columns, normalize values, aggregate records, or otherwise prepare tabular data once for all downstream metrics and components.
 4. Sends metadata and the user objective to an LLM to plan report artifacts:
    - `metric`: calculated values used by narrative text.
    - `graphic`, `bar`, `line`, `pie`, `scatter`, `table`, `chart`: visual PDF components.
    - `text`: narrative report sections.
 5. Calculates metric artifacts by asking the LLM for short Python snippets, executing them, and storing the returned values.
-6. Selects or generates an A4 layout template with millimeter coordinates.
+6. Plans content across the requested number of pages (or lets the AI decide), then builds A4 layouts with millimeter coordinates. Reuses or adapts the selected blueprint on each page, with no empty planned pages or discarded components.
 7. Uses the component library for standard visuals, generates Python functions for custom visuals, and generates a shared text response for narrative components. Narratives receive the accepted report objective and analysis plan alongside calculated evidence.
 8. Assembles a standalone Python report script, executes it in a bubblewrap sandbox, and reviews a candidate PDF before publishing it. The Revisão tab lists per-component findings and metric references. Errors preserve the last published PDF; uncertain evidence is published with warnings. Reviews use deterministic checks without extra LLM calls.
 9. Repairs recoverable script errors with the LLM and retries up to five times. Quality failures require reviewing the affected component instead of spending additional model calls.
@@ -86,6 +86,7 @@ app/
     tabular.py               Shared CSV/Excel loader (also used inside the sandbox)
     artifact_validation.py   Validation of LLM-planned artifacts against the data
     semantic_model.py        Column roles (measures, dimensions, dates) across datasets
+    relationships.py         Key relationships between tables, verified on the data
     component_library.py     Visual presets, themes, and chart styles
     component_renderers.py   Library renderers and the sandbox runtime
     visual_contracts.py      Shared typed visual options, roles, filters and bindings
@@ -107,6 +108,7 @@ static/
   js/app.js                  Frontend state and event handling
   js/components.js           Component search, guided controls, text drafts and scoped AI editing
   js/sharing.js              Owner share-link creation, expiry choices and revocation
+  js/relationships.js        Verified table relationships (workspace and shared viewer)
   js/shared.js               Anonymous read-only report viewer
   js/ui.js                   UI render helpers
   js/layout_editor.js        Shared drag/resize layout editor
@@ -527,6 +529,7 @@ Reports:
   - `api_records_path`: optional JSON Pointer (for example `/data/items`) selecting records from the API response.
   - `source_datasets`: optional JSON array of `{"dataset_id": "<uuid>", "parameters": {}}` selections (maximum 10).
   - `prompt`: report objective. Blank means exploratory report.
+  - `page_count`: optional integer from 1 to 50. Omit or leave blank for AI-selected length. Settings updates accept `null` to restore automatic length.
   - `provider`: `gemini`, `deepseek`, `anthropic`, `openai` or `openrouter`; default `deepseek`.
   - `model_name`: provider model name.
 - `GET /api/sessions`: returns recent sessions.
@@ -606,12 +609,12 @@ Sessions are normalized by `app/models/session.py` and stored as JSONB in `repor
 - `current_goal`: initial prompt plus refinement history.
 - `is_exploratory`: true when the initial prompt was blank and the default exploratory objective was used.
 - `refinement_history`: list of chat refinement prompts.
-- `artifacts`: LLM-planned report components.
-- `template`: positioned component blocks with `x`, `y`, `w`, and `h` in millimeters.
+- `artifacts`: LLM-planned report components, with a 1-based `page` for each visible component in new plans.
+- `template`: positioned component blocks with a 1-based `page` and `x`, `y`, `w`, and `h` in millimeters.
 - `components`: generated Python render functions keyed by artifact ID.
 - `component_edit`: latest targeted edit status (`queued`, `running`, `rendering`, `completed`, or `failed`). The session API also derives `component_texts` for plain-text editing without executing generated functions.
 - `calculated_metrics`: metric ID to calculated value.
-- `settings`: report title, font, font size, alignment, line height, and language.
+- `settings`: report title, font, font size, alignment, line height, language, and optional `page_count` (1–50; `null` lets the AI decide).
 - `provider` and `model_name`: selected LLM provider/model for generation and regeneration.
 - `data_preprocessing`: optional preprocessing decision and Python function.
 - `data_filter`: legacy alias for `data_preprocessing`.
@@ -627,7 +630,28 @@ Sessions are normalized by `app/models/session.py` and stored as JSONB in `repor
 
 The planner, component inspector, validator and sandbox renderer share the schemas in `app/utils/visual_contracts.py`. The component catalog exposes each preset's roles, supported render modes and option schema. Standard visuals with valid bindings default to `library`; explicit `generated_code` and `hybrid` selections are preserved. Catalog previews use the same renderer as reports.
 
-Put source, column roles, aggregation, filters, result ordering and limits in `data_binding`. Table `dimensions`, `metrics` and `columns` accept either a single column or a list. Put presentation choices in `visual_options`, including explicit `date_granularity` (`day`, `week`, `month`, `quarter`, `year`). A binding limit caps the preset's `top_n`. Donuts retain an Others group within that cap so shares keep their denominator. Per-component theme/style choices override report defaults for that component only.
+Put source, joins, column roles, aggregation, filters, result ordering and limits in `data_binding`. Table `dimensions`, `metrics` and `columns` accept either a single column or a list. Put presentation choices in `visual_options`, including explicit `date_granularity` (`day`, `week`, `month`, `quarter`, `year`). A binding limit caps the preset's `top_n`. Donuts retain an Others group within that cap so shares keep their denominator. Per-component theme/style choices override report defaults for that component only.
+
+### Relationships between tables
+
+Reports can combine several tables: CSV/JSON files, every sheet of an Excel workbook, and imported sources. Before planning, `app/utils/relationships.py` loads each table with the same dataframe keys the sandbox uses and looks for linking columns:
+
+- the same column name in two tables (numeric columns only when the name looks like a key, such as `id`, `codigo`, `ano` or `mes`, so amounts never become keys);
+- a foreign-key name and the referenced table's key, for example `orders.customer_id` and `customers.id`.
+
+A pair is kept only when the target values are unique and at least 60% of the source's distinct values are found in the target. Integers and integral floats compare equal; text such as `"07"` does not match the number `7`. Each relationship is stored in `semantic_model.verified_relationships` in the many-to-one direction (`from` -> `to`) with its coverage and cardinality, and is re-detected only when the tabular files change. The **Métricas & Dados** tab and the shared viewer list them under "Relações entre tabelas".
+
+A visual uses a relationship through `data_binding.joins` (up to 3, applied in order):
+
+```json
+{"source": "student_outcomes.xlsx",
+ "joins": [{"source": "campus_budget.csv", "left_on": "campus", "right_on": "campus", "how": "left"}],
+ "roles": {"category": "campus", "value": "campus_budget.csv:total_budget"}}
+```
+
+The renderer merges with `validate="many_to_one"`, so each source row keeps exactly one row and totals are not multiplied. A repeated key in the joined table stops the render with an explicit error instead. Columns from a joined table are referenced as `<table>:<column>`; joined columns whose names clash with the base table keep that qualified name. Rows without a match keep empty values for the joined columns and add a review warning. Plan validation qualifies plain column names that exist only in a joined table and reports joins on missing tables, missing columns or keys that repeat according to the metadata. In the component editor, **Relacionar com** lists the verified relationships of the selected source and adds the related table's columns to the role selectors.
+
+Metric, component and explorer code receive the same relationships and are told to merge with `validate="many_to_one"`. Many-to-many links and composite keys (several columns) are not detected; aggregate one side in preprocessing first.
 
 Tables measure rendered text to wrap headers and cells, allocate column widths and row heights, and reserve title space. The renderer adapts the font size, marks shortened text with ellipses, keeps displayed numbers intact and retains total rows, and records any fitting limits in the component manifest. A slot too small for a readable table reports that it needs more space. Re-render existing PDFs to apply these changes to tables using the shared helpers; custom generated table code should use `_render_table_image` or the summary/detail helpers.
 
@@ -663,7 +687,7 @@ Most structured LLM outputs are parsed with schema validation and clear diagnost
 The frontend is a static single-page workspace:
 
 - `static/js/app.js` owns session state, polling, form handlers, and event flow.
-- `static/js/components.js` owns component filters, guided data/display controls, text drafts, reading previews, and the component edit job feedback.
+- `static/js/components.js` owns component filters, guided data/display controls (including joins on verified relationships), text drafts, reading previews, and the component edit job feedback.
 - `static/js/api.js` wraps calls to the FastAPI endpoints.
 - `static/js/ui.js` renders logs, artifacts, files, layout canvas, metadata, settings, and full generated script.
 - `static/js/layout_editor.js` provides the drag/resize layout editor shared by the workspace and the template editor.
@@ -674,7 +698,7 @@ After starting a session, the UI polls every two seconds until the status indica
 
 File cards support drag-and-drop uploads, preview, download, and removal. When preprocessing produced a derived CSV, the file modal exposes tabs for `Original` and `Pré-processado`, and download uses the selected variant.
 
-The settings panel can switch provider/model for future generation. The regeneration actions update only texts, only graphics, or the full report.
+The settings panel can switch provider/model for future generation. The regeneration actions update only texts, only graphics, or the full report. Changing **Número de páginas**, including clearing it to restore automatic length, replans the full report in a background job. Manual layout edits must keep content on every requested page; change the page-count setting to use a different length.
 
 The Content-Security-Policy allows scripts only from the app's own origin, so inline `<script>` blocks and `on*=` attributes don't run. Keep browser code in `static/js/`.
 
@@ -686,7 +710,7 @@ The Content-Security-Policy allows scripts only from the app's own origin, so in
 - Defines `render_text_block`.
 - Includes every generated component function.
 - Loads uploaded or preprocessed datasets into a `dataframes` dictionary keyed by original filename.
-- Creates one A4-ish FPDF page.
+- Creates the planned A4 pages and renders each component on its assigned page. A requested page count is checked again against the finished PDF before publication.
 - Draws the configured title.
 - Calls each component function with `pdf`, `dataframes`, `x`, `y`, `w`, `h`, and a backward-compatible `df` keyword when possible.
 - Writes the PDF to the owner's report folder at `workspace/tenants/{owner_id}/reports/{job_id}/output/`.

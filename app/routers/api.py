@@ -7,12 +7,14 @@ from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Body, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
+from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from app.pages import render_page
 from app.security import client_key, current_user, require_admin, require_verified_user
 from app.services import quotas
 from app.models.refinement import ComponentEditRequest
+from app.models.session import ReportSettings
 from app.services.component_service import component_texts, run_component_edit
 from app.services.cleanup_service import (
     cleanup_expired_artifacts,
@@ -42,6 +44,7 @@ from app.services.session_manager import (
     get_session,
     is_valid_job_id,
     list_recent_sessions,
+    merge_report_settings,
     queue_component_edit,
     update_session,
 )
@@ -68,6 +71,7 @@ from app.utils.component_library import (
 )
 from app.utils.exploration_charts import chart_path, validate_chart_image
 from app.utils.layout import normalize_template
+from app.utils.pagination import validate_layout_pages
 from app.utils.report_paths import ReportPaths
 from app.utils.template_library import (
     TemplateNotEditable,
@@ -82,6 +86,15 @@ from app.services.session_manager import queue_source_import
 from app.routers.sources import source_action
 
 router = APIRouter()
+
+
+def validate_page_count(settings: dict) -> dict:
+    if "page_count" in settings:
+        try:
+            ReportSettings(page_count=settings["page_count"])
+        except ValidationError:
+            raise HTTPException(422, detail="Informe um número inteiro de páginas entre 1 e 50, ou deixe em branco para a IA decidir.") from None
+    return settings
 
 
 def saved_source_references(owner_id, value):
@@ -150,6 +163,7 @@ async def start_session(
     api_url: str = Form(""),
     api_records_path: str = Form(""),
     source_datasets: str = Form("[]"),
+    page_count: int | None = Form(None, ge=1, le=50),
 ):
     user = require_verified_user(request)
     provider, model_name = validate_provider_model(provider, model_name, user.id)
@@ -184,7 +198,7 @@ async def start_session(
         "components": {},
         "calculated_metrics": {},
         "document_insights": {},
-        "settings": DEFAULT_SETTINGS.copy(),
+        "settings": {**DEFAULT_SETTINGS, "page_count": page_count},
         "script": "",
         "provider": provider,
         "model_name": model_name,
@@ -471,8 +485,12 @@ async def update_artifacts_manually(request: Request, job_id: str, background_ta
 @router.put("/api/sessions/{job_id}/template")
 async def update_template_manually(request: Request, job_id: str, background_tasks: BackgroundTasks, template: list = Body(...)):
     session = require_session(job_id, request)
-    
-    update_session(job_id, {"template": normalize_template(template)})
+    template = normalize_template(template)
+    try:
+        validate_layout_pages(template, session.get("settings", {}).get("page_count"))
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    update_session(job_id, {"template": template})
     add_log(job_id, "Layout visual atualizado pelo usuário. Re-renderizando...")
     background_tasks.add_task(run_job, run_script_generation, job_id)
     return {"status": "OK"}
@@ -481,7 +499,7 @@ async def update_template_manually(request: Request, job_id: str, background_tas
 @router.put("/api/sessions/{job_id}/settings")
 async def update_settings(request: Request, job_id: str, background_tasks: BackgroundTasks, settings: dict = Body(...)):
     session = require_session(job_id, request)
-    submitted_settings = dict(settings or {})
+    submitted_settings = validate_page_count(dict(settings or {}))
     provider = submitted_settings.pop("provider", None)
     model_name = submitted_settings.pop("model_name", None)
     if provider or model_name:
@@ -497,19 +515,14 @@ async def update_settings(request: Request, job_id: str, background_tasks: Backg
     new_chart_style_id = merged_settings.get('chart_style_id')
     old_visual_instructions = current_settings.get('visual_instructions', '')
     new_visual_instructions = merged_settings.get('visual_instructions', '')
-    session_updates = {"settings": merged_settings}
-    if provider:
-        session_updates["provider"] = provider
-    if model_name:
-        session_updates["model_name"] = model_name
-
     language_changed = bool(old_lang and new_lang and old_lang != new_lang)
-    update_session(job_id, session_updates)
+    length_changed = current_settings.get("page_count") != merged_settings.get("page_count")
+    merge_report_settings(job_id, submitted_settings, provider=provider, model_name=model_name)
 
     follow_up = run_script_generation
     drop_component_ids: set = set()
-    if new_template_id and old_template_id != new_template_id:
-        add_log(job_id, "Template de layout alterado. Regenerando relatório para ajustar componentes...")
+    if length_changed or (new_template_id and old_template_id != new_template_id):
+        add_log(job_id, "Número de páginas ou template alterado. Replanejando o relatório...")
         update_session(job_id, {
             "artifacts": [],
             "template": [],
@@ -553,19 +566,17 @@ async def regenerate_session(request: Request, job_id: str, background_tasks: Ba
         raise HTTPException(status_code=400, detail="Invalid regeneration scope")
     if scope == "component" and not any(a.get("id") == payload.get("component_id") for a in session.get("artifacts", [])):
         raise HTTPException(status_code=404, detail="Component not found")
-    submitted_settings = dict(payload.get("settings") or {})
+    submitted_settings = validate_page_count(dict(payload.get("settings") or {}))
     if submitted_settings:
         provider = submitted_settings.pop("provider", None)
         model_name = submitted_settings.pop("model_name", None)
         if provider or model_name:
             provider, model_name = validate_provider_model(provider or session.get("provider"), model_name, current_user(request).id)
         current_settings = dict(session.get("settings") or DEFAULT_SETTINGS.copy())
-        settings_updates = {"settings": {**current_settings, **submitted_settings}}
-        if provider:
-            settings_updates["provider"] = provider
-        if model_name:
-            settings_updates["model_name"] = model_name
-        session = update_session(job_id, settings_updates) or session
+        if ("page_count" in submitted_settings
+                and submitted_settings["page_count"] != current_settings.get("page_count")):
+            scope = "all"
+        session = merge_report_settings(job_id, submitted_settings, provider=provider, model_name=model_name) or session
 
     artifacts = session.get("artifacts", [])
     components = session.get("components", {})

@@ -7,6 +7,7 @@ import time
 from app.utils.component_library import presets_prompt_summary
 from app.utils.visual_contracts import DataBinding
 from app.utils.layout import normalize_template
+from app.utils.pagination import paginate_artifacts
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 from app.utils.template_library import build_layout_from_template
 from app.services.llm import client
@@ -35,20 +36,33 @@ def generate_artifacts(
             layout_constraints = (
                 "Selected Layout Template:\n"
                 f"{json.dumps(template_context, indent=2)}\n\n"
-                "Hard constraint: generate visible text and graphic artifacts that fit this exact template. "
-                "Metric artifacts can exceed the visual slot counts because they are not directly rendered.\n\n"
+                "Use this blueprint as design guidance across the planned pages. Slot counts describe the entire blueprint, "
+                "not the report's total capacity. Repeat or adapt its pages to the requested report length. "
+                "Metric artifacts are not directly rendered.\n\n"
             )
         visual_catalog = json.dumps(presets_prompt_summary(), indent=2, ensure_ascii=False)
         semantic_context = ""
         if semantic_model:
             semantic_context = (
-                f"Dataset Roles and Candidate Relationships:\n{json.dumps(semantic_model, ensure_ascii=False)}\n\n"
-                "Relationships are candidates based on column names, not verified joins. "
-                "Check key uniqueness, compatible types, and data grain before combining tables; "
-                "avoid many-to-many joins that multiply metric values. Use each dataset's exact filename as its dataframe key.\n\n"
+                f"Dataset Roles and Relationships:\n{json.dumps(semantic_model, ensure_ascii=False)}\n\n"
+                "`verified_relationships` were checked against the data: each `from` row matches at most one `to` row, "
+                "so joining from -> to keeps the row count of `from` and does not multiply totals. To combine tables in a visual, "
+                "set `data_binding.source` to the `from` dataset and add `data_binding.joins` entries "
+                "{\"source\": <to dataset>, \"left_on\": <from column>, \"right_on\": <to column>}; then reference joined columns as "
+                "`<to dataset>:<column>`. Use only verified relationships for joins. `relationships` are name-only candidates, "
+                "not verified joins: check key uniqueness, types and grain before combining them in code, and avoid many-to-many joins. "
+                "Use each dataset's exact filename as its dataframe key.\n\n"
             )
+        requested_pages = (settings or {}).get("page_count")
+        report_length = (
+            f"Report Length: exactly {requested_pages} pages. Use every page from 1 to {requested_pages}."
+            if requested_pages is not None else
+            "Report Length: automatic. Decide the number of pages (1 to 50) from the objective and available evidence."
+        )
         user_prompt = (
-            f"Target Language: {lang}\n"
+            f"Target Language: {lang}\n{report_length}\n"
+            "Assign an integer `page` to every visible component. Use at most 6 visible components per page. "
+              "Keep the summary on page 1 and the conclusion on the last page.\n"
             f"{layout_constraints}"
             f"Available Visual Component Presets:\n{visual_catalog}\n\n"
             f"Shared Data Binding JSON Schema:\n{json.dumps(DataBinding.model_json_schema(), ensure_ascii=False)}\n\n"
@@ -62,6 +76,14 @@ def generate_artifacts(
             try:
                 artifacts = parse_llm_artifacts(client.call_llm(provider, model_name, system_instruction, user_prompt), provider, model_name)
                 if isinstance(artifacts, list) and len(artifacts) > 0:
+                    try:
+                        visible = paginate_artifacts(artifacts, (settings or {}).get("page_count"))
+                    except ValueError as exc:
+                        raise LLMContractError("artifact_plan", str(exc), field="page") from exc
+                    pages = {item["id"]: item.get("page") for item in visible}
+                    for artifact in artifacts:
+                        if pages.get(artifact["id"]) is not None:
+                            artifact["page"] = pages[artifact["id"]]
                     return artifacts
                 raise LLMContractError("artifact_plan", "The artifact plan must not be empty")
             except LLMContractError as exc:
@@ -200,8 +222,8 @@ def generate_document_insights_from_pdf_file(
         return {}
 
 
-def generate_template(artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, template_id: str = None, owner_id=None) -> list:
-    return normalize_template(build_layout_from_template(artifacts, template_id, owner_id))
+def generate_template(artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, template_id: str = None, owner_id=None, page_count: int | None = None) -> list:
+    return normalize_template(build_layout_from_template(artifacts, template_id, owner_id, page_count=page_count))
 
 
 def normalize_preprocessing_payload(payload: dict) -> dict:

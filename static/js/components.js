@@ -79,7 +79,7 @@ const Components = {
             card.appendChild(this.node('p', artifact.reason || (kind === 'metric' ? 'Valor calculado usado na análise e nos textos do relatório.' : kind === 'text' ? 'Narrativa e conclusões do relatório.' : 'Edite os dados, a apresentação ou peça uma melhoria.'), 'component-description'));
             if (kind === 'metric') card.appendChild(this.node('p', 'Consulte o resultado em Métricas & Dados. Para revisar o cálculo, peça a alteração no chat do relatório.', 'component-hint'));
             const binding = artifact.data_binding || {};
-            if (binding.source) card.appendChild(this.node('p', `Fonte: ${binding.source}`, 'component-hint'));
+            if (binding.source) card.appendChild(this.node('p', `Fonte: ${[binding.source, ...(binding.joins || []).map(join => join.source)].join(' + ')}`, 'component-hint'));
             if (artifact.visual_warnings?.length) card.appendChild(this.node('p', artifact.visual_warnings.join(' · '), 'artifact-visual-warnings'));
             const operation = App.currentSession?.component_edit;
             if (operation?.component_id === artifact.id) card.appendChild(this.node('p', operation.message, 'component-operation-note'));
@@ -193,10 +193,33 @@ const Components = {
         const writeBinding = () => { document.getElementById('m-data-binding').value = JSON.stringify(binding, null, 2); };
         const writeOptions = () => { document.getElementById('m-visual-options').value = JSON.stringify(options, null, 2); };
         this.select(data, 'Fonte de dados', tables.map(table => table.key), binding.source, value => {
-            binding.source = value; binding.roles = {}; document.getElementById('m-cols').value = ''; writeBinding(); this.visualTools();
+            binding.source = value; binding.roles = {}; delete binding.joins; document.getElementById('m-cols').value = ''; writeBinding(); this.visualTools();
         });
         const table = tables.find(table => table.key === binding.source);
         const columns = (table?.columns || []).map(column => column.name);
+        // Verified relationships starting at this table can add the related table's columns.
+        const links = (App.currentSession?.semantic_model?.verified_relationships || []).filter(item => item.from.dataset === binding.source);
+        if (links.length) {
+            const joinKey = item => `${item.to.dataset}|${item.from.column}|${item.to.column}`;
+            const active = (binding.joins || []).map(join => `${join.source}|${join.left_on}|${join.right_on}`);
+            this.select(data, 'Relacionar com (opcional)', links.map(item => ({ value: joinKey(item), label: Relationships.label(item) })), active, selected => {
+                const chosen = links.filter(item => selected.includes(joinKey(item))).slice(0, 3);
+                if (chosen.length) binding.joins = chosen.map(item => ({ source: item.to.dataset, left_on: item.from.column, right_on: item.to.column, how: 'left' }));
+                else delete binding.joins;
+                const joined = new Set(chosen.map(item => item.to.dataset));
+                for (const [role, value] of Object.entries(binding.roles || {})) {
+                    const kept = [].concat(value).filter(column => !column.includes(':') || joined.has(column.slice(0, column.lastIndexOf(':'))));
+                    if (kept.length) binding.roles[role] = Array.isArray(value) ? kept : kept[0]; else delete binding.roles[role];
+                }
+                writeBinding(); this.visualTools();
+            }, true).parentElement.classList.add('component-wide-field');
+            for (const join of binding.joins || []) {
+                const related = tables.find(item => item.key === join.source);
+                for (const column of related?.columns || []) {
+                    if (column.name !== join.right_on) columns.push({ value: `${join.source}:${column.name}`, label: `${column.name} (${join.source})` });
+                }
+            }
+        }
         const roleLabels = { category: 'Categoria', value: 'Valor', series: 'Série / grupo', date: 'Data', x: 'Eixo X', y: 'Eixo Y', color: 'Agrupar por cor', dimensions: 'Agrupar por (selecione uma ou mais)', metrics: 'Valores (selecione uma ou mais)', columns: 'Colunas (selecione uma ou mais)', target: 'Coluna de meta' };
         for (const role of preset?.data_roles || []) {
             let value = binding.roles?.[role.name]; if (role.multiple && !Array.isArray(value)) value = value ? [value] : [];
@@ -204,7 +227,7 @@ const Components = {
                 binding.roles = { ...(binding.roles || {}) };
                 if (selected.length) binding.roles[role.name] = selected; else delete binding.roles[role.name];
                 writeBinding();
-                document.getElementById('m-cols').value = Object.values(binding.roles).flat().filter(Boolean).map(column => `${binding.source}:${column}`).join(', ');
+                document.getElementById('m-cols').value = Object.values(binding.roles).flat().filter(Boolean).map(column => column.includes(':') ? column : `${binding.source}:${column}`).join(', ');
             }, role.multiple);
             select.required = Boolean(role.required && columns.length);
         }

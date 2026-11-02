@@ -85,7 +85,8 @@ const SharedReport = {
         const data = document.getElementById('shared-data');
         for (const file of session.files || []) data.appendChild(this.details(file.original_filename, file.artifact));
         if (Object.keys(session.document_insights || {}).length) data.appendChild(this.details('Achados documentais', session.document_insights));
-        if (session.semantic_model) data.appendChild(this.details('Relações entre os dados', session.semantic_model));
+        if (typeof Relationships !== 'undefined' && (session.semantic_model?.datasets || []).length > 1) data.appendChild(Relationships.section(session));
+        if (session.semantic_model) data.appendChild(this.details('Modelo semântico dos dados', session.semantic_model));
         if (session.data_preprocessing || session.data_filter) data.appendChild(this.details('Pré-processamento dos dados', session.data_preprocessing || session.data_filter));
         this.renderFiles(session); this.renderHistory(session);
     },

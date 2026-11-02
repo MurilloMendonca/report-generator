@@ -538,6 +538,9 @@ const UI = {
         metrics.appendChild(metricsTitle);
         metrics.appendChild(metricsPre);
         container.appendChild(metrics);
+        if (typeof Relationships !== 'undefined' && (session.semantic_model?.datasets || []).length > 1) {
+            container.appendChild(Relationships.section(session));
+        }
 
         (session.files || []).forEach(f => {
             const section = document.createElement('div');
@@ -598,6 +601,8 @@ const UI = {
         document.getElementById('s-alignment').value = settings.alignment || "J";
         document.getElementById('s-line-height').value = settings.line_height || 5;
         document.getElementById('s-language').value = settings.language || "Portuguese";
+        const pageCountEl = document.getElementById('s-page-count');
+        if (pageCountEl) pageCountEl.value = settings.page_count ?? '';
         const includeSamplesEl = document.getElementById('s-include-data-samples');
         if (includeSamplesEl) includeSamplesEl.checked = Boolean(settings.include_data_samples);
         document.getElementById('s-layout-template').value = settings.selected_template_id || "";
@@ -613,6 +618,13 @@ const UI = {
             visualInstructionsEl.value = settings.visual_instructions || "";
         }
         UI.updateSelectedTemplatePreview(settings.selected_template_id || "");
+    },
+
+    updatePageCountStatus(session) {
+        const status = document.getElementById('s-page-count-status');
+        if (!status) return;
+        const pages = Math.max(0, ...(session?.template || []).map(item => Number(item.page) || 1));
+        status.textContent = pages ? `Layout atual: ${pages} página(s).` : '';
     },
 
     renderVisualThemeOptions(library) {

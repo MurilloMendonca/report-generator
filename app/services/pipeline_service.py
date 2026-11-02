@@ -31,6 +31,7 @@ from app.utils.data_analyzer import extract_metadata
 from app.utils.artifact_validation import validate_report_plan
 from app.utils.component_renderers import supports_library_renderer
 from app.utils.layout import normalize_template
+from app.utils.relationships import detect_relationships
 from app.utils.semantic_model import build_semantic_model
 from app.utils.narrative_evidence import ground_narrative
 from app.utils.template_library import (
@@ -58,6 +59,7 @@ DEFAULT_SETTINGS = {
     "alignment": "J",
     "line_height": 5,
     "language": "Portuguese",
+    "page_count": None,
     "include_data_samples": False,
     "visual_theme_id": "executive_clean",
     "chart_style_id": "modern",
@@ -338,6 +340,15 @@ def metadata_json(session: dict, include_samples: bool = False) -> str:
         for f in session.get("files", [])
         if f.get("artifact")
     ]
+    verified = (session.get("semantic_model") or {}).get("verified_relationships") or []
+    if verified:
+        artifacts.append({
+            "type": "relationships",
+            "description": "Keys verified on the data. Each `from` row matches at most one `to` row, so "
+                           "dataframes[from].merge(dataframes[to], left_on=from column, right_on=to column, how='left', "
+                           "validate='many_to_one') keeps the row count of `from` and does not inflate totals.",
+            "verified_relationships": verified,
+        })
     return json.dumps(artifacts, indent=2, ensure_ascii=False)
 
 
@@ -398,6 +409,51 @@ def has_data_filter_decision(data_filter: dict | None) -> bool:
 
 def supported_tabular_path(path: str) -> bool:
     return os.path.splitext(path)[1].lower() in TABULAR_EXTENSIONS
+
+
+def _tabular_sources(files: list) -> list[tuple[str, str]]:
+    sources = []
+    for file_info in files or []:
+        path = processed_path(file_info) or file_info.get("path")
+        if path and supported_tabular_path(path) and os.path.isfile(path):
+            sources.append((file_info.get("original_filename") or os.path.basename(path), path))
+    return sources
+
+
+def _data_fingerprint(sources: list[tuple[str, str]]) -> list:
+    fingerprint = []
+    for name, path in sources:
+        stat = os.stat(path)
+        fingerprint.append([name, os.path.basename(path), stat.st_size, stat.st_mtime_ns])
+    return fingerprint
+
+
+def detect_file_relationships(sources: list[tuple[str, str]]) -> list[dict]:
+    """Load each table with the sandbox's own keys and verify links on the values."""
+    dataframes = {}
+    for name, path in sources:
+        try:
+            dataframes.update(load_tabular_dataframes(name, path))
+        except Exception:
+            logger.warning("Skipping %s in relationship detection", name, exc_info=True)
+    return detect_relationships(dataframes) if len(dataframes) > 1 else []
+
+
+def semantic_model_for(files: list, previous: dict | None = None) -> dict:
+    """Reuse verified relationships until the tabular data itself changes."""
+    sources = _tabular_sources(files)
+    try:
+        fingerprint = _data_fingerprint(sources)
+    except OSError:
+        fingerprint = None
+    previous = previous or {}
+    if fingerprint is not None and previous.get("data_fingerprint") == fingerprint:
+        verified = previous.get("verified_relationships") or []
+    else:
+        verified = detect_file_relationships(sources)
+    model = build_semantic_model(files, verified)
+    model["data_fingerprint"] = fingerprint
+    return model
 
 
 def read_tabular_preview(path: str) -> tuple[int, set]:
@@ -559,7 +615,7 @@ def _run_pipeline(job_id: str, run_id: int):
                 if (files[i].get('raw_artifact') or {}).get('error'):
                     raise ValueError(f"{file_info['original_filename']}: {files[i]['raw_artifact']['error']}")
             if any_new_artifact:
-                session = update_session(job_id, {"files": files, "semantic_model": build_semantic_model(files)}) or session
+                session = update_session(job_id, {"files": files, "semantic_model": semantic_model_for(files, session.get("semantic_model"))}) or session
                 files = session.get("files", files)
 
         data_filter = session.get("data_preprocessing") or session.get("data_filter", {})
@@ -627,7 +683,7 @@ def _run_pipeline(job_id: str, run_id: int):
                 session = update_session(job_id, {
                     "files": files,
                     "document_insights": document_insights,
-                    "semantic_model": build_semantic_model(files),
+                    "semantic_model": semantic_model_for(files, session.get("semantic_model")),
                 }) or session
                 files = session.get("files", files)
                 any_new_artifact = True
@@ -651,12 +707,12 @@ def _run_pipeline(job_id: str, run_id: int):
                     return
                 add_log(job_id, f"Aplicando pré-processamento de dados: {data_filter.get('description', 'transformação ativa')}")
                 files = apply_data_filter(job_id, session, data_filter)
-                session = update_session(job_id, {"files": files, "semantic_model": build_semantic_model(files), "data_preprocessing": data_filter, "data_filter": data_filter}) or session
+                session = update_session(job_id, {"files": files, "semantic_model": semantic_model_for(files, session.get("semantic_model")), "data_preprocessing": data_filter, "data_filter": data_filter}) or session
                 files = session.get("files", files)
                 any_new_artifact = True
         elif has_filter_decision and not preprocessing_needed(data_filter):
             files = clear_data_filter_state(files)
-            session = update_session(job_id, {"files": files, "semantic_model": build_semantic_model(files), "data_preprocessing": data_filter, "data_filter": data_filter}) or session
+            session = update_session(job_id, {"files": files, "semantic_model": semantic_model_for(files, session.get("semantic_model")), "data_preprocessing": data_filter, "data_filter": data_filter}) or session
 
         all_metadata = metadata_json(session)
         files_map = build_files_map({"files": files})
@@ -688,7 +744,7 @@ def _run_pipeline(job_id: str, run_id: int):
                         settings=settings,
                         template_context=template_constraints(selected_template) if selected_template else None,
                         job_id=job_id,
-                        semantic_model=build_semantic_model(files),
+                        semantic_model=session.get("semantic_model") or semantic_model_for(files),
                     )
                     if isinstance(artifacts, list) and len(artifacts) > 0:
                         validation_context = template_constraints(selected_template) if selected_template else None
@@ -760,13 +816,16 @@ def _run_pipeline(job_id: str, run_id: int):
 
         visible_artifacts = [a for a in artifacts if a.get('type') in VISUAL_TYPES or a.get('type') == 'text']
         template = session.get('template', [])
-        if not template or {item.get('id') for item in template} != {item.get('id') for item in visible_artifacts}:
+        if (not template or any_new_artifact
+                or {item.get('id') for item in template} != {item.get('id') for item in visible_artifacts}
+                or (settings.get("page_count") is not None
+                    and {item.get("page", 1) for item in template} != set(range(1, settings["page_count"] + 1)))):
             with tracked_stage(job_id, "layout", 65, provider, model_name):
                 if not _ensure_current_run(job_id, run_id, "layout"):
                     return
                 template_name = selected_template.get("name") if selected_template else "fallback"
                 add_log(job_id, f"Aplicando template de layout: {template_name}...")
-                template = generate_template(visible_artifacts, provider, model_name, template_id=selected_template_id, owner_id=owner_id)
+                template = generate_template(visible_artifacts, provider, model_name, template_id=selected_template_id, owner_id=owner_id, page_count=settings.get("page_count"))
                 update_session(job_id, {"template": normalize_template(template)})
 
         components = session.get('components', {})

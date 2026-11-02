@@ -1,5 +1,6 @@
 from io import BytesIO
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -14,7 +15,7 @@ import numpy as np
 from PIL import Image
 from pypdf import PdfReader
 
-from app.services.report_quality import review_report
+from app.services.report_quality import _RENDER_MESSAGES, review_render_failure, review_report
 from app.utils.component_renderers import sandbox_runtime_source
 from app.utils.narrative_evidence import ground_narrative, metric_catalog, review_narrative
 from app.utils.pdf_text import MissingGlyphError, ReportPDF, render_pdf_text_block
@@ -141,6 +142,36 @@ class ExportedPDFQualityTests(unittest.TestCase):
         session = self.session(); session['template'][0]['page'] = 2
         review = review_report(session, self.path, self.pdf())
         self.assertIn('missing_page', [item['code'] for item in review['issues']])
+
+    def test_renderer_messages_are_shown_in_portuguese(self):
+        manifest = self.pdf()
+        manifest['components'][0]['warnings'] = ['Table rows or columns were limited to fit the layout slot', 'Unlisted note']
+        review = review_report(self.session(), self.path, manifest)
+        messages = [item['message'] for item in review['issues'] if item['code'] == 'render_warning']
+        self.assertEqual(messages, ['Linhas ou colunas da tabela foram limitadas para caber no espaço do componente.', 'Unlisted note'])
+        failed = review_render_failure({}, {'components': [
+            {'id': 'chart', 'status': 'empty', 'code': 'layout_too_small', 'message': 'Chart slot is too small; enlarge it or select fewer categories/series'},
+            {'id': 'table', 'status': 'failed', 'error': 'Chart/table text has no visible pixels: Total'}]})
+        self.assertEqual([item['message'] for item in failed['issues']], [
+            'O espaço do gráfico é pequeno demais. Aumente o bloco ou selecione menos categorias ou séries.',
+            'Um texto do gráfico ou da tabela ficou invisível no PDF: Total'])
+
+    def test_every_renderer_warning_has_a_translation(self):
+        root = Path(__file__).resolve().parents[1] / 'app' / 'utils'
+        patterns = (
+            re.compile(r"record_render_warning\('([^']+)'\)"),
+            re.compile(r"setdefault\('warnings', \[\]\)\.append\('([^']+)'\)"),
+            re.compile(r"warning = '([^']+)'"),
+            re.compile(r"code='layout_too_small', message='([^']+)'"),
+            re.compile(r"TextBoxTooSmallError\('([^']+)'\)"),
+        )
+        found = set()
+        for name in ('chart_layout.py', 'component_renderers.py', 'pdf_text.py'):
+            source = (root / name).read_text(encoding='utf-8')
+            for pattern in patterns:
+                found.update(pattern.findall(source))
+        self.assertGreaterEqual(len(found), 10)
+        self.assertEqual(found - set(_RENDER_MESSAGES), set())
 
     def test_unavailable_rasterizer_blocks_publication_with_actionable_issue(self):
         manifest = self.pdf()

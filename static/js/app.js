@@ -461,6 +461,7 @@ const App = {
             const sources = typeof SavedSources !== 'undefined' ? SavedSources.selections('initial-source-list') : [];
             if (!files.length && !sources.length) throw new Error('Selecione um conjunto de dados ou envie pelo menos um arquivo.');
             const formData = new FormData(e.target);
+            if (!String(formData.get('page_count') || '').trim()) formData.delete('page_count');
             // Avoid the empty file part native forms include when no file was chosen.
             formData.delete('files');
             for (const file of files) formData.append('files', file);
@@ -538,6 +539,7 @@ const App = {
         if (typeof SavedSources !== 'undefined') SavedSources.update(session);
         UI.renderArtifacts(session.artifacts);
         UI.renderLayoutCanvas(session);
+        UI.updatePageCountStatus(session);
         UI.renderDataArtifacts(session);
         UI.renderFullScript(session.script);
         if (typeof ReportQuality !== 'undefined') ReportQuality.render(session);
@@ -1320,6 +1322,7 @@ const App = {
             alignment: document.getElementById('s-alignment').value,
             line_height: parseInt(document.getElementById('s-line-height').value),
             language: document.getElementById('s-language').value,
+            page_count: document.getElementById('s-page-count').value === '' ? null : Number(document.getElementById('s-page-count').value),
             selected_template_id: document.getElementById('s-layout-template').value,
             visual_theme_id: document.getElementById('s-visual-theme').value,
             chart_style_id: document.getElementById('s-chart-style').value,

@@ -62,10 +62,25 @@ class VisualFilter(BaseModel):
     value: str | int | float | bool | list[str | int | float | bool] | None = None
 
 
+class DataJoin(BaseModel):
+    """Attach one row of ``source`` to each row of the binding's table.
+
+    The renderer rejects the join when ``right_on`` repeats in ``source``,
+    because a repeated key would duplicate rows and inflate totals.
+    """
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source: ColumnName
+    left_on: ColumnName
+    right_on: ColumnName
+    how: Literal["left", "inner"] = "left"
+
+
 class DataBinding(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     source: ColumnName | None = None
+    joins: list[DataJoin] = Field(default_factory=list, max_length=3)
     roles: dict[str, ColumnRole] = Field(default_factory=dict)
     aggregation: Aggregation = "sum"
     sort: Literal["asc", "desc", "none"] = "none"

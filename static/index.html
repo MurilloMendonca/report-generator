@@ -88,6 +88,7 @@
                 <section class="setup-card report-brief-card" aria-labelledby="report-brief-title">
                     <div class="section-heading"><span class="step-number">02</span><div><h2 id="report-brief-title">Dê uma direção</h2><p>O que seu relatório precisa mostrar?</p></div></div>
                     <div class="form-group"><label for="report-prompt">Objetivo <span class="optional-label">opcional</span></label><textarea id="report-prompt" name="prompt" rows="5" placeholder="Ex.: Analise as vendas do trimestre, destaque os produtos mais rentáveis e compare os resultados por região."></textarea><small>Em branco, criamos uma análise exploratória dos seus dados.</small></div>
+                    <div class="form-group"><label for="page-count">Número de páginas <span class="optional-label">opcional</span></label><input type="number" id="page-count" name="page_count" min="1" max="50" step="1" placeholder="A IA decide" aria-describedby="page-count-help"><small id="page-count-help">Escolha de 1 a 50 páginas. Em branco, a IA define a extensão conforme o objetivo e os dados.</small></div>
                     <div class="model-section-heading"><h3>Modelo de IA</h3><a href="/keys">Configurar modelos ↗</a></div>
                     <div class="form-group"><label for="provider">Provedor</label><select id="provider" name="provider"><option value="gemini">Google Gemini</option><option value="deepseek" selected>DeepSeek</option><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option><option value="openrouter">OpenRouter</option></select></div>
                     <div class="form-group"><label for="model_name">Modelo</label><select id="model_name" name="model_name"></select><p id="model-default-notice" class="model-default-notice" hidden></p></div>
@@ -213,6 +214,12 @@
                             <label>Espaçamento entre linhas:</label>
                             <input type="number" id="s-line-height" name="line_height" min="1" max="20">
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="s-page-count">Número de páginas:</label>
+                        <input type="number" id="s-page-count" name="page_count" min="1" max="50" step="1" placeholder="A IA decide" aria-describedby="s-page-count-help">
+                        <small id="s-page-count-help">Em branco, a IA decide. Alterar este campo replaneja o conteúdo do relatório.</small>
+                        <small id="s-page-count-status" role="status"></small>
                     </div>
                     <div class="form-group">
                         <label>Idioma do Relatório:</label>
@@ -422,6 +429,7 @@
     <script src="/static/js/layout_editor.js"></script>
     <script src="/static/js/ui.js"></script>
     <script src="/static/js/report_quality.js"></script>
+    <script src="/static/js/relationships.js"></script>
     <script src="/static/js/saved_sources.js"></script>
     <script src="/static/js/app.js"></script>
     <script src="/static/js/components.js"></script>

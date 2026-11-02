@@ -6,6 +6,7 @@ from app.utils.component_library import get_chart_style, get_theme
 from app.utils.component_renderers import hybrid_component_code, library_component_code, rename_generated_component_code, supports_library_renderer
 from app.utils.exploration_charts import exploration_runtime_source
 from app.utils.layout import normalize_template
+from app.utils.pagination import validate_layout_pages
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 from app.services.llm import client
 from app.services.llm.client import llm_operation_context
@@ -38,6 +39,8 @@ def assemble_script(
             "alignment": "J",
             "line_height": 5
         }
+    if include_title and (template or settings.get("page_count") is not None):
+        validate_layout_pages(template, settings.get("page_count"))
     
     # fpdf2 uses standard names like 'helvetica', 'times', 'courier'
     font_family = settings.get('font', 'Arial').lower()
@@ -195,13 +198,13 @@ def assemble_script(
         script.append("        else:")
         script.append(f"            component_result = render_{item['id']}(pdf, dataframes, {item['x']}, {item['y']}, {item['w']}, {item['h']})")
         preset_id = (artifacts_by_id.get(str(item['id'])) or {}).get('component_preset_id')
-        script.append(f"        component_manifest.append({{**component_render_outcome(component_result), 'id': {json.dumps(item['id'])}, 'preset_id': {preset_id!r}, 'duration_ms': (time.perf_counter() - component_started) * 1000}})")
+        script.append(f"        component_manifest.append({{**component_render_outcome(component_result), 'id': {json.dumps(item['id'])}, 'page': {page}, 'preset_id': {preset_id!r}, 'duration_ms': (time.perf_counter() - component_started) * 1000}})")
         script.append(f"    except Exception as e: ")
-        script.append(f"        component_manifest.append({{**component_render_outcome(), 'id': {json.dumps(item['id'])}, 'preset_id': {preset_id!r}, 'status': getattr(e, 'render_status', 'failed'), 'code': getattr(e, 'render_code', None), 'error': str(e), 'duration_ms': (time.perf_counter() - component_started) * 1000}})")
+        script.append(f"        component_manifest.append({{**component_render_outcome(), 'id': {json.dumps(item['id'])}, 'page': {page}, 'preset_id': {preset_id!r}, 'status': getattr(e, 'render_status', 'failed'), 'code': getattr(e, 'render_code', None), 'error': str(e), 'duration_ms': (time.perf_counter() - component_started) * 1000}})")
         script.append(f"        logging.getLogger(__name__).exception('Erro no componente {json.dumps(item['id'])}')")
     script.append(f"    manifest_path = {str(output_pdf_path + '.manifest.json')!r}")
     script.append("    with open(manifest_path, 'w', encoding='utf-8') as manifest_file:")
-    script.append("        json.dump({'components': component_manifest}, manifest_file, indent=2, ensure_ascii=False)")
+    script.append("        json.dump({'page_count': pdf.page_no(), 'components': component_manifest}, manifest_file, indent=2, ensure_ascii=False)")
     script.append("    failed_components = [item for item in component_manifest if item.get('status') != 'rendered']")
     script.append("    if failed_components:")
     script.append("        raise RuntimeError('Report component rendering failed: ' + ', '.join(item['id'] for item in failed_components))")
