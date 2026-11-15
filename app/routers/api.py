@@ -25,7 +25,7 @@ from app.services.cleanup_service import (
 from app.services.executor_service import execute_script
 from app.services.exploration_service import ExplorationError, complete_exploration_job, start_exploration
 from app.services.job_runner import run_job
-from app.services.docx_export import DOCX_MEDIA_TYPE, DocxExportError, build_report_docx
+from app.services.docx_export import docx_download_response
 from app.services.report_files import report_file_response
 from app.services.llm.client import model_catalog
 from app.services.llm.script import assemble_script
@@ -83,7 +83,8 @@ from app.utils.template_library import (
 from app.models.sources import SourceSelections
 from app.services import source_service
 from app.services.source_imports import import_saved_sources
-from app.services.session_manager import queue_source_import
+from app.services.session_manager import get_task, queue_source_import, queue_task
+from app.models.api_bodies import ArtifactsUpdate, LayoutTemplateBody, RegenerateRequest, SettingsUpdate, body_fields
 from app.routers.sources import source_action
 
 router = APIRouter()
@@ -153,6 +154,12 @@ async def read_session_workspace(request: Request, job_id: str):
     return render_page("index.html")
 
 
+def schedule(background_tasks: BackgroundTasks, func, job_id: str, *args) -> str:
+    """Queue a report job and return the id that /tasks/{task_id} reports on."""
+    task = queue_task(job_id, getattr(func, "__name__", "job"))
+    background_tasks.add_task(run_job, func, job_id, *args, task_id=task["task_id"])
+    return task["task_id"]
+
 @router.post("/api/sessions")
 async def start_session(
     request: Request,
@@ -166,6 +173,7 @@ async def start_session(
     source_datasets: str = Form("[]"),
     page_count: int | None = Form(None, ge=1, le=50),
 ):
+    task_id = None
     user = require_verified_user(request)
     provider, model_name = validate_provider_model(provider, model_name, user.id)
     await run_in_threadpool(quotas.check_daily_reports, user.id)
@@ -214,10 +222,10 @@ async def start_session(
 
     if references:
         token = source_action(lambda: queue_source_import(job_id, references))
-        background_tasks.add_task(run_job, import_saved_sources, job_id, token)
+        task_id = schedule(background_tasks, import_saved_sources, job_id, token)
     else:
-        background_tasks.add_task(run_job, run_pipeline, job_id)
-    return {"job_id": job_id}
+        task_id = schedule(background_tasks, run_pipeline, job_id)
+    return {"job_id": job_id, "task_id": task_id}
 
 
 @router.get("/api/sessions")
@@ -240,6 +248,7 @@ async def add_files_to_session(
     api_records_path: str = Form(""),
     source_datasets: str = Form("[]"),
 ):
+    task_id = None
     session = require_session(job_id, request)
     references = await run_in_threadpool(saved_source_references, current_user(request).id, source_datasets)
     files = [file for file in files or [] if file.filename]
@@ -269,22 +278,23 @@ async def add_files_to_session(
     await run_in_threadpool(quotas.refresh_storage, job_id)
     add_log(job_id, f"Adicionados {len(saved)} novos arquivos.")
     if references:
-        background_tasks.add_task(run_job, import_saved_sources, job_id, token)
+        task_id = schedule(background_tasks, import_saved_sources, job_id, token)
     else:
-        background_tasks.add_task(run_job, run_pipeline, job_id)
-    return {"status": "OK"}
+        task_id = schedule(background_tasks, run_pipeline, job_id)
+    return {"status": "OK", "task_id": task_id}
 
 
 @router.post("/api/sessions/{job_id}/sources/refresh", status_code=202)
 async def refresh_saved_sources(request: Request, job_id: str, background_tasks: BackgroundTasks, body: SourceSelections):
+    task_id = None
     session = require_session(job_id, request)
     active = {item.get("source", {}).get("dataset_id") for item in session.get("files", [])}
     if any(str(selection.dataset_id) not in active for selection in body.sources):
         raise HTTPException(400, detail="Escolha uma fonte já importada neste relatório.")
     references = await run_in_threadpool(source_action, lambda: source_service.select_datasets(current_user(request).id, body.sources))
     token = source_action(lambda: queue_source_import(job_id, references, refresh=True))
-    background_tasks.add_task(run_job, import_saved_sources, job_id, token)
-    return {"status": "queued", "import_id": token}
+    task_id = schedule(background_tasks, import_saved_sources, job_id, token)
+    return {"status": "queued", "import_id": token, "task_id": task_id}
 
 
 @router.get("/api/sessions/{job_id}/source-snapshots/{snapshot_id}/download")
@@ -312,6 +322,7 @@ async def preview_session_file(request: Request, job_id: str, file_index: int, v
 
 @router.delete("/api/sessions/{job_id}/files/{file_index}")
 async def delete_session_file(request: Request, job_id: str, file_index: int, background_tasks: BackgroundTasks):
+    task_id = None
     session = require_session(job_id, request)
     file_info = get_session_file(session, file_index)
     files = session.get("files", [])
@@ -340,8 +351,18 @@ async def delete_session_file(request: Request, job_id: str, file_index: int, ba
     update_session(job_id, update_payload)
     add_log(job_id, f"Arquivo removido da sessão: {removed.get('original_filename', 'arquivo')}")
     if files:
-        background_tasks.add_task(run_job, run_pipeline, job_id)
-    return {"status": "OK"}
+        task_id = schedule(background_tasks, run_pipeline, job_id)
+    return {"status": "OK", "task_id": task_id}
+
+
+@router.get("/api/sessions/{job_id}/tasks/{task_id}")
+async def get_report_task(request: Request, job_id: str, task_id: str):
+    """State of a background job started by this API: queued, running, completed, failed or superseded."""
+    require_session(job_id, request)
+    task = await run_in_threadpool(get_task, job_id, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada.")
+    return task
 
 
 @router.get("/api/sessions/{job_id}")
@@ -352,6 +373,7 @@ async def get_session_status(request: Request, job_id: str):
 
 @router.post("/api/sessions/{job_id}/components/{component_id}/edit", status_code=202)
 async def edit_report_component(request: Request, job_id: str, component_id: str, background_tasks: BackgroundTasks, payload: ComponentEditRequest):
+    task_id = None
     session = require_session(job_id, request)
     artifact = next((item for item in session.get("artifacts", []) if item.get("id") == component_id), None)
     if artifact is None:
@@ -372,8 +394,8 @@ async def edit_report_component(request: Request, job_id: str, component_id: str
     edit_payload = payload.model_dump(exclude_none=True)
     if payload.artifact:
         edit_payload["artifact"] = payload.artifact.model_dump()
-    background_tasks.add_task(run_job, run_component_edit, job_id, token, edit_payload)
-    return {"status": "queued", "operation": queued["component_edit"]}
+    task_id = schedule(background_tasks, run_component_edit, job_id, token, edit_payload)
+    return {"status": "queued", "operation": queued["component_edit"], "task_id": task_id}
 
 
 @router.delete("/api/sessions/{job_id}")
@@ -403,6 +425,7 @@ async def admin_cleanup(request: Request, background_tasks: BackgroundTasks, pol
 
 @router.post("/api/sessions/{job_id}/chat")
 async def chat_refinement(request: Request, job_id: str, background_tasks: BackgroundTasks, prompt: str = Form(...)):
+    task_id = None
     session = require_session(job_id, request)
     clean_prompt = (prompt or "").strip()
     if not clean_prompt:
@@ -418,14 +441,17 @@ async def chat_refinement(request: Request, job_id: str, background_tasks: Backg
         "error": {},
     })
     add_log(job_id, f"Feedback recebido para refinamento: {clean_prompt}")
-    background_tasks.add_task(run_job, process_chat_refinement, job_id, clean_prompt)
-    return {"status": "queued"}
+    task_id = schedule(background_tasks, process_chat_refinement, job_id, clean_prompt)
+    return {"status": "queued", "task_id": task_id}
 
 
 @router.put("/api/sessions/{job_id}/artifacts")
-async def update_artifacts_manually(request: Request, job_id: str, background_tasks: BackgroundTasks, payload: dict = Body(...)):
+async def update_artifacts_manually(request: Request, job_id: str, background_tasks: BackgroundTasks, payload: ArtifactsUpdate):
+    """Replace the artifact plan (and optionally component code), then regenerate unless deferred."""
+    task_id = None
     session = require_session(job_id, request)
-    
+    payload = body_fields(ArtifactsUpdate, payload)
+
     new_artifacts = payload.get("artifacts", [])
     new_components = payload.get("components", {})
     defer_pipeline = bool(payload.get("defer_pipeline"))
@@ -479,12 +505,13 @@ async def update_artifacts_manually(request: Request, job_id: str, background_ta
     })
     
     if not defer_pipeline:
-        background_tasks.add_task(run_job, run_pipeline, job_id)
-    return {"status": "OK"}
+        task_id = schedule(background_tasks, run_pipeline, job_id)
+    return {"status": "OK", "task_id": task_id}
 
 
 @router.put("/api/sessions/{job_id}/template")
-async def update_template_manually(request: Request, job_id: str, background_tasks: BackgroundTasks, template: list = Body(...)):
+async def update_template_manually(request: Request, job_id: str, background_tasks: BackgroundTasks, template: list[dict] = Body(..., description="Layout blocks with id, page, x, y, w and h in millimetres.")):
+    task_id = None
     session = require_session(job_id, request)
     template = normalize_template(template)
     try:
@@ -493,14 +520,16 @@ async def update_template_manually(request: Request, job_id: str, background_tas
         raise HTTPException(422, detail=str(exc)) from exc
     update_session(job_id, {"template": template})
     add_log(job_id, "Layout visual atualizado pelo usuário. Re-renderizando...")
-    background_tasks.add_task(run_job, run_script_generation, job_id)
-    return {"status": "OK"}
+    task_id = schedule(background_tasks, run_script_generation, job_id)
+    return {"status": "OK", "task_id": task_id}
 
 
 @router.put("/api/sessions/{job_id}/settings")
-async def update_settings(request: Request, job_id: str, background_tasks: BackgroundTasks, settings: dict = Body(...)):
+async def update_settings(request: Request, job_id: str, background_tasks: BackgroundTasks, settings: SettingsUpdate):
+    """Change report settings. Length or template changes replan; style changes redraw the charts."""
+    task_id = None
     session = require_session(job_id, request)
-    submitted_settings = validate_page_count(dict(settings or {}))
+    submitted_settings = validate_page_count(body_fields(SettingsUpdate, settings))
     provider = submitted_settings.pop("provider", None)
     model_name = submitted_settings.pop("model_name", None)
     if provider or model_name:
@@ -553,15 +582,18 @@ async def update_settings(request: Request, job_id: str, background_tasks: Backg
     if language_changed:
         add_log(job_id, f"Mudança de idioma detectada: {old_lang} -> {new_lang}. Traduzindo workspace...")
         update_session(job_id, {"current_step": "translating", "progress": 5, "error": {}})
-        background_tasks.add_task(run_job, translate_then_continue, job_id, new_lang, follow_up, drop_component_ids)
-        return {"status": "queued", "translating": True}
-    background_tasks.add_task(run_job, follow_up, job_id)
-    return {"status": "OK"}
+        task_id = schedule(background_tasks, translate_then_continue, job_id, new_lang, follow_up, drop_component_ids)
+        return {"status": "queued", "translating": True, "task_id": task_id}
+    task_id = schedule(background_tasks, follow_up, job_id)
+    return {"status": "OK", "task_id": task_id}
 
 
 @router.post("/api/sessions/{job_id}/regenerate")
-async def regenerate_session(request: Request, job_id: str, background_tasks: BackgroundTasks, payload: dict = Body(...)):
+async def regenerate_session(request: Request, job_id: str, background_tasks: BackgroundTasks, payload: RegenerateRequest):
+    """Regenerate texts, graphics, one component or the whole report with the current provider."""
+    task_id = None
     session = require_session(job_id, request)
+    payload = body_fields(RegenerateRequest, payload)
     scope = payload.get("scope")
     if scope not in {"texts", "graphics", "component", "all"}:
         raise HTTPException(status_code=400, detail="Invalid regeneration scope")
@@ -587,13 +619,13 @@ async def regenerate_session(request: Request, job_id: str, background_tasks: Ba
         components = {key: value for key, value in components.items() if key not in text_ids}
         update_session(job_id, {"components": components})
         add_log(job_id, "Atualizando textos com o provider/modelo atual...")
-        background_tasks.add_task(run_job, run_pipeline, job_id)
+        task_id = schedule(background_tasks, run_pipeline, job_id)
     elif scope == "graphics":
         graphic_ids = {a.get("id") for a in artifacts if a.get("type") in VISUAL_TYPES}
         components = {key: value for key, value in components.items() if key not in graphic_ids}
         update_session(job_id, {"components": components})
         add_log(job_id, "Atualizando gráficos com o provider/modelo atual...")
-        background_tasks.add_task(run_job, run_pipeline, job_id)
+        task_id = schedule(background_tasks, run_pipeline, job_id)
     elif scope == "component":
         component_id = payload.get("component_id")
         artifact = next((a for a in artifacts if a.get("id") == component_id), None)
@@ -602,7 +634,7 @@ async def regenerate_session(request: Request, job_id: str, background_tasks: Ba
         components = {key: value for key, value in components.items() if key != component_id}
         update_session(job_id, {"components": components})
         add_log(job_id, f"Atualizando componente {component_id} com o provider/modelo atual...")
-        background_tasks.add_task(run_job, run_pipeline, job_id)
+        task_id = schedule(background_tasks, run_pipeline, job_id)
     elif scope == "all":
         settings = session.get("settings", {}).copy()
         settings["title"] = ""
@@ -615,11 +647,11 @@ async def regenerate_session(request: Request, job_id: str, background_tasks: Ba
             "script": "",
         })
         add_log(job_id, "Atualizando relatório completo com o provider/modelo atual...")
-        background_tasks.add_task(run_job, run_pipeline, job_id)
+        task_id = schedule(background_tasks, run_pipeline, job_id)
     else:
         raise HTTPException(status_code=400, detail="Invalid regeneration scope")
 
-    return {"status": "OK"}
+    return {"status": "OK", "task_id": task_id}
 
 
 @router.get("/api/layout-templates")
@@ -628,15 +660,15 @@ def list_layout_templates(request: Request):
 
 
 @router.post("/api/layout-templates")
-def create_layout_template(request: Request, payload: dict = Body(...)):
+def create_layout_template(request: Request, payload: LayoutTemplateBody):
     # New templates always get a fresh id.
-    return upsert_layout_template({**payload, "id": None}, current_user(request).id)
+    return upsert_layout_template({**body_fields(LayoutTemplateBody, payload), "id": None}, current_user(request).id)
 
 
 @router.put("/api/layout-templates/{template_id}")
-def update_layout_template(request: Request, template_id: str, payload: dict = Body(...)):
+def update_layout_template(request: Request, template_id: str, payload: LayoutTemplateBody):
     try:
-        return upsert_layout_template({**payload, "id": template_id}, current_user(request).id, must_exist=True)
+        return upsert_layout_template({**body_fields(LayoutTemplateBody, payload), "id": template_id}, current_user(request).id, must_exist=True)
     except TemplateNotEditable as exc:
         raise HTTPException(status_code=403, detail={
             "code": "builtin_template",
@@ -664,13 +696,7 @@ async def get_pdf(request: Request, job_id: str):
 @router.get("/api/sessions/{job_id}/docx")
 async def get_docx(request: Request, job_id: str):
     session = require_session(job_id, request)
-    try:
-        content = await run_in_threadpool(build_report_docx, session)
-    except DocxExportError as exc:
-        status = 404 if exc.code == "pdf_missing" else 422
-        raise HTTPException(status_code=status, detail=exc.as_error_dict()) from None
-    return Response(content, media_type=DOCX_MEDIA_TYPE, headers={
-        "Cache-Control": "private, no-store",
+    return await run_in_threadpool(docx_download_response, session, {
         "Content-Disposition": f"attachment; filename*=utf-8''relatorio-{job_id}.docx",
     })
 
@@ -723,13 +749,14 @@ async def explore_data(request: Request, job_id: str, background_tasks: Backgrou
     Answering can take longer than Cloudflare's ~100 s request limit, so it never
     happens inside the request.
     """
+    task_id = None
     require_session(job_id, request)
     try:
         started = await run_in_threadpool(start_exploration, job_id, prompt)
     except ExplorationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.details) from exc
-    background_tasks.add_task(run_job, complete_exploration_job, job_id, started["turn_id"], prompt.strip())
-    return started
+    task_id = schedule(background_tasks, complete_exploration_job, job_id, started["turn_id"], prompt.strip())
+    return {**started, "task_id": task_id}
 
 
 @router.get("/api/sessions/{job_id}/explore/{turn_id}/charts/{chart_id}")

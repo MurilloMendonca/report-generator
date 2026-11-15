@@ -247,9 +247,9 @@ const API = {
     },
 
     async getDocxBlob(jobId) {
-        const res = await fetch(`/api/sessions/${encodeURIComponent(jobId)}/docx`, {
-            headers: this.authHeaders()
-        });
+        const res = await fetch(this.reportUrl(jobId, '/docx'), this.shareToken
+            ? { credentials: 'omit', cache: 'no-store' }
+            : { headers: this.authHeaders() });
         await this.checkResponse(res, 'Não foi possível exportar o DOCX');
         return await res.blob();
     },

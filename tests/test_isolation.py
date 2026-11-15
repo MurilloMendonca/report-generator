@@ -30,6 +30,7 @@ NOT_REPORT_SCOPED = {
     ("GET", "/share/{token}"): "read-only bearer link, expiration/revocation checked (test_sharing)",
     ("GET", "/api/shared-reports/{token}"): "read-only bearer link, sanitized report payload (test_sharing)",
     ("GET", "/api/shared-reports/{token}/pdf"): "read-only bearer link, safe file streaming (test_sharing)",
+    ("GET", "/api/shared-reports/{token}/docx"): "read-only bearer link, export built from the published PDF (test_docx_export)",
     ("GET", "/api/shared-reports/{token}/files/{file_index}/{mode}"): "read-only bearer link, safe file streaming (test_sharing)",
     ("GET", "/api/shared-reports/{token}/explore/{turn_id}/charts/{chart_id}"): "read-only bearer link, report-bound explorer images (test_sharing)",
     ("GET", "/api/shared-reports/{token}/source-snapshots/{snapshot_id}/download"): "read-only bearer link, report-bound historical files (test_sharing)",
@@ -78,6 +79,11 @@ NOT_REPORT_SCOPED = {
     ("POST", "/api/layout-templates"): "creates a template owned by the caller",
     ("PUT", "/api/layout-templates/{template_id}"): "TemplateIsolationTests",
     ("DELETE", "/api/layout-templates/{template_id}"): "TemplateIsolationTests",
+    ("GET", "/docs"): "signed-in API documentation page",
+    ("GET", "/api/openapi.json"): "API schema for signed-in users; no report data",
+    ("GET", "/api/tokens"): "the caller's own API tokens; browser session only (test_api_tokens)",
+    ("POST", "/api/tokens"): "creates a token for the caller; browser session only (test_api_tokens)",
+    ("DELETE", "/api/tokens/{token_id}"): "the caller's own token (test_api_tokens)",
     ("GET", "/api/admin/workspace-usage"): "admin role (test_security_hardening)",
     ("POST", "/api/admin/cleanup"): "admin role (test_security_hardening)",
 }
@@ -93,6 +99,7 @@ SAMPLE_REQUESTS = {
     ("GET", "/api/sessions/{job_id}/source-snapshots/{snapshot_id}/download"): {},
     ("GET", "/session/{job_id}"): {},
     ("GET", "/api/sessions/{job_id}"): {},
+    ("GET", "/api/sessions/{job_id}/tasks/{task_id}"): {},
     ("DELETE", "/api/sessions/{job_id}"): {},
     ("POST", "/api/sessions/{job_id}/files"): {"files": {"files": ("x.csv", b"a\n1\n", "text/csv")}},
     ("GET", "/api/sessions/{job_id}/files/{file_index}/download"): {},
@@ -169,7 +176,7 @@ class RouteCoverageTests(IsolationTestCase):
                 self.assertIn(("GET", path), NOT_REPORT_SCOPED)
 
     def test_other_users_get_404_on_every_report_route(self):
-        values = {"link_id": "11111111-1111-1111-1111-111111111111", "snapshot_id": "a" * 32, "job_id": self.job_id, "file_index": "0", "component_id": "t_intro", "turn_id": TURN_ID, "chart_id": "chart_1"}
+        values = {"link_id": "11111111-1111-1111-1111-111111111111", "snapshot_id": "a" * 32, "job_id": self.job_id, "file_index": "0", "component_id": "t_intro", "turn_id": TURN_ID, "chart_id": "chart_1", "task_id": "a" * 32}
         with patch.object(api, "run_pipeline") as pipeline, patch.object(api, "run_script_generation") as render, \
              patch.object(api, "process_chat_refinement") as refine, patch.object(api, "complete_exploration_job") as explore, \
              TestClient(app, follow_redirects=False) as client:

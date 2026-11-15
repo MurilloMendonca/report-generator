@@ -41,7 +41,7 @@ const SharedReport = {
         document.querySelectorAll('button, input, select, textarea').forEach(control => {
             if (control.closest('#layout-canvas')) return;
             const canView = control.dataset.tabTarget || this.viewActions.has(control.dataset.action)
-                || ['component-search', 'component-filter', 'download-btn', 'file-preview-download'].includes(control.id)
+                || ['component-search', 'component-filter', 'download-btn', 'download-docx-btn', 'file-preview-download'].includes(control.id)
                 || control.closest('.quality-actions') && control.dataset.readOnlyAllowed;
             control.disabled = !canView;
             if (!canView) control.title = 'Disponível apenas para o proprietário do relatório.';

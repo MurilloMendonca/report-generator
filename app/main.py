@@ -19,14 +19,16 @@ from app.db import get_engine
 from app.routers.api import router as api_router
 from app.routers.auth import router as auth_router
 from app.routers.credentials import router as credentials_router
+from app.routers.docs import router as docs_router
 from app.routers.operations import router as operations_router
 from app.routers.sources import router as sources_router
 from app.routers.sharing import router as sharing_router
+from app.routers.tokens import router as tokens_router
 from app.security import (
     SESSION_COOKIE, add_cache_headers, add_security_headers, clear_session_cookie, is_public_api_request,
     csrf_ok, ensure_csrf_cookie, signup_open,
 )
-from app.services import auth_service, email_service, turnstile
+from app.services import api_token_service, auth_service, email_service, turnstile
 from app.services.crypto import validate_configuration
 from app.services.redaction import install_log_redaction, redact
 from app.services.executor_service import sandbox_status
@@ -61,19 +63,22 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Report Generator v0.3.6", lifespan=lifespan)
+app = FastAPI(title="Report Generator", version="0.3.6", lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)  # served to signed-in users by app/routers/docs.py
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(auth_router)
 app.include_router(credentials_router)
 app.include_router(operations_router)
 app.include_router(sources_router)
 app.include_router(sharing_router)
+app.include_router(tokens_router)
+app.include_router(docs_router)
 app.include_router(api_router)
 
 
 # Pages that need a signed-in user (signed-out visitors go to /login), and
 # pages only for signed-out visitors (signed-in users go to the studio).
-SIGNED_IN_PAGES = {"/", "/templates", "/account", "/keys", "/usage", "/admin", "/sources"}
+SIGNED_IN_PAGES = {"/", "/templates", "/account", "/keys", "/usage", "/admin", "/sources", "/docs"}
 SIGNED_OUT_PAGES = {"/login", "/signup", "/forgot-password"}
 
 
@@ -99,6 +104,7 @@ async def require_api_access(request: Request, call_next):
     non-public API path. The signed-in user ends up in request.state.user."""
     request.state.user = None
     request.state.auth_session = None
+    request.state.api_token = None
     path = request.url.path
     stale_cookie = False
     if request.method == "GET" and (path in SIGNED_IN_PAGES or path.startswith("/session/") or path in SIGNED_OUT_PAGES):
@@ -115,6 +121,15 @@ async def require_api_access(request: Request, call_next):
         if signed_in is not None:
             request.state.user = signed_in.user
             request.state.auth_session = signed_in.session
+    elif path.startswith("/api/") and (bearer := api_token_service.bearer_token(request.headers.get("authorization"))):
+        # Personal API tokens: no cookies are read, so CSRF does not apply.
+        if api_token_service.blocked_for_tokens(request.method, path):
+            return _reject(403, {"code": "api_token_not_allowed", "message": "Esta rota exige login pelo navegador."})
+        resolved = await run_in_threadpool(api_token_service.resolve_token, bearer)
+        if resolved is None:
+            return _reject(401, {"code": "invalid_api_token", "message": "Token de API inválido, expirado ou revogado."})
+        request.state.user = resolved.user
+        request.state.api_token = resolved.token
     elif path.startswith("/api/"):
         if not csrf_ok(request):
             return _reject(403, {"code": "csrf_failed", "message": "Sessão do navegador inválida. Recarregue a página e tente novamente."})

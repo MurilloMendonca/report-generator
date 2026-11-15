@@ -539,6 +539,16 @@ Import from the submodules directly; the package deliberately has no re-exports.
 
 ## API Endpoints
 
+The JSON API is documented as OpenAPI for signed-in users: `/docs` (Swagger UI served from `static/vendor/swagger-ui`, no CDN) and `/api/openapi.json`. The framework's public `/docs` and `/openapi.json` are off. Scripts authenticate with a personal API token created on the account page and sent as `Authorization: Bearer rg_...`; such requests read no cookies, so they need no CSRF header. Tokens last 1 to 365 days, at most 20 are active per account, only their SHA-256 is stored, and they cannot call `/api/auth/*`, `/api/tokens`, `/api/credentials`, `/api/admin*`, `PUT /api/model-preferences` or the database-connection writes under `/api/data-sources/connections`. Creating and revoking tokens is audited.
+
+Long actions (create, add or remove files, refresh sources, chat, component edit, artifact/template/settings changes, regenerate, explore) answer at once with a `task_id`. Poll `GET /api/sessions/{job_id}/tasks/{task_id}` until `state` is `completed`, `failed` (with `error`) or `superseded` (a later task started while it ran). Tasks left open by a restart are failed as `interrupted`.
+
+`integrations/mcp/` holds an MCP server (stdio) over this API, so an assistant can create, refine, question, download and share reports. See its README.
+
+API tokens (`app/routers/tokens.py`, browser session only):
+
+- `GET /api/tokens`, `POST /api/tokens` (`{name, expires_in_days}`, shows the token once), `DELETE /api/tokens/{token_id}`.
+
 Accounts (`app/routers/auth.py`). Errors return `{"detail": {"code": ..., "message": ...}}`.
 
 - `GET /api/auth/config`: whether sign-up is open, the Turnstile site key, the minimum password length. Public.
@@ -596,6 +606,7 @@ Reports:
 - `PUT /api/sessions/{job_id}/settings`: updates report settings plus provider/model. A language change queues workspace translation as a background job and returns `{"status": "queued", "translating": true}`; the session shows `current_step: "translating"` until it finishes.
 - `POST /api/sessions/{job_id}/regenerate`: regenerates `texts`, `graphics`, one `component`, or `all` using the current provider/model/settings.
 - `GET /api/sessions/{job_id}/pdf`: downloads or previews the generated PDF.
+- `GET /api/sessions/{job_id}/tasks/{task_id}`: state of a background task started by this API.
 - `GET /api/sessions/{job_id}/docx`: exports the published report as a Word document. Narrative blocks become editable paragraphs (from the render manifest); charts, tables and custom components are cropped from the published PDF with `pdftoppm`, so they look the same. Side-by-side components share a table row; PDF pages become one continuous document. Built on request, never stored.
 - `GET /api/sessions/{job_id}/components/{component_id}/preview`: renders a single component to a small PDF.
 - `POST /api/sessions/{job_id}/components/{component_id}/edit`: queues a targeted component edit (202). Accepts an optional artifact definition, plain text, custom code, AI instruction, regeneration flag and base PDF version. Poll the session's `component_edit` status; concurrent or stale edits receive 409. Failed edits preserve the previous report.
@@ -603,7 +614,7 @@ Reports:
 - `DELETE /api/sessions/{job_id}/share-links/{link_id}`: revoke a link; the caller must own the report.
 - `GET /share/{token}`: public read-only workspace. No login required.
 - `GET /api/shared-reports/{token}`: sanitized report content; a valid, unexpired, non-revoked bearer link is required.
-- `GET /api/shared-reports/{token}/pdf`, `/files/{file_index}/{preview|download}`, `/source-snapshots/{snapshot_id}/download`, and `/explore/{turn_id}/charts/{chart_id}`: public report-bound downloads with the same link checks and descriptor-safe streaming. The shared API has no mutation endpoints.
+- `GET /api/shared-reports/{token}/pdf`, `/docx`, `/files/{file_index}/{preview|download}`, `/source-snapshots/{snapshot_id}/download`, and `/explore/{turn_id}/charts/{chart_id}`: public report-bound downloads with the same link checks and descriptor-safe streaming. The shared API has no mutation endpoints.
 - `POST /api/sessions/{job_id}/explore`: asks an ad-hoc question about the session data. Returns `202` with the question stored and a `pending` answer; the answer (text and up to three charts) is produced in the background and replaces the pending entry in `explore_history`. Returns `409` while another question is pending.
 - `GET /api/sessions/{job_id}/explore/{turn_id}/charts/{chart_id}`: returns an explorer chart PNG. Add `?download=true` to download it.
 - `GET /api/layout-templates`: the built-in templates (`"builtin": true`) followed by your own.

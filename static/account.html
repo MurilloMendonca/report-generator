@@ -91,6 +91,27 @@
             <button type="button" id="logout-btn" class="btn btn-outline">Sair</button>
         </section>
 
+        <section class="account-section">
+            <h2>Tokens de API</h2>
+            <p>Para scripts e integrações, como o servidor MCP. Envie o token no cabeçalho <code>Authorization: Bearer</code>. Ele age como você nos relatórios, fontes e templates, mas não altera a conta, as chaves dos provedores nem as conexões de banco. Consulte a <a href="/docs">documentação da API</a>.</p>
+            <form id="token-form" class="account-form">
+                <div class="form-group">
+                    <label for="token-name">Nome</label>
+                    <input type="text" id="token-name" maxlength="100" required placeholder="Ex.: MCP no meu notebook">
+                </div>
+                <div class="form-group">
+                    <label for="token-expiry">Validade</label>
+                    <select id="token-expiry"><option value="30">30 dias</option><option value="90" selected>90 dias</option><option value="365">1 ano</option></select>
+                </div>
+                <button type="submit" class="btn btn-primary">Criar token</button>
+            </form>
+            <div id="token-created" class="token-created" hidden>
+                <p><b>Copie o token agora.</b> Ele não será mostrado de novo.</p>
+                <div class="token-created-row"><input type="text" id="token-value" readonly aria-label="Token criado"><button type="button" id="token-copy" class="btn btn-outline btn-small">Copiar</button></div>
+            </div>
+            <ul id="token-list" class="session-list"></ul>
+        </section>
+
         <section class="account-section account-danger">
             <h2>Excluir conta</h2>
             <p>Apaga sua conta, todos os seus relatórios, arquivos enviados e templates. Não é possível desfazer.</p>

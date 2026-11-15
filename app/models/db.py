@@ -157,6 +157,22 @@ class AuthSession(Base):
     user_agent: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
 
 
+class ApiToken(Base):
+    """A personal API token for scripts and integrations. Only the SHA-256 of the token is stored."""
+
+    __tablename__ = "api_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False, unique=True)
+    hint: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created()
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class EmailToken(Base):
     """Single-use links sent by email: verify_email, reset_password, change_email."""
 

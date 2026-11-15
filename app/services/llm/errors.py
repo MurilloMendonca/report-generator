@@ -92,6 +92,16 @@ class ProviderRequestError(RuntimeError):
         super().__init__(f"Falha ao consultar {provider} ({category}).")
 
 
+class ProviderFallbackError(RuntimeError):
+    """The primary provider and its fallback both failed."""
+    retryable = True
+
+    def __init__(self, provider, primary_error, fallback_provider, fallback_error):
+        self.primary_error, self.fallback_error = primary_error, fallback_error
+        super().__init__(f"O provedor principal ({provider}) falhou: {primary_error} "
+                         f"A reserva ({fallback_provider}) também falhou: {fallback_error}")
+
+
 class LLMBudgetError(RuntimeError):
     def __init__(self, operation: str, budget: int):
         self.operation = operation

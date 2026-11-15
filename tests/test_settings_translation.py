@@ -36,6 +36,7 @@ class SettingsTranslationTests(unittest.TestCase):
     def save(self, settings):
         tasks = BackgroundTasks()
         response = asyncio.run(api.update_settings(request_as(), self.job_id, tasks, settings))
+        self.assertRegex(response.pop("task_id"), r"^[0-9a-f]{32}$")
         return response, tasks
 
     def translated(self, session, target_lang, job_id=None):

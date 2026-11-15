@@ -296,7 +296,9 @@ class ApiRegressionTests(unittest.TestCase):
         from fastapi import BackgroundTasks
         with patch.object(api, "require_session", return_value={"files": []}), \
              patch.object(api, "start_exploration", side_effect=generate):
-            self.assertEqual(asyncio.run(api.explore_data(request_as(), "test", BackgroundTasks(), "Question")), {"answer": "answer", "turn_id": "t"})
+            response = asyncio.run(api.explore_data(request_as(), "test", BackgroundTasks(), "Question"))
+        self.assertRegex(response.pop("task_id"), r"^[0-9a-f]{32}$")
+        self.assertEqual(response, {"answer": "answer", "turn_id": "t"})
         self.assertEqual(len(worker_threads), 1)
         self.assertNotEqual(worker_threads, [event_loop_thread])
 

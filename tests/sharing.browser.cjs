@@ -43,6 +43,7 @@ const path = require('path');
             if (pathname.startsWith('/api/shared-reports/')) {
                 const token = pathname.split('/')[3]; const link = links.find(item => item.token === token && item.active);
                 if (!link) { await handler.fulfill({ status: 404, json: { detail: 'Link indisponível.' } }); return; }
+                if (pathname.endsWith('/docx')) { await handler.fulfill({ contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', body: Buffer.from('PK docx') }); return; }
                 if (pathname.endsWith('/pdf')) { await handler.fulfill({ contentType: 'application/pdf', body: fs.readFileSync(path.join(root, 'tests/canonical/fixtures/sales_ops/sales_context.pdf')) }); return; }
                 if (pathname.includes('/explore/')) { await handler.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64') }); return; }
                 if (pathname.includes('/files/')) { await handler.fulfill({ contentType: 'text/csv', body: url.searchParams.get('variant') === 'preprocessed' ? 'revenue\n60\n' : 'revenue\n30\n' }); return; }
@@ -170,7 +171,11 @@ const path = require('path');
         await viewer.evaluate(() => SharedReport.load());
         assert(await viewer.getByRole('button', { name: 'Editar componente Novo resumo', exact: true }).isDisabled());
         await viewer.waitForFunction(() => App.lastPdfVersion === 2);
-        assert(await viewer.locator('#download-docx-btn').isDisabled());
+        // Viewers can download the Word export through the token API too.
+        assert(await viewer.locator('#download-docx-btn').isEnabled());
+        const [docx] = await Promise.all([viewer.waitForEvent('download'), viewer.locator('#download-docx-btn').click()]);
+        assert.equal(docx.suggestedFilename(), 'relatorio-shared-one.docx');
+        assert(publicRequests.some(item => item.path === `/api/shared-reports/${links[1].token}/docx`));
         await viewer.setViewportSize({ width: 390, height: 844 });
         assert((await viewer.locator('#app-shell').boundingBox()).width <= 390);
         await viewer.screenshot({ path: '/tmp/repgen-share-mobile.png', fullPage: true });

@@ -1545,7 +1545,7 @@ dialog::backdrop {
 .share-link-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .share-link-row p { margin: 0.35rem 0 0; font-size: 0.8rem; }
 .share-report-modal [hidden], .shared-workspace [hidden], .shared-access[hidden] { display: none !important; }
-.shared-access { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.shared-access { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.5rem 0; }
 .shared-access h1 { font-size: 1.2rem; margin: 0.6rem 0 0; }
 .shared-access p { color: var(--md-sys-color-on-surface-variant); font-size: 0.8rem; }
 .shared-readonly-badge { background: #e4efe7; color: #285738; padding: 0.35rem 0.7rem; border-radius: 20px; font-size: 0.8rem; font-weight: 700; }
@@ -2453,3 +2453,11 @@ iframe {
 .relationships-section h4 { margin: 0 0 0.35rem; }
 .relationships-help { margin: 0 0 0.75rem; font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant, #5f6b64); }
 .relationships-table { font-size: 0.85rem; }
+
+.token-created { margin: 12px 0; padding: 12px; border: 1px solid #c9dcc6; border-radius: 8px; background: #f3f8f2; }
+.token-created-row { display: flex; gap: 8px; }
+.token-created-row input { flex: 1; min-width: 0; font-family: monospace; font-size: 13px; padding: 6px 8px; }
+#token-form select { padding: 6px 8px; }
+.api-docs-page { background: #fff; }
+.api-docs-header { display: flex; gap: 16px; align-items: center; padding: 14px 24px; border-bottom: 1px solid #e3e7e2; font-size: 14px; }
+.api-docs-header span { flex: 1; color: #555; }

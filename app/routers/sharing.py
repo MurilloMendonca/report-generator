@@ -5,6 +5,7 @@ from app.models.sharing import CreateShareLink
 from app.pages import render_page
 from app.security import current_user
 from app.services import sharing_service
+from app.services.docx_export import docx_download_response
 from app.services.report_files import report_file_response
 from app.services.web_helpers import file_response, get_session_file, require_session
 from app.utils.exploration_charts import chart_path
@@ -57,6 +58,12 @@ def get_shared_report(token: str):
 def shared_report_pdf(token: str):
     session, _sharing = sharing_service.require_shared_report(token)
     return report_file_response(session, session.get("pdf_path"), media_type="application/pdf", filename="relatorio.pdf", headers=sharing_service.SHARED_HEADERS)
+
+
+@router.get("/api/shared-reports/{token}/docx")
+def shared_report_docx(token: str):
+    session, _sharing = sharing_service.require_shared_report(token)
+    return docx_download_response(session, sharing_service.SHARED_HEADERS)
 
 
 @router.get("/api/shared-reports/{token}/files/{file_index}/{mode}")

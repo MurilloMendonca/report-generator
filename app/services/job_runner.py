@@ -7,7 +7,7 @@ import threading
 from collections import defaultdict
 
 from app.services import quotas
-from app.services.session_manager import add_log, get_report_owner
+from app.services.session_manager import add_log, finish_task, get_report_owner, start_task
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +22,25 @@ def _user_slot(owner_id):
         return _user_slots[owner_id]
 
 
-def run_job(func, job_id: str, *args, **kwargs):
+def run_job(func, job_id: str, *args, task_id: str | None = None, **kwargs):
     """Run a background job (pipeline, refinement, render) once a slot is free.
 
     The owner's slot is taken first, then a global one, so a user waiting on
     their own earlier report never holds a global slot. Only wrap the entry
     point: nested calls inside a job must not wait for a slot.
     """
+    error = None
+    try:
+        return _run_job(func, job_id, args, kwargs, task_id)
+    except Exception as exc:
+        # Already logged; background jobs report failures through the session.
+        error = {"code": "job_error", "message": str(exc)[:500]}
+    finally:
+        if task_id:
+            finish_task(job_id, task_id, error)
+
+
+def _run_job(func, job_id, args, kwargs, task_id):
     owner_id = get_report_owner(job_id)
     user_slot = _user_slot(owner_id) if owner_id is not None else None
     if user_slot is not None and not user_slot.acquire(blocking=False):
@@ -46,9 +58,12 @@ def run_job(func, job_id: str, *args, **kwargs):
                 if user is None or user.status != "active":
                     fail_disabled_account_job(job_id)
                     return
+            if task_id:
+                start_task(job_id, task_id)
             return func(job_id, *args, **kwargs)
         except Exception:
             logger.exception("Background job failed job_id=%s func=%s", job_id, getattr(func, "__name__", func))
+            raise
         finally:
             _job_slots.release()
             try:

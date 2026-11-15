@@ -23,7 +23,7 @@ from app.services import credential_service as service, crypto
 from app.services.cleanup_service import delete_entire_session
 from app.services.llm import client
 from app.services.llm.credentials import resolve_api_key
-from app.services.llm.errors import InvalidCredentialError, MissingCredentialError, PDFCredentialUnavailableError
+from app.services.llm.errors import InvalidCredentialError, MissingCredentialError, PDFCredentialUnavailableError, ProviderFallbackError
 from app.services.llm.providers.base import GenerationResult
 from app.services.llm.providers.registry import get_adapter
 from app.services.redaction import SecretRedactionFilter
@@ -284,6 +284,24 @@ class CredentialTests(unittest.TestCase):
         with patch.dict(os.environ, {'PDF_REPORT_LLM_FALLBACK_PROVIDER': 'gemini'}):
             with client.llm_operation_context(user_id=str(self.b.id), settings={'llm_fallback_provider': 'gemini'}) as context:
                 self.assertEqual(client._llm_fallback(context), (None, None))
+
+    def test_failed_fallback_error_names_the_primary_failure(self):
+        self.put()
+        with patch.object(get_adapter('gemini'), 'validate_key', return_value=['gemini-3.8-flash']):
+            self.put(KEY_B, provider='gemini')
+        with transaction() as tx:
+            tx.get(User, self.a.id).preferences = {'llm_fallback_provider': 'gemini', 'llm_fallback_model_name': 'gemini-3.8-flash'}
+        with patch.object(self.adapter, 'build_client', return_value=object()), \
+             patch.object(self.adapter, 'generate', side_effect=RuntimeError('deepseek down')), \
+             patch.object(get_adapter('gemini'), 'build_client', return_value=object()), \
+             patch.object(get_adapter('gemini'), 'generate', side_effect=RuntimeError('gemini down')):
+            with client.llm_operation_context(job_id=self.job()), self.assertRaises(ProviderFallbackError) as raised:
+                client.call_llm('deepseek', None, 'sys', 'user', retries=1)
+        message = str(raised.exception)
+        self.assertIn('principal (deepseek) falhou: Falha ao consultar deepseek', message)
+        self.assertIn('reserva (gemini) também falhou: Falha ao consultar gemini', message)
+        self.assertNotIn('down', message)  # provider texts stay out of user-visible errors
+        self.assertTrue(raised.exception.retryable)
 
     def test_pdf_selection_only_uses_own_valid_pdf_capable_key(self):
         self.put()

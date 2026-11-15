@@ -40,6 +40,22 @@ class DocxExportError(Exception):
         return {"code": self.code, "message": str(self)}
 
 
+def docx_download_response(session: dict, headers: dict | None = None):
+    """HTTP response for a report's DOCX; 404 without a published PDF, 422 when export fails."""
+    from fastapi import HTTPException
+    from fastapi.responses import Response
+
+    try:
+        content = build_report_docx(session)
+    except DocxExportError as exc:
+        raise HTTPException(status_code=404 if exc.code == "pdf_missing" else 422, detail=exc.as_error_dict()) from None
+    return Response(content, media_type=DOCX_MEDIA_TYPE, headers={
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": "attachment; filename*=utf-8''relatorio.docx",
+        **(headers or {}),
+    })
+
+
 def build_report_docx(session: dict) -> bytes:
     pdf_path = session.get("pdf_path")
     if not pdf_path:

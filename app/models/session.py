@@ -106,6 +106,7 @@ class ReportSession(BaseModel):
     active_run_id: int = 0
     active_run_source: str = ""
     run_history: list[dict[str, Any]] = Field(default_factory=list)
+    tasks: list[dict[str, Any]] = Field(default_factory=list)
     logs: list[str] = Field(default_factory=list)
     files: list[SessionFile] = Field(default_factory=list)
     source_import: dict[str, Any] = Field(default_factory=dict)

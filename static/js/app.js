@@ -605,7 +605,7 @@ const App = {
             };
             const docxBtn = document.getElementById('download-docx-btn');
             docxBtn.style.display = 'block';
-            docxBtn.disabled = this.readOnly;
+            docxBtn.disabled = false;
             docxBtn.onclick = () => this.downloadDocx(session.job_id, docxBtn);
             this.lastPdfVersion = session.pdf_version;
         } catch (error) {

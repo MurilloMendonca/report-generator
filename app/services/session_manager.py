@@ -729,15 +729,84 @@ def set_session_stage(job_id: str, step: str, progress: int = None, error: dict 
     return update_session(job_id, updates)
 
 
+TASK_LIMIT = 30
+OPEN_TASK_STATES = {"queued", "running"}
+
+
+def queue_task(job_id: str, kind: str) -> dict:
+    """Record a background job requested through the API, so clients can poll its outcome."""
+    task = {"task_id": uuid.uuid4().hex, "kind": kind, "state": "queued", "created_at": _now_iso(),
+            "started_at": None, "finished_at": None, "error": None, "pdf_version": None}
+
+    def change(session):
+        session["tasks"] = [*session.get("tasks", []), task][-TASK_LIMIT:]
+        return task
+
+    return _mutate(job_id, change, missing=task)
+
+
+def start_task(job_id: str, task_id: str) -> None:
+    def change(session):
+        task = next((item for item in session.get("tasks", []) if item.get("task_id") == task_id), None)
+        if task is None or task.get("state") != "queued":
+            return _NO_WRITE
+        task.update(state="running", started_at=_now_iso())
+    _mutate(job_id, change)
+
+
+def finish_task(job_id: str, task_id: str, error: dict | None = None) -> None:
+    """Close a task as completed, failed or superseded (a later task started while it ran)."""
+    def change(session):
+        tasks = session.get("tasks", [])
+        index = next((i for i, item in enumerate(tasks) if item.get("task_id") == task_id), None)
+        if index is None or tasks[index].get("state") not in OPEN_TASK_STATES:
+            return _NO_WRITE
+        task = tasks[index]
+        outcome = error
+        if outcome is None and task.get("kind") == "complete_exploration_job":
+            turn = next((item for item in reversed(session.get("explore_history", []))
+                         if isinstance(item, dict) and item.get("role") == "assistant"), {})
+            if turn.get("status") == "error":
+                outcome = {"code": "exploration_failed", "message": str(turn.get("content") or "")[:500]}
+        elif outcome is None and session.get("current_step") == "failed":
+            outcome = session.get("error") or {"code": "failed"}
+        superseded = any(later.get("started_at") for later in tasks[index + 1:])
+        state = "failed" if outcome else "superseded" if superseded else "completed"
+        task.update(state=state, finished_at=_now_iso(), error=outcome,
+                    pdf_version=session.get("pdf_version"))
+    _mutate(job_id, change)
+
+
+def get_task(job_id: str, task_id: str) -> dict | None:
+    session = get_session(job_id) or {}
+    task = next((item for item in session.get("tasks", []) if item.get("task_id") == task_id), None)
+    if task is None:
+        return None
+    return {**task, "current_step": session.get("current_step"), "progress": session.get("progress"),
+            "status": session.get("status"), "report_pdf_version": session.get("pdf_version")}
+
+
+def _interrupt_tasks(job_id: str, message: str) -> bool:
+    def change(session):
+        open_tasks = [task for task in session.get("tasks", []) if task.get("state") in OPEN_TASK_STATES]
+        if not open_tasks:
+            return _NO_WRITE
+        for task in open_tasks:
+            task.update(state="failed", finished_at=_now_iso(), error={"code": "interrupted", "message": message})
+        return True
+    return bool(_mutate(job_id, change, missing=False))
+
+
 def recover_interrupted_sessions() -> list[str]:
     """Mark sessions left mid-run by a server restart as failed, so the UI stops waiting."""
     pending_turn = Report.state["explore_history"].contains([{"role": "assistant", "status": "pending"}])
     pending_source = or_(Report.state["source_import"].contains({"status": "queued"}),
                          Report.state["source_import"].contains({"status": "running"}))
     pending_component = or_(*(Report.state["component_edit"].contains({"status": status}) for status in ("queued", "running", "rendering")))
+    pending_task = or_(*(Report.state["tasks"].contains([{"state": state}]) for state in OPEN_TASK_STATES))
     with db.transaction() as tx:
         job_ids = tx.execute(
-            select(Report.id).where(or_(Report.current_step.not_in(TERMINAL_STEPS), pending_turn, pending_source, pending_component))
+            select(Report.id).where(or_(Report.current_step.not_in(TERMINAL_STEPS), pending_turn, pending_source, pending_component, pending_task))
         ).scalars().all()
 
     recovered = []
@@ -746,6 +815,8 @@ def recover_interrupted_sessions() -> list[str]:
         session = get_session(job_id)
         if not session:
             continue
+        if _interrupt_tasks(job_id, message):
+            recovered.append(job_id)
         if session.get("component_edit", {}).get("status") in {"queued", "running", "rendering"}:
             def interrupt_component(state):
                 operation = state.get("component_edit") or {}

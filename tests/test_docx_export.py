@@ -145,5 +145,24 @@ class DocxRouteTests(unittest.TestCase):
         self.assertEqual(missing.json()["detail"]["code"], "pdf_missing")
 
 
+    def test_share_link_downloads_the_docx_without_signing_in_until_revoked(self):
+        from app.services import sharing_service
+        job_id = f"test-docx-{uuid.uuid4().hex}"
+        paths = ReportPaths.for_new_report(job_id, str(default_user().id)).ensure()
+        create_session(job_id, {"pdf_path": write_report(paths), "template": TEMPLATE, "artifacts": ARTIFACTS,
+                                "settings": {"title": "Vendas"}, **paths.session_fields()})
+        self.addCleanup(delete_entire_session, job_id)
+        link = sharing_service.create_share_link(job_id, default_user().id, "docx", None)
+        token = link["path"].rsplit("/", 1)[1]
+        with TestClient(app) as client:
+            response = client.get(f"/api/shared-reports/{token}/docx")
+            sharing_service.revoke_share_link(job_id, default_user().id, link["id"])
+            revoked = client.get(f"/api/shared-reports/{token}/docx")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers["content-type"], DOCX_MEDIA_TYPE)
+        self.assertEqual(response.headers["referrer-policy"], "no-referrer")
+        self.assertEqual(len(Document(io.BytesIO(response.content)).inline_shapes), 3)
+        self.assertEqual(revoked.status_code, 404)
+
 if __name__ == "__main__":
     unittest.main()

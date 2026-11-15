@@ -22,7 +22,13 @@ const Account = {
             window.location.assign('/login');
         });
         document.getElementById('delete-account-form').addEventListener('submit', event => this.deleteAccount(event));
-        await Promise.all([this.loadSessions(), this.loadUsage()]);
+        document.getElementById('token-form').addEventListener('submit', event => this.createToken(event));
+        document.getElementById('token-copy').addEventListener('click', async () => {
+            const input = document.getElementById('token-value');
+            try { await navigator.clipboard.writeText(input.value); this.notice('Token copiado.'); }
+            catch (_error) { input.select(); this.notice('Selecione o token e copie.'); }
+        });
+        await Promise.all([this.loadSessions(), this.loadUsage(), this.loadTokens()]);
     },
 
     formatBytes(bytes) {
@@ -166,6 +172,53 @@ const Account = {
                     await this.request('DELETE', `/api/auth/sessions/${encodeURIComponent(session.id)}`);
                     await this.loadSessions();
                     return 'Sessão encerrada.';
+                }));
+                item.appendChild(button);
+            }
+            return item;
+        }));
+    },
+
+    createToken(event) {
+        event.preventDefault();
+        return this.run(async () => {
+            const created = await this.request('POST', '/api/tokens', {
+                name: document.getElementById('token-name').value.trim(),
+                expires_in_days: Number(document.getElementById('token-expiry').value),
+            });
+            document.getElementById('token-value').value = created.token;
+            document.getElementById('token-created').hidden = false;
+            document.getElementById('token-name').value = '';
+            await this.loadTokens();
+            return 'Token criado.';
+        });
+    },
+
+    async loadTokens() {
+        const list = document.getElementById('token-list');
+        let tokens = [];
+        try {
+            tokens = (await this.request('GET', '/api/tokens')).tokens;
+        } catch (error) {
+            this.notice(error.message, true);
+            return;
+        }
+        const date = value => value ? new Date(value).toLocaleDateString('pt-BR') : 'nunca';
+        list.replaceChildren(...tokens.map(token => {
+            const item = document.createElement('li');
+            const label = document.createElement('span');
+            const state = token.revoked_at ? 'revogado' : token.active ? `expira em ${date(token.expires_at)}` : 'expirado';
+            label.textContent = `${token.name} (…${token.hint}) — ${state} — último uso: ${date(token.last_used_at)}`;
+            item.appendChild(label);
+            if (token.active) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'btn btn-outline btn-small';
+                button.textContent = 'Revogar';
+                button.addEventListener('click', () => this.run(async () => {
+                    await this.request('DELETE', `/api/tokens/${encodeURIComponent(token.id)}`);
+                    await this.loadTokens();
+                    return 'Token revogado.';
                 }));
                 item.appendChild(button);
             }

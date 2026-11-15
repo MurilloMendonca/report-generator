@@ -22,7 +22,7 @@ from app.services import credential_service, usage_service
 from app.services.redaction import redact
 from app.services.llm.credentials import invalidate_current_credential, operation_preferences, operation_user_id, resolve_api_key
 from app.utils.model_config import DEFAULT_MODEL_BY_PROVIDER, DEFAULT_MODEL_NAME, DEFAULT_PROVIDER, MODEL_CATALOG, current_model_name
-from app.services.llm.errors import InvalidCredentialError, MissingCredentialError, PDFCredentialUnavailableError, ProviderRequestError, LLMBudgetError, LLMContractError, LLMTimeoutError
+from app.services.llm.errors import InvalidCredentialError, MissingCredentialError, PDFCredentialUnavailableError, ProviderRequestError, LLMBudgetError, LLMContractError, LLMTimeoutError, ProviderFallbackError
 from app.services.llm.providers.base import GenerationRequest, GenerationResult, retry_after_seconds
 from app.services.llm.parsing import LlmPreprocessingPlan
 from app.services.llm.providers.registry import get_adapter
@@ -382,16 +382,24 @@ def call_llm(provider: str, model_name: str, system_instruction: str, user_promp
             provider,
             fallback_provider,
         )
-        return call_llm(
-            fallback_provider,
-            fallback_model or DEFAULT_MODEL_BY_PROVIDER.get(fallback_provider),
-            system_instruction,
-            user_prompt,
-            retries=max(1, retries - 1),
-            delay=delay,
-            timeout_seconds=timeout_seconds,
-            allow_fallback=False, _pdf_bytes=_pdf_bytes,
-        )
+        try:
+            return call_llm(
+                fallback_provider,
+                fallback_model or DEFAULT_MODEL_BY_PROVIDER.get(fallback_provider),
+                system_instruction,
+                user_prompt,
+                retries=max(1, retries - 1),
+                delay=delay,
+                timeout_seconds=timeout_seconds,
+                allow_fallback=False, _pdf_bytes=_pdf_bytes,
+            )
+        except (MissingCredentialError, LLMBudgetError, LLMContractError):
+            raise
+        except Exception as fallback_error:
+            if last_error is None:
+                raise
+            # Name the primary failure too: it is usually the cause the user can act on.
+            raise ProviderFallbackError(provider, last_error, fallback_provider, fallback_error) from fallback_error
 
     if last_error:
         raise last_error
