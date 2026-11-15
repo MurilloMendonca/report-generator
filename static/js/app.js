@@ -1,4 +1,5 @@
 const App = {
+    readOnly: false,
     currentSession: null,
     pollInterval: null,
     pollGeneration: 0,
@@ -35,6 +36,7 @@ const App = {
     modelDefaults: {},
 
     async init() {
+        if (window.location.pathname.startsWith('/share/')) return SharedReport.init();
         this.setupEventListeners();
         const isAuthenticated = await this.ensureAuthenticated();
         if (!isAuthenticated) return;
@@ -327,6 +329,7 @@ const App = {
     async handleDocumentClick(event) {
         const target = event.target.closest('[data-action], [data-tab-target]');
         if (!target) return;
+        if (this.readOnly && !target.dataset.tabTarget && !SharedReport.viewActions.has(target.dataset.action)) return;
 
         if (target.dataset.tabTarget) {
             Utils.openTab(target.dataset.tabTarget, event);
@@ -408,6 +411,8 @@ const App = {
                 await this.deleteFile(parseInt(target.dataset.fileIndex, 10));
                 break;
             case 'view-metric-data':
+                document.querySelector('[data-tab-target="tab-data"]')?.click();
+                break;
             case 'edit-indicator':
                 this.handleEditIndicator(parseInt(target.dataset.index, 10));
                 break;
@@ -536,14 +541,17 @@ const App = {
         UI.renderRefinementChat(session);
         UI.renderExploreChat(session, this.explorePending?.jobId === session.job_id ? this.explorePending : null);
         UI.renderFiles(session.files);
-        if (typeof SavedSources !== 'undefined') SavedSources.update(session);
+        if (typeof SavedSources !== 'undefined') {
+            if (this.readOnly) SavedSources.renderHistory(session);
+            else SavedSources.update(session);
+        }
         UI.renderArtifacts(session.artifacts);
         UI.renderLayoutCanvas(session);
         UI.updatePageCountStatus(session);
         UI.renderDataArtifacts(session);
         UI.renderFullScript(session.script);
-        if (typeof ReportQuality !== 'undefined') ReportQuality.render(session);
-        if (typeof Components !== 'undefined') Components.update(session);
+        if (typeof ReportQuality !== 'undefined') ReportQuality.render(session, this.readOnly);
+        if (!this.readOnly && typeof Components !== 'undefined') Components.update(session);
         const signature = JSON.stringify([session.job_id, session.settings, session.provider, session.model_name]);
         if (!this.settingsDirty && signature !== this.settingsSignature) {
             UI.renderTemplateOptions(this.layoutTemplates);
@@ -597,6 +605,7 @@ const App = {
             };
             const docxBtn = document.getElementById('download-docx-btn');
             docxBtn.style.display = 'block';
+            docxBtn.disabled = this.readOnly;
             docxBtn.onclick = () => this.downloadDocx(session.job_id, docxBtn);
             this.lastPdfVersion = session.pdf_version;
         } catch (error) {
@@ -748,7 +757,7 @@ const App = {
         const details = this.fileVariantDetails(file, variant);
         const effectiveFilename = details.filename;
         const kind = UI.fileKind(effectiveFilename);
-        const hasPreprocessed = Boolean(file.preprocessed_path || file.filtered_path);
+        const hasPreprocessed = Boolean(file.has_preprocessed || file.preprocessed_path || file.filtered_path);
         this.filePreviewIndex = index;
         this.filePreviewVariant = variant;
 
@@ -1285,6 +1294,7 @@ const App = {
         if (!container) return;
         if (!this.reportLayoutEditor) {
             this.reportLayoutEditor = new LayoutEditor(container, {
+                readOnly: this.readOnly,
                 onChange: (_items, dirty) => {
                     document.getElementById('report-layout-status').textContent = dirty
                         ? 'Alterações não salvas. Aplique para atualizar o PDF.'

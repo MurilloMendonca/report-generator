@@ -326,7 +326,7 @@ const UI = {
         list.forEach((f, index) => {
             const filename = f.original_filename || `arquivo-${index + 1}`;
             const kind = UI.fileKind(filename);
-            const hasPreprocessed = Boolean(f.preprocessed_path || f.filtered_path);
+            const hasPreprocessed = Boolean(f.has_preprocessed || f.preprocessed_path || f.filtered_path);
             const size = UI.formatBytes(f.size_bytes || (f.artifact && f.artifact.size_bytes));
             const rows = f.artifact && f.artifact.shape && f.artifact.shape.rows;
             const metadata = f.artifact && !f.artifact.error
@@ -384,6 +384,7 @@ const UI = {
                 button.type = 'button';
                 button.className = `file-action-btn${action === 'delete-file' ? ' danger' : ''}`;
                 button.dataset.action = action;
+                button.disabled = App.readOnly && action === 'delete-file';
                 button.dataset.fileIndex = index;
                 button.setAttribute('aria-label', `${label} ${filename}`);
                 button.textContent = label;
@@ -743,7 +744,11 @@ const UI = {
         const card = document.createElement('div');
         card.className = 'visual-preview-card';
         const imageUrl = UI.previewUrl(presetId, theme.id, style && style.id);
-        const body = UI.renderPreviewCard(card, imageUrl, `${theme.name} + ${(style && style.name) || 'Moderno'}`, theme.description);
+        const body = App.readOnly ? document.createElement('div') : UI.renderPreviewCard(card, imageUrl, `${theme.name} + ${(style && style.name) || 'Moderno'}`, theme.description);
+        if (App.readOnly) {
+            body.textContent = `${theme.name} + ${(style && style.name) || 'Moderno'}`;
+            card.appendChild(body);
+        }
         UI.appendInfoList(body, 'Bom para', theme.best_for || []);
         UI.appendInfoList(body, 'Evitar em', theme.avoid_when || []);
         if (theme.accessibility_notes) {

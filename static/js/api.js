@@ -1,4 +1,25 @@
 const API = {
+    shareToken: null,
+
+    reportUrl(jobId, path = '') {
+        return this.shareToken
+            ? `/api/shared-reports/${encodeURIComponent(this.shareToken)}${path}`
+            : `/api/sessions/${encodeURIComponent(jobId)}${path}`;
+    },
+
+    async reportResponse(jobId, path, fallbackMessage) {
+        const res = await fetch(this.reportUrl(jobId, path), this.shareToken
+            ? { credentials: 'omit', cache: 'no-store' }
+            : { headers: this.authHeaders() });
+        if (this.shareToken && !path && res.status === 404) {
+            const error = new Error('Este link expirou, foi revogado ou não está disponível.');
+            error.status = 404;
+            SharedReport.unavailable(error.message);
+            throw error;
+        }
+        return this.checkResponse(res, fallbackMessage);
+    },
+
     async checkResponse(res, fallbackMessage) {
         if (!res.ok) {
             let detail = fallbackMessage || 'Falha na requisição';
@@ -110,8 +131,8 @@ const API = {
     },
 
     async getSession(jobId) {
-        const res = await fetch(`/api/sessions/${jobId}`, { headers: this.authHeaders() });
-        return await this.parseResponse(res, `Sessão ${jobId} não encontrada`);
+        const res = await this.reportResponse(jobId, '', `Sessão ${jobId} não encontrada`);
+        return res.json();
     },
 
     async deleteSession(jobId) {
@@ -129,10 +150,7 @@ const API = {
 
     async getFileBlob(jobId, fileIndex, mode = 'preview', variant = 'original') {
         const query = variant && variant !== 'original' ? `?variant=${encodeURIComponent(variant)}` : '';
-        const res = await fetch(`/api/sessions/${jobId}/files/${fileIndex}/${mode}${query}`, {
-            headers: this.authHeaders()
-        });
-        await this.checkResponse(res, 'Não foi possível carregar o arquivo');
+        const res = await this.reportResponse(jobId, `/files/${fileIndex}/${mode}${query}`, 'Não foi possível carregar o arquivo');
         return await res.blob();
     },
 
@@ -219,14 +237,11 @@ const API = {
         if (!/^[A-Za-z0-9_-]{1,128}$/.test(String(jobId || '')) ||
             !/^[0-9a-f]{32}$/.test(String(turnId || '')) ||
             !/^chart_[1-3]$/.test(String(chartId || ''))) return null;
-        return `/api/sessions/${encodeURIComponent(jobId)}/explore/${turnId}/charts/${chartId}${download ? '?download=true' : ''}`;
+        return this.reportUrl(jobId, `/explore/${turnId}/charts/${chartId}${download ? '?download=true' : ''}`);
     },
 
     async getPdfObjectUrl(jobId, version) {
-        const res = await fetch(`/api/sessions/${jobId}/pdf?v=${version}`, {
-            headers: this.authHeaders()
-        });
-        await this.checkResponse(res, 'Não foi possível carregar o PDF');
+        const res = await this.reportResponse(jobId, `/pdf?v=${version}`, 'Não foi possível carregar o PDF');
         const blob = await res.blob();
         return URL.createObjectURL(blob);
     },

@@ -86,10 +86,12 @@ const Components = {
             const actions = this.node('div', null, 'artifact-actions');
             const edit = this.node('button', kind === 'metric' ? 'Ver em Métricas & Dados' : 'Editar e melhorar', 'btn btn-outline');
             edit.type = 'button'; edit.dataset.action = kind === 'metric' ? 'view-metric-data' : 'edit-indicator'; edit.dataset.index = index;
+            edit.disabled = App.readOnly && kind !== 'metric';
             edit.setAttribute('aria-label', kind === 'metric' ? `Ver resultado de ${artifact.indicator || 'métrica'}` : `Editar componente ${artifact.indicator || ''}`);
             actions.appendChild(edit);
             const remove = this.node('button', 'Excluir', 'btn btn-outline');
             remove.type = 'button'; remove.dataset.action = 'delete-indicator'; remove.dataset.index = index;
+            remove.disabled = App.readOnly;
             remove.setAttribute('aria-label', `Excluir componente ${artifact.indicator || ''}`);
             actions.appendChild(remove); card.appendChild(actions); container.appendChild(card);
         });

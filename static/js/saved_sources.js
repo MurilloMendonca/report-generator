@@ -120,9 +120,9 @@ const SavedSources = {
         list.replaceChildren();
         const active = new Set((session.files || []).map(file => file.source?.snapshot_id));
         for (const file of [...(session.source_snapshot_history || [])].reverse()) {
-            const source = file.source || {}; if (!source.snapshot_id) continue;
+            const source = file.source || file; if (!source.snapshot_id) continue;
             const item = document.createElement('li'); const link = document.createElement('a');
-            link.href = `/api/sessions/${encodeURIComponent(session.job_id)}/source-snapshots/${encodeURIComponent(source.snapshot_id)}/download`;
+            link.href = API.reportUrl(session.job_id, `/source-snapshots/${encodeURIComponent(source.snapshot_id)}/download`);
             const date = new Date(source.fetched_at); const when = Number.isNaN(date.getTime()) ? '' : date.toLocaleString('pt-BR');
             link.textContent = `${source.dataset_name || 'Conjunto'} · ${source.row_count ?? '?'} linhas · ${when}${active.has(source.snapshot_id) ? ' · em uso' : ''}`;
             item.append(link); list.append(item);

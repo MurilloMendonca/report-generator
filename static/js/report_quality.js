@@ -8,7 +8,7 @@ const ReportQuality = {
         return node;
     },
     render(session, readOnly = false) {
-        const panel = document.getElementById(readOnly ? 'shared-quality' : 'tab-quality');
+        const panel = document.getElementById('tab-quality');
         if (!panel) return;
         const review = session.quality_review?.status ? session.quality_review : null;
         const signature = JSON.stringify([session.job_id, review, session.pdf_version, session.current_step]);
@@ -54,17 +54,19 @@ const ReportQuality = {
             if (component?.page && session.pdf_version) {
                 const button = this.node('button', review.status === 'failed' ? 'Ver PDF publicado' : 'Ver no PDF', 'btn btn-outline'); button.type = 'button';
                 button.addEventListener('click', () => {
-                    document.querySelector(readOnly ? '[data-shared-tab="shared-pdf"]' : '[data-tab-target="tab-pdf"]')?.click();
-                    const viewer = document.getElementById(readOnly ? 'shared-pdf-viewer' : 'pdf-viewer');
+                    document.querySelector('[data-tab-target="tab-pdf"]')?.click();
+                    const viewer = document.getElementById('pdf-viewer');
                     const page = review.status === 'failed' ? session.template?.find(slot => slot.id === id)?.page || 1 : component.page;
                     if (viewer?.src) viewer.src = viewer.src.split('#')[0] + `#page=${page}`;
-                }); actions.appendChild(button);
+                }); button.dataset.readOnlyAllowed = 'true'; actions.appendChild(button);
             }
             const data = this.node('button', 'Conferir métricas e fontes', 'btn btn-outline'); data.type = 'button';
-            data.addEventListener('click', () => document.querySelector(readOnly ? '[data-shared-tab="shared-data"]' : '[data-tab-target="tab-data"]')?.click());
+            data.dataset.readOnlyAllowed = 'true';
+            data.addEventListener('click', () => document.querySelector('[data-tab-target="tab-data"]')?.click());
             actions.appendChild(data);
-            if (!readOnly && artifact && artifact.type !== 'metric') {
+            if (artifact && artifact.type !== 'metric') {
                 const edit = this.node('button', 'Editar componente', 'btn btn-secondary'); edit.type = 'button';
+                edit.disabled = readOnly;
                 edit.addEventListener('click', () => App.handleEditIndicator(App.currentSession.artifacts.findIndex(item => item.id === id)));
                 actions.appendChild(edit);
             }

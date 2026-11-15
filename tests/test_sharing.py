@@ -60,8 +60,11 @@ class ReportSharingTests(unittest.TestCase):
         link = self.link()
         with TestClient(app, follow_redirects=False) as client:
             page = client.get(link["path"]); response = client.get(f"/api/shared-reports/{link['token']}")
+            workspace = client.get(f"/session/{self.job_id}", headers=self.headers)
         self.assertEqual(page.status_code, 200)
         self.assertNotIn("location", page.headers)
+        self.assertEqual(workspace.status_code, 200)
+        self.assertEqual(page.text, workspace.text, "Shared links must serve the session workspace itself")
         self.assertEqual(response.status_code, 200, response.text)
         shared = response.json()
         self.assertEqual(shared["settings"]["title"], "Revenue report")

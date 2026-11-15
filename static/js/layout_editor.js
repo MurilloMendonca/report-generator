@@ -85,11 +85,12 @@ class LayoutEditor {
         return element;
     }
 
-    button(label, title, action, className = '') {
+    button(label, title, action, className = '', readOnlyAllowed = false) {
         const button = this.element('button', `editor-button ${className}`, label);
         button.type = 'button';
         button.title = title;
         button.setAttribute('aria-label', title);
+        button.disabled = Boolean(this.options.readOnly && !readOnlyAllowed);
         button.addEventListener('click', action);
         return button;
     }
@@ -106,16 +107,17 @@ class LayoutEditor {
         toolbar.appendChild(history);
         toolbar.appendChild(this.button('+ Página', 'Adicionar página', () => this.addPage()));
         const zoom = this.element('div', 'editor-toolbar-group editor-zoom');
-        zoom.appendChild(this.button('−', 'Diminuir zoom', () => this.setZoom(this.zoom - 0.15)));
+        zoom.appendChild(this.button('−', 'Diminuir zoom', () => this.setZoom(this.zoom - 0.15), '', true));
         this.zoomLabel = this.element('span', 'editor-zoom-value', '100%');
         zoom.appendChild(this.zoomLabel);
-        zoom.appendChild(this.button('+', 'Aumentar zoom', () => this.setZoom(this.zoom + 0.15)));
-        zoom.appendChild(this.button('Ajustar', 'Ajustar página à tela', () => { this.fit = true; this.fitPage(); }));
+        zoom.appendChild(this.button('+', 'Aumentar zoom', () => this.setZoom(this.zoom + 0.15), '', true));
+        zoom.appendChild(this.button('Ajustar', 'Ajustar página à tela', () => { this.fit = true; this.fitPage(); }, '', true));
         toolbar.appendChild(zoom);
         const snapLabel = this.element('label', 'editor-toggle');
         const snap = this.element('input');
         snap.type = 'checkbox';
         snap.checked = true;
+        snap.disabled = Boolean(this.options.readOnly);
         snap.addEventListener('change', () => { this.snap = snap.checked; });
         snapLabel.appendChild(snap);
         snapLabel.appendChild(this.element('span', '', 'Encaixar na grade'));
@@ -139,7 +141,7 @@ class LayoutEditor {
         this.inspector.setAttribute('aria-label', 'Propriedades do bloco');
         body.appendChild(this.inspector);
         this.container.appendChild(body);
-        const footer = this.element('div', 'editor-footer', 'Arraste para mover · Use as alças para redimensionar · Setas: 1 mm · Shift + setas: 5 mm · Alt: sem encaixe');
+        const footer = this.element('div', 'editor-footer', this.options.readOnly ? 'Somente leitura · Selecione um bloco para consultar suas medidas.' : 'Arraste para mover · Use as alças para redimensionar · Setas: 1 mm · Shift + setas: 5 mm · Alt: sem encaixe');
         this.container.appendChild(footer);
         this.makeInspector();
     }
@@ -156,6 +158,7 @@ class LayoutEditor {
             this.inspector.appendChild(actions);
         } else {
             this.addSelect = this.element('select', 'editor-add-select');
+            this.addSelect.disabled = Boolean(this.options.readOnly);
             this.addSelect.setAttribute('aria-label', 'Adicionar componente ao layout');
             this.addSelect.addEventListener('change', () => {
                 const artifact = this.available.find(item => item.id === this.addSelect.value);
@@ -172,6 +175,7 @@ class LayoutEditor {
             const wrapper = this.element('label', 'editor-field');
             wrapper.appendChild(this.element('span', '', label));
             const input = this.element(type === 'select' ? 'select' : 'input');
+            input.disabled = Boolean(this.options.readOnly);
             if (type !== 'select') input.type = type;
             input.setAttribute('aria-label', label);
             if (type === 'number') { input.min = name === 'page' ? 1 : 0; input.step = 1; }
@@ -255,13 +259,13 @@ class LayoutEditor {
             if (this.options.allowAdd) block.dataset.slotId = item.id;
             block.tabIndex = 0;
             block.setAttribute('role', 'button');
-            block.setAttribute('aria-label', `${item.label || 'Bloco'}, página ${item.page}. Use as setas para mover.`);
+            block.setAttribute('aria-label', `${item.label || 'Bloco'}, página ${item.page}.${this.options.readOnly ? '' : ' Use as setas para mover.'}`);
             const badge = this.element('small', 'editor-block-kind', item.type === 'text' ? 'TEXTO' : 'VISUAL');
             block.appendChild(badge);
             block.appendChild(this.element('span', 'editor-block-label', item.label || 'Sem título'));
             const measure = this.element('span', 'editor-block-measure');
             block.appendChild(measure);
-            for (const direction of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+            for (const direction of this.options.readOnly ? [] : ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
                 const handle = this.element('span', `editor-resize-handle editor-resize-${direction}`);
                 handle.dataset.resize = direction;
                 handle.setAttribute('aria-hidden', 'true');
@@ -269,7 +273,7 @@ class LayoutEditor {
             }
             block.addEventListener('click', event => { event.stopPropagation(); this.select(item.id); });
             block.addEventListener('focus', () => this.select(item.id));
-            block.addEventListener('dblclick', () => { if (this.options.onEdit) this.options.onEdit(item.id); });
+            block.addEventListener('dblclick', () => { if (!this.options.readOnly && this.options.onEdit) this.options.onEdit(item.id); });
             this.blocks.set(item.id, { block, measure });
             this.paint(item);
         }
@@ -325,7 +329,7 @@ class LayoutEditor {
         this.outline.replaceChildren();
         if (!this.state.items.length) this.outline.appendChild(this.element('p', 'editor-empty-selection', 'Nenhum bloco no layout. Adicione um para começar.'));
         for (const item of this.state.items) {
-            const button = this.button('', `Selecionar ${item.label || 'bloco'}`, () => this.select(item.id, true), 'editor-outline-item');
+            const button = this.button('', `Selecionar ${item.label || 'bloco'}`, () => this.select(item.id, true), 'editor-outline-item', true);
             button.setAttribute('aria-pressed', String(item.id === this.selectedId));
             button.appendChild(this.element('span', 'editor-outline-dot', item.type === 'text' ? 'T' : '▥'));
             button.appendChild(this.element('span', 'editor-outline-label', item.label || 'Sem título'));
@@ -347,8 +351,8 @@ class LayoutEditor {
     }
 
     refreshControls() {
-        this.undoButton.disabled = !this.state.past.length;
-        this.redoButton.disabled = !this.state.future.length;
+        this.undoButton.disabled = this.options.readOnly || !this.state.past.length;
+        this.redoButton.disabled = this.options.readOnly || !this.state.future.length;
         this.changeLabel.textContent = this.dirty ? 'Alterações não salvas' : 'Sem alterações';
         this.changeLabel.classList.toggle('is-dirty', this.dirty);
     }
@@ -359,6 +363,7 @@ class LayoutEditor {
     }
 
     commit(action) {
+        if (this.options.readOnly) return;
         if (!this.state.change(action)) return;
         if (!this.selected()) this.selectedId = null;
         this.render();
@@ -404,8 +409,8 @@ class LayoutEditor {
     align(direction) {
         this.modifySelected(item => { item.x = direction === 'left' ? 10 : direction === 'right' ? 200 - item.w : (210 - item.w) / 2; });
     }
-    undo() { if (this.state.undo()) { this.render(); this.changed(); this.blocks.get(this.selectedId)?.block.focus?.({ preventScroll: true }); } }
-    redo() { if (this.state.redo()) { this.render(); this.changed(); this.blocks.get(this.selectedId)?.block.focus?.({ preventScroll: true }); } }
+    undo() { if (!this.options.readOnly && this.state.undo()) { this.render(); this.changed(); this.blocks.get(this.selectedId)?.block.focus?.({ preventScroll: true }); } }
+    redo() { if (!this.options.readOnly && this.state.redo()) { this.render(); this.changed(); this.blocks.get(this.selectedId)?.block.focus?.({ preventScroll: true }); } }
 
     setZoom(value) { this.fit = false; this.zoom = Math.max(0.3, Math.min(2, value)); this.applyZoom(); }
     fitPage() {
@@ -424,6 +429,7 @@ class LayoutEditor {
     }
 
     keydown(event) {
+        if (this.options.readOnly) return;
         if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
         const key = event.key;
         if ((event.ctrlKey || event.metaKey) && key.toLowerCase() === 'z') {
@@ -445,6 +451,7 @@ class LayoutEditor {
     }
 
     pointerdown(event) {
+        if (this.options.readOnly) return;
         if (event.button !== 0 || this.drag) return;
         const block = event.target.closest('.editor-block');
         if (!block) return;

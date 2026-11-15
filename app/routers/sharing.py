@@ -40,7 +40,7 @@ def shared_report_page(token: str):
         if exc.status_code != 404:
             raise
         status = 404
-    response = render_page("shared.html")
+    response = render_page("index.html")
     response.status_code = status
     response.headers.update(sharing_service.SHARED_HEADERS)
     return response
