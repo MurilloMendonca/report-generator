@@ -50,11 +50,13 @@ const path = require('path');
             } else if (url === '/api/models') {
                 data = { providers: {}, credential_status: {}, defaults: {} };
                 for (const provider of Object.keys(models)) {
-                    const enabled = rows[provider]?.status === 'valid';
+                    const keyless = provider === 'local';
+                    const enabled = keyless || rows[provider]?.status === 'valid';
                     const model = models[provider];
                     data.providers[provider] = enabled ? [{ id: model, label: model }] : [];
                     data.defaults[provider] = model;
-                    data.credential_status[provider] = { label: labels[provider], enabled, status: rows[provider]?.status || 'missing' };
+                    data.credential_status[provider] = { label: labels[provider], enabled,
+                        requires_api_key: !keyless, status: keyless ? 'valid' : rows[provider]?.status || 'missing' };
                 }
                 data.default_provider = Object.keys(models).find(provider => data.credential_status[provider].enabled) || 'deepseek';
                 data.default_model = models[data.default_provider];
@@ -139,8 +141,39 @@ const path = require('path');
             await providerCard.getByRole('button', { name: 'Excluir', exact: true }).click();
             await providerCard.getByText('Sem chave', { exact: true }).waitFor();
         }
+        models.local = 'my-local:8b';
+        labels.local = 'Local LLM';
+        models.private = 'org/report-model';
+        labels.private = 'Private inference';
+        await page.evaluate(() => Keys.load());
+        const localCard = page.locator('[data-provider="local"]');
+        await localCard.getByText('Sem chave necessária', { exact: true }).waitFor();
+        assert.equal(await localCard.locator('input, button').count(), 0);
+        await page.selectOption('#default-provider', 'local');
+        await page.getByRole('button', { name: 'Salvar preferências' }).click();
+        await page.getByText('Preferências salvas.', { exact: true }).waitFor();
+        assert.equal(preferences.default_model, 'my-local:8b');
+        await page.evaluate(async () => { await App.loadModels(); App.updateModels(); });
+        assert.equal(await page.locator('#provider').inputValue(), 'local');
+        assert.equal(await page.locator('#model_name').inputValue(), 'my-local:8b');
+        const privateCard = page.locator('[data-provider="private"]');
+        await privateCard.locator('input').fill(secret);
+        await privateCard.getByRole('button', { name: 'Salvar chave', exact: true }).click();
+        await privateCard.getByText('Válida', { exact: true }).waitFor();
+        await page.selectOption('#fallback-provider', 'private');
+        await page.getByRole('button', { name: 'Salvar preferências' }).click();
+        await page.getByText('Preferências salvas.', { exact: true }).waitFor();
+        assert.equal(preferences.llm_fallback_model_name, 'org/report-model');
+        assert(!(await page.locator('body').textContent()).includes(secret));
+        await page.locator('#provider, #s-provider, #model_name, #s-model-name').evaluateAll(
+            elements => elements.forEach(element => { element.hidden = true; }));
+        await page.setViewportSize({ width: 1200, height: 1000 });
+        await page.screenshot({ path: '/tmp/repgen-custom-endpoints-desktop.png', fullPage: true });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.screenshot({ path: '/tmp/repgen-custom-endpoints-mobile.png', fullPage: true });
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
         assert.deepEqual(errors, []);
-        console.log('Five-provider browser flow passed (keys, preferences, Anthropic opt-out, model pickers, invalidation, responsive layout).');
+        console.log('Provider browser flow passed (built-in and custom keys, keyless endpoint, preferences, model pickers, responsive layout).');
     } finally {
         if (browser) await browser.close();
         await new Promise(resolve => server.close(resolve));

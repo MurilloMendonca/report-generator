@@ -107,6 +107,19 @@ def review_report(session, pdf_path, manifest):
     def issue(component_id, severity, code, message):
         review['issues'].append({'component_id': component_id, 'severity': severity, 'code': code, 'message': message})
 
+    discarded = (session.get('data_preprocessing') or {}).get('discarded')
+    if discarded:
+        description = str(discarded.get('description') or 'transformação dos dados')[:200]
+        if discarded.get('requested_by_user', True):
+            message = f'O pré-processamento pedido ("{description}") falhou e não foi aplicado; o relatório usa os dados originais.'
+        else:
+            message = f'O pré-processamento "{description}" falhou e foi descartado; o relatório usa os dados originais.'
+        issue(None, 'warning', 'preprocessing_discarded', message)
+    for omitted in session.get('omitted_components') or []:
+        label = str(omitted.get('indicator') or omitted.get('id'))[:120]
+        cause = {'empty': 'ficou sem dados', 'blank': 'saiu em branco no PDF'}.get(omitted.get('reason'), 'falhou na renderização')
+        issue(omitted.get('id'), 'warning', 'component_omitted',
+              f'O componente "{label}" {cause} e foi omitido do relatório. Regenere-o pelo refinamento se ele for necessário.')
     artifacts = {item['id']: item for item in session.get('artifacts', []) if item.get('id')}
     template = normalize_template(session.get('template', []))
     outcomes = {item.get('id'): item for item in manifest.get('components', [])}

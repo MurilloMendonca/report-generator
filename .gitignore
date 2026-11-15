@@ -1,6 +1,7 @@
 *.png
 venv
 .env
+.env.local
 GEMINI.md
 workspace/
 docs/TCC/

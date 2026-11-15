@@ -8,6 +8,7 @@ from app.utils.component_library import presets_prompt_summary
 from app.utils.visual_contracts import DataBinding
 from app.utils.layout import normalize_template
 from app.utils.pagination import paginate_artifacts
+from app.utils.page_layouts import compact_report_pages
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
 from app.utils.template_library import build_layout_from_template
 from app.services.llm import client
@@ -16,6 +17,37 @@ from app.services.llm.errors import MissingCredentialError, ModelRefusalError, L
 from app.services.llm.parsing import parse_llm_artifacts, parse_llm_document_insights, parse_llm_preprocessing_plan, strip_code_fence
 from app.services.llm.prompts import load_prompt
 logger = logging.getLogger(__name__)
+
+
+ADDED_NARRATIVE_REASON = "Added by the application because the plan had no narrative text."
+NARRATIVE_LABELS = {
+    "portuguese": ("Resumo executivo", "Conclusão"),
+    "english": ("Executive summary", "Conclusion"),
+    "spanish": ("Resumen ejecutivo", "Conclusión"),
+}
+
+
+def ensure_narrative_sections(artifacts: list, settings: dict | None) -> tuple[list, list[str]]:
+    """Add a summary and a conclusion when a planned report has visuals but no text at all.
+
+    Smaller models sometimes plan charts only, which yields a PDF with almost no words.
+    """
+    visible = [a for a in artifacts if isinstance(a, dict) and a.get("type") not in {"metric", "text"}]
+    if not visible or any(isinstance(a, dict) and a.get("type") == "text" for a in artifacts):
+        return artifacts, []
+    language = str((settings or {}).get("language") or "Portuguese").lower()
+    summary_label, conclusion_label = NARRATIVE_LABELS.get(language, NARRATIVE_LABELS["english"])
+    pages = [a["page"] for a in visible if isinstance(a.get("page"), int) and not isinstance(a.get("page"), bool)] or [1]
+    used_ids = {str(a.get("id")) for a in artifacts}
+    added = []
+    for artifact_id, label, page in (("kpi_resumo", summary_label, min(pages)),
+                                     ("kpi_conclusao", conclusion_label, max(pages))):
+        if artifact_id in used_ids:
+            continue
+        artifacts = artifacts + [{"id": artifact_id, "type": "text", "indicator": label, "page": page, "columns": [],
+                                  "reason": ADDED_NARRATIVE_REASON}]
+        added.append(artifact_id)
+    return artifacts, added
 
 
 def generate_artifacts(
@@ -27,6 +59,8 @@ def generate_artifacts(
     template_context: dict = None,
     job_id: str | None = None,
     semantic_model: dict | None = None,
+    page_layouts: list | None = None,
+    require_metrics: bool = False,
 ) -> list:
     with llm_operation_context(job_id=job_id, operation="artifact_plan", settings=settings, provider=provider, model_name=model_name):
         system_instruction = load_prompt("GENERATE_ARTIFACTS.md")
@@ -54,16 +88,27 @@ def generate_artifacts(
                 "Use each dataset's exact filename as its dataframe key.\n\n"
             )
         requested_pages = (settings or {}).get("page_count")
+        layout_catalog = ""
+        if page_layouts:
+            layout_catalog = (
+                f"Available Page Layouts:\n{json.dumps(page_layouts, ensure_ascii=False)}\n\n"
+                "Choose a `page_layout_id` from this catalog for each page and repeat that ID on its visible components. "
+                "Different pages may use different template bases. Match text and graphic counts to the selected slots; "
+                "use their dimensions to choose readable visuals. Prefer filling 4 to 6 slots on a page when the evidence supports it. "
+                "Keep summaries and conclusions alongside supporting evidence, without standalone title or closing pages.\n\n"
+            )
         report_length = (
             f"Report Length: exactly {requested_pages} pages. Use every page from 1 to {requested_pages}."
             if requested_pages is not None else
-            "Report Length: automatic. Decide the number of pages (1 to 50) from the objective and available evidence."
+            "Report Length: automatic. Use the fewest useful pages (1 to 50), grouping related components to fill the available template slots. "
+            "The application will consolidate sparse pages when the content fits a template."
         )
         user_prompt = (
             f"Target Language: {lang}\n{report_length}\n"
             "Assign an integer `page` to every visible component. Use at most 6 visible components per page. "
               "Keep the summary on page 1 and the conclusion on the last page.\n"
             f"{layout_constraints}"
+            f"{layout_catalog}"
             f"Available Visual Component Presets:\n{visual_catalog}\n\n"
             f"Shared Data Binding JSON Schema:\n{json.dumps(DataBinding.model_json_schema(), ensure_ascii=False)}\n\n"
             f"{semantic_context}"
@@ -76,14 +121,30 @@ def generate_artifacts(
             try:
                 artifacts = parse_llm_artifacts(client.call_llm(provider, model_name, system_instruction, user_prompt), provider, model_name)
                 if isinstance(artifacts, list) and len(artifacts) > 0:
+                    has_metrics = any(isinstance(a, dict) and a.get("type") == "metric" for a in artifacts)
+                    if require_metrics and not has_metrics and attempt < 2:
+                        raise LLMContractError("artifact_plan", "The plan has no metric artifacts. Include at least 3 metrics "
+                                               "computed from real columns so the narrative can cite numbers", field="type")
+                    artifacts, _ = ensure_narrative_sections(artifacts, settings)
                     try:
                         visible = paginate_artifacts(artifacts, (settings or {}).get("page_count"))
+                        if page_layouts:
+                            known_layouts = {design["id"] for design in page_layouts}
+                            for item in visible:
+                                hint = item.get("page_layout_id")
+                                if hint is not None and (not isinstance(hint, str) or hint not in known_layouts):
+                                    raise ValueError("Choose page_layout_id only from Available Page Layouts.")
+                            if requested_pages is None:
+                                visible = compact_report_pages(visible, page_layouts, (template_context or {}).get("template_id"))
                     except ValueError as exc:
                         raise LLMContractError("artifact_plan", str(exc), field="page") from exc
-                    pages = {item["id"]: item.get("page") for item in visible}
+                    pages = {item["id"]: item for item in visible}
                     for artifact in artifacts:
-                        if pages.get(artifact["id"]) is not None:
-                            artifact["page"] = pages[artifact["id"]]
+                        page = pages.get(artifact["id"], {})
+                        if page.get("page") is not None:
+                            artifact["page"] = page["page"]
+                        if page.get("page_layout_id") is not None:
+                            artifact["page_layout_id"] = page["page_layout_id"]
                     return artifacts
                 raise LLMContractError("artifact_plan", "The artifact plan must not be empty")
             except LLMContractError as exc:
@@ -248,6 +309,8 @@ def normalize_preprocessing_payload(payload: dict) -> dict:
     return {
         "needs_preprocessing": True,
         "needs_filter": True,
+        # Missing means requested: the pipeline must not drop a transformation the user may have asked for.
+        "requested_by_user": payload.get("requested_by_user") is not False,
         "description": str(payload.get("description", "")).strip(),
         "code": code,
     }
@@ -260,6 +323,7 @@ def generate_data_filter(
     model_name: str = DEFAULT_MODEL_NAME,
     settings: dict = None,
     job_id: str | None = None,
+    columns: dict | None = None,
 ) -> dict:
     with llm_operation_context(job_id=job_id, operation="data_preprocessing", settings=settings, provider=provider, model_name=model_name):
         system_instruction = load_prompt("GENERATE_DATA_FILTER.md")
@@ -267,7 +331,8 @@ def generate_data_filter(
         user_prompt = (
             f"Target Language: {lang}\n"
             f"User Goal:\n{prompt}\n\n"
-            f"Raw Data Artifacts:\n{all_metadata}"
+            + (f"Columns by Dataframe Key:\n{json.dumps(columns, ensure_ascii=False)}\n\n" if columns else "")
+            + f"Raw Data Artifacts:\n{all_metadata}"
         )
 
         last_error: Exception | None = None
@@ -301,6 +366,51 @@ def generate_data_filter(
                 cause=last_error,
             ) from last_error
         return {"needs_preprocessing": False, "needs_filter": False, "description": "", "code": ""}
+
+
+PREPROCESSING_ERROR_CHARS = 4000
+
+
+def fix_data_filter(
+    current_code: str,
+    error: str,
+    all_metadata: str,
+    dataframe_keys: list,
+    prompt: str = "",
+    description: str = "",
+    provider: str = DEFAULT_PROVIDER,
+    model_name: str = DEFAULT_MODEL_NAME,
+    settings: dict = None,
+    job_id: str | None = None,
+    columns: dict | None = None,
+) -> str:
+    """Ask the model to repair a preprocessing function that failed in the sandbox."""
+    with llm_operation_context(job_id=job_id, operation="preprocessing_fix", settings=settings, provider=provider, model_name=model_name):
+        system_instruction = load_prompt("FIX_DATA_FILTER.md")
+        user_prompt = (
+            f"User Goal:\n{prompt}\n\n"
+            f"Intended Preprocessing:\n{description}\n\n"
+            # The end of a traceback names the failing line and exception.
+            f"Reported Error:\n{(error or '')[-PREPROCESSING_ERROR_CHARS:]}\n\n"
+            f"Current Failing Function:\n{current_code}\n\n"
+            f"Available Dataframe Keys:\n{json.dumps(dataframe_keys, ensure_ascii=False)}\n\n"
+            f"Columns by Dataframe Key:\n{json.dumps(columns or {}, ensure_ascii=False)}\n\n"
+            f"Raw Data Artifacts:\n{all_metadata}"
+        )
+        last_error: LLMContractError | None = None
+        for _ in range(2):
+            code = strip_code_fence(client.call_llm(provider, model_name, system_instruction, user_prompt), "python").strip()
+            if "def preprocess_dataframes" in code or "def filter_dataframes" in code:
+                return code
+            last_error = LLMContractError(
+                "preprocessing_fix",
+                "The repaired code must define preprocess_dataframes(dataframes)",
+                field="code",
+                provider=provider,
+                model_name=model_name,
+                raw_excerpt=code[:500],
+            )
+        raise last_error
 
 
 def generate_report_title(all_metadata: str, prompt: str, artifacts: list, provider: str = DEFAULT_PROVIDER, model_name: str = DEFAULT_MODEL_NAME, settings: dict = None, job_id: str | None = None) -> str:

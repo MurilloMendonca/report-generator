@@ -595,11 +595,30 @@ const App = {
                 link.download = `relatorio-${session.job_id}.pdf`;
                 link.click();
             };
+            const docxBtn = document.getElementById('download-docx-btn');
+            docxBtn.style.display = 'block';
+            docxBtn.onclick = () => this.downloadDocx(session.job_id, docxBtn);
             this.lastPdfVersion = session.pdf_version;
         } catch (error) {
             this.showNotice(error.message);
         } finally {
             this.pdfLoading = false;
+        }
+    },
+
+    async downloadDocx(jobId, button) {
+        button.disabled = true;
+        try {
+            const url = URL.createObjectURL(await API.getDocxBlob(jobId));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `relatorio-${jobId}.docx`;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+        } catch (error) {
+            this.showNotice(error.message);
+        } finally {
+            button.disabled = false;
         }
     },
 

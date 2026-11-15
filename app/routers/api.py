@@ -25,6 +25,7 @@ from app.services.cleanup_service import (
 from app.services.executor_service import execute_script
 from app.services.exploration_service import ExplorationError, complete_exploration_job, start_exploration
 from app.services.job_runner import run_job
+from app.services.docx_export import DOCX_MEDIA_TYPE, DocxExportError, build_report_docx
 from app.services.report_files import report_file_response
 from app.services.llm.client import model_catalog
 from app.services.llm.script import assemble_script
@@ -658,6 +659,20 @@ async def get_pdf(request: Request, job_id: str):
     if not os.path.exists(session.get('pdf_path') or ''):
         raise HTTPException(status_code=404)
     return report_file_response(session, session['pdf_path'], media_type="application/pdf")
+
+
+@router.get("/api/sessions/{job_id}/docx")
+async def get_docx(request: Request, job_id: str):
+    session = require_session(job_id, request)
+    try:
+        content = await run_in_threadpool(build_report_docx, session)
+    except DocxExportError as exc:
+        status = 404 if exc.code == "pdf_missing" else 422
+        raise HTTPException(status_code=status, detail=exc.as_error_dict()) from None
+    return Response(content, media_type=DOCX_MEDIA_TYPE, headers={
+        "Cache-Control": "private, no-store",
+        "Content-Disposition": f"attachment; filename*=utf-8''relatorio-{job_id}.docx",
+    })
 
 
 @router.get("/api/sessions/{job_id}/components/{component_id}/preview")

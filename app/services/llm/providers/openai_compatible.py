@@ -1,4 +1,4 @@
-"""DeepSeek, OpenAI and OpenRouter through their fixed chat-completions URLs."""
+"""Built-in and operator-configured OpenAI-compatible chat-completions APIs."""
 import os
 
 from openai import OpenAI
@@ -9,11 +9,14 @@ from app.utils.model_config import MODEL_CATALOG
 
 
 class OpenAICompatibleAdapter(ProviderAdapter):
-    def __init__(self, provider_id: str, label: str, base_url: str | None, env_key: str):
+    def __init__(self, provider_id: str, label: str, base_url: str | None, env_key: str,
+                 *, requires_api_key: bool = True, json_mode: bool = True):
         self.id = provider_id
         self.label = label
         self.base_url = base_url
         self.env_key = env_key
+        self.requires_api_key = requires_api_key
+        self.json_mode = json_mode
 
     def build_client(self, api_key: str, timeout_seconds: int = 45):
         headers = {}
@@ -26,7 +29,7 @@ class OpenAICompatibleAdapter(ProviderAdapter):
     def generate(self, client, request: GenerationRequest) -> GenerationResult:
         if request.pdf_bytes is not None:
             raise ValueError(f"Provider '{self.id}' does not support PDF input.")
-        wants_json = request.wants_json_object
+        wants_json = request.wants_json_object and self.json_mode
         if self.id == "openrouter":
             # The curated models support JSON mode. Unknown routed models keep
             # prompt-only JSON so unsupported response_format never blocks them.

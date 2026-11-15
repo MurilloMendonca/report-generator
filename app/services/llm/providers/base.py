@@ -47,6 +47,7 @@ class ProviderAdapter:
     label: str = ""
     # Environment variable holding the operator key (development only after BYOK).
     env_key: str = ""
+    requires_api_key: bool = True
 
     def build_client(self, api_key: str, timeout_seconds: int = 45):
         raise NotImplementedError

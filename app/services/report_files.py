@@ -16,7 +16,16 @@ from starlette.background import BackgroundTask
 from app.utils.report_paths import ReportPaths
 
 
-def report_file_response(session, path, *, media_type, filename=None, disposition="inline", headers=None):
+class ReportFileUnavailable(Exception):
+    pass
+
+
+def open_report_file(session, path):
+    """Open a regular file beneath the report root; return (file object, stat).
+
+    Raises ``ReportFileUnavailable`` for anything outside the root, a link on
+    the way, or a special file.
+    """
     directory_fd = file_fd = None
     try:
         paths = ReportPaths.from_session(session)
@@ -38,13 +47,30 @@ def report_file_response(session, path, *, media_type, filename=None, dispositio
             raise ValueError("Not a regular file")
         source = os.fdopen(file_fd, "rb")
         file_fd = None
+        return source, info
     except (OSError, ValueError, TypeError):
         if file_fd is not None:
             os.close(file_fd)
-        raise HTTPException(404, detail="Arquivo indisponível.") from None
+        raise ReportFileUnavailable(path) from None
     finally:
         if directory_fd is not None:
             os.close(directory_fd)
+
+
+def read_report_file(session, path, *, max_bytes):
+    source, _info = open_report_file(session, path)
+    with source:
+        data = source.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ReportFileUnavailable(path)
+    return data
+
+
+def report_file_response(session, path, *, media_type, filename=None, disposition="inline", headers=None):
+    try:
+        source, info = open_report_file(session, path)
+    except ReportFileUnavailable:
+        raise HTTPException(404, detail="Arquivo indisponível.") from None
 
     def chunks():
         try:

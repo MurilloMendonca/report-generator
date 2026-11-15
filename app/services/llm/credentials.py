@@ -35,6 +35,11 @@ def resolve_api_key(user_id, provider: str) -> str:
     cache_key = (str(user_id), provider)
     if row is None:
         cache.pop(cache_key, None)
+        if not get_adapter(provider).requires_api_key:
+            # The SDK requires a nonempty value, even for an unauthenticated API.
+            # Endpoint access was explicitly enabled by the operator; ownership
+            # and durable usage limits still apply to every generation attempt.
+            return "not-required"
         if dev:
             key = os.getenv(get_adapter(provider).env_key)
             if key:

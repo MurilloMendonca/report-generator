@@ -105,12 +105,12 @@ class MultiPageLayoutTests(unittest.TestCase):
         layout = build_layout_from_template(plan, "executive_standard", page_count=3)
         self.assert_valid_layout(layout, plan, 3)
         self.assertEqual(layout[0]["y"], 30)
-        self.assertEqual(layout[-1]["y"], 235)
+        self.assertEqual(layout[-1]["y"] + layout[-1]["h"], 285)
 
-    def test_preserves_ai_selected_pages_without_a_user_count(self):
+    def test_compacts_sparse_ai_pages_without_a_user_count(self):
         plan = text_plan(4)
         layout = build_layout_from_template(plan, "document_text_only")
-        self.assert_valid_layout(layout, plan, 4)
+        self.assert_valid_layout(layout, plan, 1)
 
     def test_grid_adapts_when_a_blueprint_has_too_few_matching_slots(self):
         plan = [{"id": f"text_{i}", "type": "text", "page": page}
@@ -212,7 +212,7 @@ class MultiPagePipelineTests(unittest.TestCase):
                 paths = ReportPaths.for_new_report(job_id, str(default_user().id)).ensure()
                 source = paths.uploads / "data.csv"
                 source.write_text("region,revenue\nNorth,10\nSouth,20\n", encoding="utf-8")
-                plan = text_plan(expected)
+                plan = text_plan(expected if requested is not None else 7)
                 narratives = list(plan)
                 texts = {item["id"]: f"Evidence and findings for {item['indicator']}." for item in narratives}
                 plan.append({"id": "regional_revenue", "type": "graphic", "indicator": "Regional revenue", "page": 2,
@@ -240,13 +240,19 @@ class MultiPagePipelineTests(unittest.TestCase):
                 self.assertEqual(session["current_step"], "completed", session.get("error"))
                 reader = PdfReader(session["pdf_path"])
                 self.assertEqual(len(reader.pages), expected)
-                for page, artifact in zip(reader.pages, narratives):
-                    self.assertIn(texts[artifact["id"]], " ".join(page.extract_text().split()))
-                self.assertIn("/XObject", reader.pages[1]["/Resources"])
+                for artifact in session["artifacts"]:
+                    if artifact["type"] == "text":
+                        page = reader.pages[artifact["page"] - 1]
+                        self.assertIn(texts[artifact["id"]], " ".join(page.extract_text().split()))
+                chart_page = next(item["page"] for item in session["artifacts"] if item["id"] == "regional_revenue")
+                self.assertIn("/XObject", reader.pages[chart_page - 1]["/Resources"])
                 manifest = json.loads(Path(session["pdf_path"] + ".manifest.json").read_text())
                 self.assertEqual(manifest["page_count"], expected)
                 self.assertEqual({item["id"]: item["page"] for item in manifest["components"]},
-                                 {item["id"]: item["page"] for item in plan})
+                                 {item["id"]: item["page"] for item in session["artifacts"]})
+                if requested is None:
+                    self.assertTrue(all(sum(item["page"] == page for item in session["template"]) >= 3
+                                        for page in range(1, expected + 1)))
                 # Publication review must catch an incorrect length, including repaired scripts.
                 session["settings"]["page_count"] = expected + 1
                 review = review_report(session, session["pdf_path"], manifest)

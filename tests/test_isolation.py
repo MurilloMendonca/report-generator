@@ -104,6 +104,7 @@ SAMPLE_REQUESTS = {
     ("PUT", "/api/sessions/{job_id}/settings"): {"json": {"title": "x"}},
     ("POST", "/api/sessions/{job_id}/regenerate"): {"json": {"scope": "all"}},
     ("GET", "/api/sessions/{job_id}/pdf"): {},
+    ("GET", "/api/sessions/{job_id}/docx"): {},
     ("GET", "/api/sessions/{job_id}/components/{component_id}/preview"): {},
     ("POST", "/api/sessions/{job_id}/components/{component_id}/edit"): {"json": {"instruction": "Melhore a clareza."}},
     ("POST", "/api/sessions/{job_id}/explore"): {"data": {"prompt": "how many rows?"}},

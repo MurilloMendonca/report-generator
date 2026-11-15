@@ -106,6 +106,45 @@ class ComponentRendererTests(unittest.TestCase):
             options={"table_theme": {"header_bg": "#123456"}},
         )
 
+    def test_runtime_helpers_accept_a_theme_id(self):
+        # Smaller models write _apply_chart_theme('executive_clean') or theme="executive_clean".
+        namespace = {}
+        exec(sandbox_runtime_source(), namespace)
+        namespace["_save_chart_to_pdf"] = lambda *_args, **_kwargs: None
+        namespace["_render_table_image"](object(), pd.DataFrame({"Pais": ["Brazil"], "Casos": [207]}),
+                                         0, 0, 90, 60, title="Resumo", theme="executive_clean")
+        plt = namespace["plt"]
+        fig, ax = plt.subplots()
+        try:
+            namespace["_apply_chart_theme"]("finance_dark")
+            self.assertEqual(ax.get_facecolor()[:3], tuple(int("f8fafc"[i:i + 2], 16) / 255 for i in (0, 2, 4)))
+            namespace["_apply_chart_theme"](fig, theme="unknown-theme")
+            namespace["_apply_chart_theme"](fig, "executive_clean")
+            namespace["_apply_chart_theme"]()
+            namespace["_apply_chart_theme"](ax, "executive_clean", "modern")
+            namespace["_apply_chart_theme"](ax=ax, theme="high_contrast", palette=None)
+            self.assertEqual(ax.get_facecolor()[:3], (1.0, 1.0, 1.0))
+        finally:
+            plt.close(fig)
+
+    def test_number_formats_accept_templates_and_ignore_invalid_specs(self):
+        namespace = {}
+        exec(sandbox_runtime_source(), namespace)
+        fmt = namespace["_format_visual_number"]
+        self.assertEqual(fmt(1234.5, {"format": "{:.2f}"}), "1234.50")
+        self.assertEqual(fmt(1234.5, {"format": "R$ {:,.0f}"}), "R$ 1,234")
+        self.assertEqual(fmt(1234.5, {"format": ",.1f"}), "1,234.5")
+        self.assertEqual(fmt(1234.5, {"format": "{x}"}), namespace["_format_compact_number"](1234.5))
+        self.assertEqual(fmt(1234.5, {"format": "nonsense"}), namespace["_format_compact_number"](1234.5))
+        with self.assertRaises(namespace["VisualBindingError"]):
+            fmt("North", {"format": ",.0f"})
+
+    def test_top_n_accepts_n_as_an_alias(self):
+        namespace = {}
+        exec(sandbox_runtime_source(), namespace)
+        df = pd.DataFrame({"region": list("abcd"), "revenue": [4, 3, 2, 1]})
+        self.assertEqual(len(namespace["_top_n_with_others"](df, "region", "revenue", n=2)), 3)
+
     def test_assemble_script_executes_library_bar_renderer(self):
         csv_path = self.tracked_path(f"workspace/uploads/library_renderer_{uuid.uuid4().hex}.csv")
         pd.DataFrame({

@@ -1,3 +1,6 @@
+from app.utils.custom_llm_config import CUSTOM_LLM_ENDPOINTS
+
+
 DEFAULT_PROVIDER = "deepseek"
 DEFAULT_MODEL_BY_PROVIDER = {
     "deepseek": "deepseek-flash",
@@ -44,6 +47,10 @@ MODEL_CATALOG = {
         {"id": "gemma-4-26b-a4b-it", "label": "Gemma 4 26B A4B IT"},
     ],
 }
+
+for endpoint in CUSTOM_LLM_ENDPOINTS:
+    DEFAULT_MODEL_BY_PROVIDER[endpoint.id] = endpoint.default_model or endpoint.models[0]
+    MODEL_CATALOG[endpoint.id] = [{"id": model, "label": model} for model in endpoint.models]
 
 # Keep saved sessions usable after provider shutdowns and endpoint renames.
 MODEL_REPLACEMENTS = {

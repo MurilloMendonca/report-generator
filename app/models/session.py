@@ -60,7 +60,7 @@ class ReportSettings(BaseModel):
     visual_instructions: str = ""
     include_data_samples: bool = False
     llm_call_budget: int = 0
-    llm_timeout_seconds: int = 45
+    llm_timeout_seconds: int = 0  # 0 uses PDF_REPORT_LLM_TIMEOUT_SECONDS (default 45).
     llm_fallback_provider: str = ""
     llm_fallback_model_name: str = ""
     llm_cache_enabled: bool = True

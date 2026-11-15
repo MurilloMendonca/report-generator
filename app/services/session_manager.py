@@ -270,6 +270,22 @@ def commit_generated_components(job_id: str, run_id: int, components: dict, evid
     return _mutate(job_id, change)
 
 
+def commit_report_layout(job_id: str, template: list, run_id: int | None = None):
+    """Keep artifact page assignments in sync with locally compacted layouts."""
+    by_id = {item["id"]: item for item in template}
+    def change(session):
+        if run_id is not None and int(session.get("active_run_id", 0)) != run_id:
+            return _NO_WRITE
+        session["template"] = template
+        for artifact in session.get("artifacts", []):
+            slot = by_id.get(artifact.get("id"))
+            if slot and (artifact.get("page") is not None or slot.get("page_layout_id")):
+                artifact["page"] = slot["page"]
+                if slot.get("page_layout_id"):
+                    artifact["page_layout_id"] = slot["page_layout_id"]
+    return _mutate(job_id, change)
+
+
 def append_session_files(job_id: str, files: list):
     """Append sources under the row lock, preserving concurrent additions."""
     def change(session):

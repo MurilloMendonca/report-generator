@@ -1,3 +1,4 @@
+import contextvars
 import json
 import os
 import logging
@@ -16,7 +17,9 @@ from app.services.llm.errors import MissingCredentialError, PDFCredentialUnavail
 from app.services.llm.metrics import calculate_metric_value, dataframe_load_line
 from app.services.llm.planning import (
     generate_artifacts,
+    fix_data_filter,
     generate_data_filter,
+    ADDED_NARRATIVE_REASON,
     generate_document_insights,
     generate_document_insights_from_pdf_file,
     generate_report_title,
@@ -25,7 +28,7 @@ from app.services.llm.planning import (
 from app.services.llm.script import assemble_script, fix_script
 from app.services.llm.texts import condense_texts_to_fit, generate_all_texts
 from app.utils.model_config import DEFAULT_MODEL_NAME, DEFAULT_PROVIDER
-from app.services.session_manager import add_log, append_stage_event, commit_generated_components, finish_report_review, get_report_owner, get_session, is_current_session_run, reserve_session_run, set_session_stage, update_session
+from app.services.session_manager import add_log, append_stage_event, commit_generated_components, commit_report_layout, finish_report_review, get_report_owner, get_session, is_current_session_run, reserve_session_run, set_session_stage, update_session
 from app.services.report_quality import review_report, review_render_failure
 from app.utils.data_analyzer import extract_metadata
 from app.utils.artifact_validation import validate_report_plan
@@ -36,6 +39,7 @@ from app.utils.semantic_model import build_semantic_model
 from app.utils.narrative_evidence import ground_narrative
 from app.utils.template_library import (
     fit_artifacts_to_template,
+    page_layout_catalog,
     select_layout_template,
     template_constraints,
 )
@@ -396,6 +400,19 @@ def raw_metadata_json(session: dict, include_samples: bool = False) -> str:
 
 
 
+def dataframe_columns(session: dict) -> dict:
+    """Map each dataframe key to its column names, from the raw metadata of tabular files."""
+    columns = {}
+    for file_info in session.get("files", []):
+        artifact = file_info.get("raw_artifact") or file_info.get("artifact") or {}
+        for table in artifact.get("sheets") or [artifact]:
+            key = table.get("dataframe_key") or table.get("filename")
+            names = [column.get("name") for column in table.get("columns") or [] if isinstance(column, dict)]
+            if key and names:
+                columns[key] = names
+    return columns
+
+
 def has_data_filter_decision(data_filter: dict | None) -> bool:
     if not data_filter:
         return False
@@ -479,6 +496,19 @@ def preprocessing_impact(original_path: str, processed_path_value: str) -> dict:
     }
 
 
+# Extra model calls allowed to repair a preprocessing script that fails in the sandbox.
+PREPROCESSING_FIX_ATTEMPTS = 2
+
+
+class PreprocessingScriptError(RuntimeError):
+    """The generated preprocessing code ran in the sandbox and failed."""
+
+    def __init__(self, stderr: str, dataframe_keys: list):
+        super().__init__(stderr or "Falha ao aplicar pré-processamento de dados")
+        self.stderr = stderr or ""
+        self.dataframe_keys = dataframe_keys
+
+
 def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     files = session.get("files", [])
     report_paths = ReportPaths.from_session(session).ensure()
@@ -532,7 +562,12 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     script_path = os.path.join(report_paths.scripts, f"preprocess_{job_id}.py")
     result = execute_script(script, script_path, paths=report_paths)
     if not result["success"]:
-        raise RuntimeError(result["stderr"] or "Falha ao aplicar pré-processamento de dados")
+        keys = [
+            name if index == 0 else f"{name}::{sheet}"
+            for name in output_paths
+            for index, sheet in enumerate(workbook_sheets.get(name, [None]))
+        ]
+        raise PreprocessingScriptError(result["stderr"], keys)
 
     for file_info in files:
         filtered_path = output_paths.get(file_info.get("original_filename"))
@@ -546,7 +581,8 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
             file_info["preprocessing_impact"] = impact
             file_info["filter_impact"] = impact
             impacts[file_info["original_filename"]] = impact
-        elif file_info.get("raw_artifact"):
+        elif file_info.get("raw_artifact") and supported_tabular_path(file_info.get("path", "")):
+            # Documents keep their artifact: it holds the extracted document_insights.
             file_info["artifact"] = file_info["raw_artifact"]
             file_info.pop("preprocessed_path", None)
             file_info.pop("preprocessing_description", None)
@@ -560,6 +596,46 @@ def apply_data_filter(job_id: str, session: dict, data_filter: dict) -> list:
     return files
 
 
+def discard_failed_preprocessing(job_id: str, session: dict, data_filter: dict, error: str) -> list:
+    """Drop preprocessing that still fails and continue with the original tables.
+
+    The report review shows a warning, so a transformation the user asked for is never dropped silently.
+    """
+    add_log(job_id, "Pré-processamento continuou falhando; seguindo com os dados originais.")
+    discarded = {"description": data_filter.get("description", ""), "error": (error or "")[-500:],
+                 "requested_by_user": bool(data_filter.get("requested_by_user", True))}
+    data_filter.clear()
+    data_filter.update({"evaluated": True, "needs_preprocessing": False, "needs_filter": False,
+                        "description": "", "code": "", "discarded": discarded})
+    return clear_data_filter_state(session.get("files", []))
+
+
+def apply_data_filter_with_repairs(job_id: str, run_id: int, session: dict, data_filter: dict, goal: str) -> list | None:
+    """Apply preprocessing, asking the model to repair a failing script a bounded number of times.
+
+    If every attempt fails, the original tables are used and the review warns about it.
+    """
+    provider = session.get("provider", DEFAULT_PROVIDER)
+    model_name = session.get("model_name", DEFAULT_MODEL_NAME)
+    for attempt in range(PREPROCESSING_FIX_ATTEMPTS + 1):
+        try:
+            return apply_data_filter(job_id, session, data_filter)
+        except PreprocessingScriptError as exc:
+            if attempt == PREPROCESSING_FIX_ATTEMPTS:
+                return discard_failed_preprocessing(job_id, session, data_filter, exc.stderr)
+            if not _ensure_current_run(job_id, run_id, "preprocessing_fix"):
+                return None
+            add_log(job_id, f"Pré-processamento falhou; solicitando correção ao modelo ({attempt + 1}/{PREPROCESSING_FIX_ATTEMPTS})...")
+            data_filter["code"] = fix_data_filter(
+                data_filter.get("code", ""), exc.stderr, raw_metadata_json(session), exc.dataframe_keys,
+                prompt=goal, description=data_filter.get("description", ""), columns=dataframe_columns(session),
+                provider=provider, model_name=model_name, settings=session.get("settings"), job_id=job_id,
+            )
+            # Keep the latest code so a later run starts from the repaired version.
+            session = update_session(job_id, {"data_preprocessing": data_filter, "data_filter": data_filter}) or session
+    return None
+
+
 def clear_data_filter_state(files: list) -> list:
     for file_info in files:
         file_info.pop("preprocessed_path", None)
@@ -568,7 +644,7 @@ def clear_data_filter_state(files: list) -> list:
         file_info.pop("filter_description", None)
         file_info.pop("preprocessing_impact", None)
         file_info.pop("filter_impact", None)
-        if file_info.get("raw_artifact"):
+        if file_info.get("raw_artifact") and supported_tabular_path(file_info.get("path", "")):
             file_info["artifact"] = file_info["raw_artifact"]
     return files
 
@@ -587,7 +663,11 @@ def run_pipeline(job_id: str):
     with serialized_pipeline(job_id, "pipeline"):
         session = get_session(job_id) or {}
         with llm_operation_context(job_id=job_id, user_id=get_report_owner(job_id), operation="pipeline", settings=session.get("settings")):
-            _run_pipeline(job_id, run_info["run_id"])
+            token = _OMISSION_ALLOWED.set(True)
+            try:
+                _run_pipeline(job_id, run_info["run_id"])
+            finally:
+                _OMISSION_ALLOWED.reset(token)
 
 
 def _run_pipeline(job_id: str, run_id: int):
@@ -693,7 +773,7 @@ def _run_pipeline(job_id: str, run_id: int):
                 if not _ensure_current_run(job_id, run_id, "preprocessing_plan"):
                     return
                 add_log(job_id, "Avaliando pré-processamento de dados solicitado...")
-                data_filter = generate_data_filter(raw_metadata_json(session), filter_prompt, provider, model_name, settings=session.get('settings'), job_id=job_id)
+                data_filter = generate_data_filter(raw_metadata_json(session), filter_prompt, provider, model_name, settings=session.get('settings'), job_id=job_id, columns=dataframe_columns(session))
                 data_filter["evaluated"] = True
                 session = update_session(job_id, {"data_preprocessing": data_filter, "data_filter": data_filter}) or session
                 has_filter_decision = has_data_filter_decision(data_filter)
@@ -706,7 +786,9 @@ def _run_pipeline(job_id: str, run_id: int):
                 if not _ensure_current_run(job_id, run_id, "preprocessing_apply"):
                     return
                 add_log(job_id, f"Aplicando pré-processamento de dados: {data_filter.get('description', 'transformação ativa')}")
-                files = apply_data_filter(job_id, session, data_filter)
+                files = apply_data_filter_with_repairs(job_id, run_id, session, data_filter, filter_prompt)
+                if files is None:
+                    return
                 session = update_session(job_id, {"files": files, "semantic_model": semantic_model_for(files, session.get("semantic_model")), "data_preprocessing": data_filter, "data_filter": data_filter}) or session
                 files = session.get("files", files)
                 any_new_artifact = True
@@ -734,6 +816,9 @@ def _run_pipeline(job_id: str, run_id: int):
                 max_artifacts_retries = 3
                 if selected_template_id:
                     selected_template = select_layout_template([], selected_template_id, owner_id)
+                page_layouts = page_layout_catalog(owner_id)
+                if is_document_only_session(files):
+                    page_layouts = [design for design in page_layouts if design["graphic_slots"] == 0]
                 for attempt in range(max_artifacts_retries):
                     add_log(job_id, f"Planejando indicadores (Metric, Graphic, Text) - T{attempt+1}...")
                     artifacts = generate_artifacts(
@@ -745,6 +830,8 @@ def _run_pipeline(job_id: str, run_id: int):
                         template_context=template_constraints(selected_template) if selected_template else None,
                         job_id=job_id,
                         semantic_model=session.get("semantic_model") or semantic_model_for(files),
+                        page_layouts=page_layouts,
+                        require_metrics=not is_document_only_session(files),
                     )
                     if isinstance(artifacts, list) and len(artifacts) > 0:
                         validation_context = template_constraints(selected_template) if selected_template else None
@@ -753,7 +840,10 @@ def _run_pipeline(job_id: str, run_id: int):
                             [f.get("artifact") for f in files if f.get("artifact")],
                             validation_context,
                         )
-                        update_session(job_id, {"artifact_validation": validation_issues})
+                        added_texts = [a["id"] for a in artifacts if a.get("reason") == ADDED_NARRATIVE_REASON]
+                        if added_texts:
+                            add_log(job_id, f"Plano sem textos; acrescentando resumo e conclusão: {', '.join(added_texts)}")
+                        update_session(job_id, {"artifact_validation": validation_issues, "omitted_components": []})
                         if validation_issues:
                             add_log(job_id, f"Plano de indicadores validado com {len(validation_issues)} aviso(s).")
                         break
@@ -826,7 +916,10 @@ def _run_pipeline(job_id: str, run_id: int):
                 template_name = selected_template.get("name") if selected_template else "fallback"
                 add_log(job_id, f"Aplicando template de layout: {template_name}...")
                 template = generate_template(visible_artifacts, provider, model_name, template_id=selected_template_id, owner_id=owner_id, page_count=settings.get("page_count"))
-                update_session(job_id, {"template": normalize_template(template)})
+                session = commit_report_layout(job_id, normalize_template(template), run_id=run_id) or session
+                artifacts = session.get("artifacts", artifacts)
+                page_total = max((item.get("page", 1) for item in template), default=1)
+                add_log(job_id, f"Layout distribuído em {page_total} página(s), usando templates por página.")
 
         components = session.get('components', {})
         artifacts, components, fallback_ids = _apply_binding_warning_render_fallbacks(
@@ -1037,6 +1130,55 @@ def _run_script_generation(job_id: str, run_id: int):
         run_execution(job_id, run_id=run_id)
 
 
+# Script repairs tried before a visual that keeps failing is left out of the report.
+COMPONENT_FIX_ATTEMPTS = 1
+# Set while run_pipeline generates the report. Edits the user makes to one component never omit it.
+_OMISSION_ALLOWED = contextvars.ContextVar("omission_allowed", default=False)
+
+
+def omit_components_payload(session: dict, failures: dict) -> dict | None:
+    """Leave failing visuals out so the rest of the report renders; the review warns about each one.
+
+    `failures` maps component id to the reason. Only visual components are omitted, only when
+    another component stays in the layout, and never more than half of the planned visuals.
+    """
+    artifacts = session.get("artifacts") or []
+    visual_ids = {str(a.get("id")) for a in artifacts if a.get("type") in VISUAL_TYPES}
+    failures = {str(k): v for k, v in failures.items() if str(k) in visual_ids}
+    template = normalize_template(session.get("template", []))
+    remaining = [slot for slot in template if str(slot.get("id")) not in failures]
+    omitted = list(session.get("omitted_components") or [])
+    # Never drop more than half of the planned visuals (at least one may go): beyond that the report fails.
+    planned_visuals = len(visual_ids) + len(omitted)
+    if not failures or not remaining or len(omitted) + len(failures) > max(1, planned_visuals // 2):
+        return None
+    for artifact in artifacts:
+        if str(artifact.get("id")) in failures:
+            omitted.append({"id": artifact["id"], "indicator": artifact.get("indicator", ""),
+                            "reason": failures[str(artifact["id"])], "artifact": dict(artifact)})
+    components = {k: v for k, v in (session.get("components") or {}).items() if k not in failures}
+    return {
+        "artifacts": [a for a in artifacts if str(a.get("id")) not in failures],
+        "template": remaining,
+        "components": components,
+        "omitted_components": omitted,
+        "retry_count": 0,
+    }
+
+
+def _omit_and_rerender(job_id: str, run_id: int, session: dict, failures: dict) -> bool:
+    if not _OMISSION_ALLOWED.get():
+        return False
+    payload = omit_components_payload(session, failures)
+    if not payload:
+        return False
+    update_session(job_id, payload)
+    add_log(job_id, f"Componente(s) omitido(s) após falhas repetidas: {', '.join(sorted(failures))}. Consulte a aba Revisão.")
+    if _ensure_current_run(job_id, run_id, "script"):
+        run_script_generation(job_id, run_id=run_id)
+    return True
+
+
 def run_execution(job_id: str, run_id: int | None = None):
     session = get_session(job_id)
     if run_id is None:
@@ -1065,6 +1207,12 @@ def run_execution(job_id: str, run_id: int | None = None):
             review_started = time.perf_counter()
             add_log(job_id, 'Revisando referências, caracteres e conteúdo visível do PDF...')
             review = review_report(session, candidate_pdf, manifest)
+            errors = [item for item in review['issues'] if item['severity'] == 'error']
+            blank_ids = {item.get('component_id') for item in errors if item.get('code') == 'blank_component'}
+            if errors and all(item.get('code') == 'blank_component' for item in errors) and _omit_and_rerender(
+                    job_id, run_id, session, {component_id: "blank" for component_id in blank_ids}):
+                append_stage_event(job_id, 'quality_review', 'end', status='retrying', details={'omitted': sorted(blank_ids)})
+                return
             if not finish_report_review(job_id, run_id, review, candidate_pdf):
                 return
             append_stage_event(job_id, 'quality_review', 'end', status='error' if review['status'] == 'failed' else 'ok',
@@ -1098,6 +1246,10 @@ def run_execution(job_id: str, run_id: int | None = None):
             return
 
         empty_ids = [item['id'] for item in manifest.get('components', []) if item.get('status') == 'empty']
+        if empty_ids and _omit_and_rerender(job_id, run_id, session, {component_id: "empty" for component_id in empty_ids}):
+            append_stage_event(job_id, "render", "end", status="retrying", duration_ms=duration * 1000,
+                               details={"omitted": empty_ids})
+            return
         if empty_ids:
             set_session_stage(job_id, "failed", 100, {
                 "code": "empty_visual", "message": "Há componentes sem dados após os filtros ou cálculos. Revise suas fontes e filtros.",
@@ -1120,6 +1272,12 @@ def run_execution(job_id: str, run_id: int | None = None):
                 return
             if _ensure_current_run(job_id, run_id, "script"):
                 run_script_generation(job_id, run_id=run_id)
+            return
+
+        if failed_component_ids and retries >= COMPONENT_FIX_ATTEMPTS and _omit_and_rerender(
+                job_id, run_id, session, {component_id: "render_error" for component_id in failed_component_ids}):
+            append_stage_event(job_id, "render", "end", status="retrying", duration_ms=duration * 1000,
+                               details={"omitted": sorted(failed_component_ids)})
             return
 
         if retries < max_retries - 1:

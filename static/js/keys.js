@@ -59,13 +59,20 @@ const Keys = {
         heading.textContent = status.label;
         const badge = document.createElement('span');
         badge.className = `badge ${row?.status === 'valid' ? '' : 'badge-warning'}`;
-        badge.textContent = ({ valid: 'Válida', invalid: 'Inválida', unchecked: 'Não verificada' })[row?.status] || 'Sem chave';
+        badge.textContent = !row && status.requires_api_key === false ? 'Sem chave necessária'
+            : ({ valid: 'Válida', invalid: 'Inválida', unchecked: 'Não verificada' })[row?.status] || 'Sem chave';
         heading.append(' ', badge);
         const details = document.createElement('p');
         details.className = 'auth-hint';
         details.textContent = row
             ? `Final ••••${row.key_last4} · ${row.model_count} ${row.model_count === 1 ? 'modelo' : 'modelos'} · Última validação: ${row.last_validated_at ? new Date(row.last_validated_at).toLocaleString('pt-BR') : 'nunca'}`
             : 'Adicione sua chave para usar este provedor.';
+        if (!row && status.requires_api_key === false) {
+            badge.className = 'badge';
+            details.textContent = 'Endpoint disponibilizado pelo administrador. Selecione o modelo nas preferências abaixo.';
+            card.append(heading, details);
+            return card;
+        }
         const form = document.createElement('form');
         form.className = 'account-form';
         const fieldset = document.createElement('fieldset');

@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app import db
 from app.models.db import LayoutTemplate
 from app.utils.pagination import paginate_artifacts
+from app.utils.page_layouts import compact_report_pages, page_designs, select_page_design
 
 from app.utils.layout import (
     CONTENT_BOTTOM_MM,
@@ -287,19 +288,22 @@ def select_layout_template(artifacts: list, template_id: str = None, owner_id=No
 def build_layout_from_template(artifacts: list, template_id: str = None, owner_id=None, page_count: int | None = None) -> list:
     if artifacts and (page_count is not None or any(item.get("page") is not None for item in artifacts)):
         planned = paginate_artifacts(artifacts, page_count)
-        selected = select_layout_template(planned, template_id, owner_id)
-        slots = sanitize_template_slots((selected or {}).get("slots", []))
-        blueprint_pages = sorted({slot["page"] for slot in slots})
+        designs = load_page_layouts(owner_id)
+        if page_count is None:
+            planned = compact_report_pages(planned, designs, template_id)
         layout = []
         for page in sorted({item["page"] for item in planned}):
             items = [item for item in planned if item["page"] == page]
             # Keep the executive summary first and the synthesis last on their pages.
             items.sort(key=lambda item: 0 if item["id"] == "kpi_resumo" else 2 if item["id"] == "kpi_conclusao" else 1)
-            page_slots = []
-            if blueprint_pages:
-                blueprint_page = blueprint_pages[(page - 1) % len(blueprint_pages)]
-                page_slots = [slot for slot in slots if slot["page"] == blueprint_page]
-            layout.extend(_layout_planned_page(items, page, page_slots))
+            design = select_page_design(items, designs, template_id)
+            page_layout = _layout_planned_page(items, page, design["slots"] if design else [])
+            if design:
+                for item in page_layout:
+                    item.update(page_layout_id=design["id"], page_layout_name=design["name"])
+                if len(page_layout) < len(design["slots"]):
+                    page_layout = _fill_unused_page_space(page_layout)
+            layout.extend(page_layout)
         return layout
 
     templates = load_layout_templates(owner_id)
@@ -339,6 +343,49 @@ def build_layout_from_template(artifacts: list, template_id: str = None, owner_i
         assignments.extend(extra)
 
     return assignments
+
+
+def load_page_layouts(owner_id=None) -> list:
+    templates = [{**template, "slots": sanitize_template_slots(template.get("slots", []))}
+                 for template in load_layout_templates(owner_id)]
+    return page_designs(templates)
+
+
+def page_layout_catalog(owner_id=None) -> list:
+    """Planner guidance includes only templates accessible to the report owner."""
+    return [{**design, "slots": [
+        {key: slot[key] for key in ("type", "name", "description", "x", "y", "w", "h")}
+        for slot in design["slots"]
+    ]} for design in load_page_layouts(owner_id)]
+
+
+def _fill_unused_page_space(layout: list) -> list:
+    """Remove empty template bands, expanding retained blocks within the A4 bounds."""
+    bands = []
+    for item in sorted(layout, key=lambda item: item["y"]):
+        top, bottom = item["y"], item["y"] + item["h"]
+        if bands and top <= bands[-1][1] + 5:
+            bands[-1][1] = max(bands[-1][1], bottom)
+        else:
+            bands.append([top, bottom])
+    if not bands:
+        return layout
+    gaps = [(left[1], right[0], right[0] - left[1] - 5) for left, right in zip(bands, bands[1:])]
+    occupied_height = bands[-1][1] - bands[0][0] - sum(gap[2] for gap in gaps)
+    scale = (CONTENT_BOTTOM_MM - CONTENT_TOP_MM) / occupied_height
+
+    def position(value):
+        removed = sum(amount for _, bottom, amount in gaps if value >= bottom)
+        return round(CONTENT_TOP_MM + (value - bands[0][0] - removed) * scale)
+
+    expanded = []
+    for item in layout:
+        block = {**item, "y": position(item["y"]), "h": position(item["y"] + item["h"]) - position(item["y"])}
+        if not any(other is not item and item["y"] < other["y"] + other["h"] and other["y"] < item["y"] + item["h"]
+                   for other in layout):
+            block.update(x=DEFAULT_MARGIN_MM, w=PAGE_WIDTH_MM - 2 * DEFAULT_MARGIN_MM)
+        expanded.append(block)
+    return expanded
 
 
 def _layout_planned_page(artifacts: list, page: int, slots: list) -> list:

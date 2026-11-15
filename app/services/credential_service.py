@@ -169,7 +169,8 @@ def model_catalog(user_id) -> dict:
         row = rows.get(provider)
         # Dev keys remain opt-in and never mask an explicitly invalid user key.
         dev_available = row is None and dev and bool(os.getenv(adapter.env_key))
-        status = row.status if row else "valid" if dev_available else "missing"
+        keyless = not adapter.requires_api_key
+        status = row.status if row else "valid" if dev_available or keyless else "missing"
         enabled = status == "valid"
         models = row.available_models if row and status != "unchecked" else None
         curated = MODEL_CATALOG[provider]
@@ -185,6 +186,7 @@ def model_catalog(user_id) -> dict:
         default = DEFAULT_MODEL_BY_PROVIDER[provider]
         defaults[provider] = default if any(m["id"] == default for m in choices) else (choices[0]["id"] if choices else "")
         statuses[provider] = {"status": status, "enabled": enabled, "label": adapter.label,
+                              "requires_api_key": adapter.requires_api_key,
                               "hint": "" if enabled else "Adicione ou atualize sua chave em Configurações → Chaves.",
                               "settings_url": "/keys"}
     prefs = preferences(user_id)

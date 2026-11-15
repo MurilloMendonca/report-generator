@@ -65,6 +65,20 @@ class TabularRegressionTests(unittest.TestCase):
         self.assertEqual(value, 30)
         self.assertIn("wrong calculation", call.call_args.args[3])
 
+    def test_metric_that_prints_na_is_requested_again(self):
+        path = self.root / "sales.csv"
+        path.write_text("region;sales\nA;10\nB;20\n", encoding="utf-8")
+        na = "print(json.dumps({'value': 'N/A'}))"
+        good = "print(json.dumps({'value': int(dataframes['sales.csv']['sales'].sum())}))"
+        with patch("app.services.llm.client.call_llm", side_effect=[na, good]) as call, \
+                patch("app.services.llm.metrics.time.sleep"):
+            self.assertEqual(calculate_metric_value("[]", {"id": "m_sales"}, {"sales.csv": str(path)}), 30)
+        self.assertIn("printed N/A", call.call_args.args[3])
+        with patch("app.services.llm.client.call_llm", return_value=na) as call, \
+                patch("app.services.llm.metrics.time.sleep"):
+            self.assertEqual(calculate_metric_value("[]", {"id": "m_sales"}, {"sales.csv": str(path)}), "N/A")
+        self.assertEqual(call.call_count, 3)
+
     def test_profiles_all_rows_and_serializes_excel_dates(self):
         path = self.root / "large.csv"
         pd.DataFrame({"value": range(10005)}).to_csv(path, index=False)
@@ -179,6 +193,17 @@ class LlmReliabilityRegressionTests(unittest.TestCase):
                     call_llm("deepseek", None, "system", "user")
                 with self.assertRaises(LLMBudgetError):
                     call_llm("deepseek", None, "system", "user")
+
+    def test_default_report_settings_use_the_server_timeout(self):
+        from app.models.session import ReportSettings
+        from app.services.llm.client import _llm_timeout_seconds
+        settings = ReportSettings().model_dump()
+        with patch.dict(os.environ, {"PDF_REPORT_LLM_TIMEOUT_SECONDS": "180"}):
+            self.assertEqual(_llm_timeout_seconds({"settings": settings}), 180)
+            self.assertEqual(_llm_timeout_seconds({"settings": {**settings, "llm_timeout_seconds": 30}}), 30)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PDF_REPORT_LLM_TIMEOUT_SECONDS", None)
+            self.assertEqual(_llm_timeout_seconds({"settings": settings}), 45)
 
     def test_gemini_background_request_has_http_timeout_and_system_instruction(self):
         client = Mock()

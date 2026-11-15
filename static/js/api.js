@@ -231,6 +231,14 @@ const API = {
         return URL.createObjectURL(blob);
     },
 
+    async getDocxBlob(jobId) {
+        const res = await fetch(`/api/sessions/${encodeURIComponent(jobId)}/docx`, {
+            headers: this.authHeaders()
+        });
+        await this.checkResponse(res, 'Não foi possível exportar o DOCX');
+        return await res.blob();
+    },
+
     async getComponentPreviewObjectUrl(jobId, componentId, version) {
         const res = await fetch(`/api/sessions/${jobId}/components/${encodeURIComponent(componentId)}/preview?v=${version || Date.now()}`, {
             headers: this.authHeaders()

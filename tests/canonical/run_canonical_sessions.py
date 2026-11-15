@@ -1,4 +1,5 @@
 import argparse
+import io
 import json
 import os
 import re
@@ -14,6 +15,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
+from app.services.docx_export import DocxExportError, build_report_docx
 from app.services.pipeline_service import DEFAULT_EXPLORATORY_PROMPT, DEFAULT_SETTINGS, run_pipeline, run_script_generation, summarize_render_manifest
 from app.services.web_helpers import append_refinement_message, process_chat_refinement
 from app.services.session_manager import add_log, create_session, get_session, update_session
@@ -151,6 +153,7 @@ def validate_session(job_id: str, case: dict, artifact_dir: Path | None = None, 
         checks.append(check("pdf_pages_match_template", pdf_page_count(pdf_path) >= max_template_page(session), pdf_page_count(pdf_path)))
         if save_artifacts and artifact_dir:
             artifacts = save_case_artifacts(case, job_id, session, Path(pdf_path), artifact_dir)
+        checks.extend(validate_docx_export(session, manifest, artifact_dir if save_artifacts else None))
 
     checks.append(check("status_completed", "conclu" in session.get("status", "").lower(), session.get("status", "")))
     checks.append(check("has_title", bool(session.get("settings", {}).get("title")), session.get("settings", {}).get("title", "")))
@@ -200,6 +203,8 @@ def validate_session(job_id: str, case: dict, artifact_dir: Path | None = None, 
         "passed": all(item["passed"] for item in checks),
         "checks": checks,
         "render_summary": summarize_render_manifest(manifest or {}),
+        # Visuals the app left out after repeated failures; reported apart from the pass/fail checks.
+        "omitted_components": session.get("omitted_components") or [],
         "llm_usage": session.get("llm_usage", {}),
     }
     if save_artifacts and artifact_dir:
@@ -215,6 +220,41 @@ def validate_component_outcomes(session: dict, manifest: dict | None) -> list[di
     return [
         check("component_manifest_present", manifest is not None, "missing" if manifest is None else "present"),
         check("all_components_rendered", rendered == expected and not invalid, {"missing": sorted(expected - rendered), "invalid": invalid}),
+    ]
+
+
+def validate_docx_export(session: dict, manifest: dict | None, artifact_dir: Path | None = None) -> list[dict]:
+    """The Word export keeps every narrative line editable and every other component as one image."""
+    from docx import Document
+
+    try:
+        data = build_report_docx(session)
+    except DocxExportError as exc:
+        return [check("docx_export", False, exc.as_error_dict())]
+    if artifact_dir:
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        (artifact_dir / "report.docx").write_bytes(data)
+    document = Document(io.BytesIO(data))
+    paragraphs = [p.text for p in document.paragraphs]
+    paragraphs += [p.text for table in document.tables for cell in table._cells for p in cell.paragraphs]
+    outcomes = {item.get("id"): item for item in (manifest or {}).get("components", [])}
+    text_ids = {a.get("id") for a in session.get("artifacts", []) if a.get("type") == "text"}
+    expected_lines, expected_images = [], 0
+    for slot in session.get("template", []):
+        outcome = outcomes.get(slot.get("id"))
+        if outcome is not None and outcome.get("status") != "rendered":
+            continue
+        blocks = (outcome or {}).get("text_blocks") or []
+        if slot.get("id") in text_ids and blocks:
+            expected_lines += [line.strip() for block in blocks for line in str(block.get("text") or "").splitlines() if line.strip()]
+        else:
+            expected_images += 1
+    missing = [line[:60] for line in expected_lines if line not in paragraphs]
+    return [
+        check("docx_export", True, len(data)),
+        check("docx_text_editable", bool(expected_lines) and not missing, {"lines": len(expected_lines), "missing": missing}),
+        check("docx_images_match_visuals", len(document.inline_shapes) == expected_images,
+              {"images": len(document.inline_shapes), "expected": expected_images}),
     ]
 
 

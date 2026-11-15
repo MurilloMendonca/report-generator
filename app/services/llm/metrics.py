@@ -27,6 +27,9 @@ def dataframe_load_line(original_name: str, path: str, indent: str = "") -> str:
     return ""
 
 
+METRIC_ATTEMPTS = 3
+
+
 def calculate_metric_value(
     all_metadata: str,
     artifact: dict,
@@ -52,7 +55,7 @@ def calculate_metric_value(
                 setup_code.append(line)
 
         execution_feedback = ""
-        for attempt in range(3):
+        for attempt in range(METRIC_ATTEMPTS):
             try:
                 code = client.call_llm(provider, model_name, system_instruction, f"{user_prompt}\n\nAttempt: {attempt+1}{execution_feedback}").strip()
                 code = strip_code_fence(code, "python")
@@ -67,10 +70,18 @@ def calculate_metric_value(
 
                     if result["success"]:
                         output = result["stdout"].strip()
-                        for payload in reversed(extract_json_objects(output)):
+                        payload = next((item for item in reversed(extract_json_objects(output)) if "value" in item), None)
+                        if payload is not None:
                             val = normalize_metric_value(payload.get("value"))
-                            if "value" in payload:
+                            # An N/A often hides a wrong column or key; ask again before accepting it.
+                            if val != "N/A" or attempt == METRIC_ATTEMPTS - 1:
                                 return val
+                            execution_feedback = (
+                                "\nThe previous script printed N/A. Check every dataframe key and column against the "
+                                "Data Artifacts and calculate the value from the full data. Keep N/A only if the data "
+                                "really has no values for this metric."
+                            )
+                            continue
 
                     execution_feedback = f"\nPrevious execution failed: {(result.get('stderr') or result.get('stdout') or 'No JSON value was printed')[-1500:]}\nCorrect the script using this error."
                     logger.warning(

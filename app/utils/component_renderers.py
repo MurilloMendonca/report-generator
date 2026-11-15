@@ -266,8 +266,24 @@ def sandbox_runtime_source() -> str:
         return CHART_THEME.get('color_mode') == 'monochrome'
 
 
-    def _apply_chart_theme(fig, ax=None, theme=None):
-        theme = theme or CHART_THEME
+    def _coerce_theme(theme):
+        # Generated code sometimes passes a theme id such as 'executive_clean' instead of the theme dict.
+        if isinstance(theme, str):
+            return VISUAL_THEMES.get(theme) or CHART_THEME
+        return theme if isinstance(theme, dict) and theme else CHART_THEME
+
+
+    def _apply_chart_theme(fig=None, ax=None, theme=None, **_ignored):
+        # Tolerate the call shapes generated code uses: a theme id in place of fig or ax, or no arguments.
+        if isinstance(fig, (str, dict)):
+            fig, theme = None, theme or fig
+        if isinstance(ax, (str, dict)):
+            ax, theme = None, theme or ax
+        if fig is not None and not hasattr(fig, 'savefig') and hasattr(fig, 'figure'):
+            fig, ax = fig.figure, ax or fig  # An Axes passed where the figure was expected.
+        if fig is None:
+            fig = ax.figure if ax is not None else plt.gcf()
+        theme = _coerce_theme(theme)
         fig.patch.set_facecolor(theme.get('figure_facecolor', '#ffffff'))
         axes = fig.axes if ax is None else [ax]
         for axis in axes:
@@ -315,16 +331,22 @@ def sandbox_runtime_source() -> str:
             return _format_compact_number(value)
         try:
             number = float(value)
-            if fmt in {'percent', 'percentage', '%'}:
-                return f'{number:.1%}'
-            if fmt == 'currency':
-                return f'{number:,.2f}'
-            return format(number, fmt)
         except (TypeError, ValueError):
             raise VisualBindingError('Unsupported numeric format')
+        if fmt in {'percent', 'percentage', '%'}:
+            return f'{number:.1%}'
+        if fmt == 'currency':
+            return f'{number:,.2f}'
+        try:
+            # Accept both format specs (',.0f') and str.format templates ('{:.2f}', 'R$ {:,.0f}').
+            return str(fmt).format(number) if '{' in str(fmt) else format(number, str(fmt))
+        except (TypeError, ValueError, KeyError, IndexError):
+            # A cosmetic option the renderer cannot apply must not drop the whole visual.
+            return _format_compact_number(value)
 
 
-    def _top_n_with_others(df, category_col, value_col, top_n=10, others_label='Others'):
+    def _top_n_with_others(df, category_col, value_col, top_n=10, others_label='Others', n=None, **_ignored):
+        top_n = n if n is not None else top_n
         if df is None or df.empty or category_col not in df.columns or value_col not in df.columns:
             return pd.DataFrame(columns=[category_col, value_col])
         grouped = df.groupby(category_col, dropna=False)[value_col].sum().reset_index()
@@ -519,8 +541,8 @@ def sandbox_runtime_source() -> str:
 
 
     def _render_table_image(pdf, dataframe, x, y, w, h, title=None, theme=None, options=None):
-        options = options or {}
-        theme = theme or CHART_THEME
+        options = options if isinstance(options, dict) else {}
+        theme = _coerce_theme(theme)
         table_theme = dict(theme.get('table', {}))
         if isinstance(options.get('table_theme'), dict):
             table_theme.update(options.get('table_theme'))

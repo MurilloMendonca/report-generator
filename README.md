@@ -9,16 +9,16 @@ The current UI text is mostly Portuguese, and the default report language is Por
 1. Accepts one or more CSV/XLS/XLSX files plus optional PDF context files.
    The report objective is optional; blank prompts generate an exploratory report. The optional **Número de páginas** field accepts 1–50 pages. Leave it blank for the AI to choose a useful report length from the objective and evidence.
 2. Extracts metadata from each dataset: shape, columns, null counts, unique counts, numeric stats, and sample rows. Excel sheets keep separate dataframe keys. When a report has several tables, the app checks which columns link them on the actual values (see "Relationships between tables") and gives those verified relationships to the planner, metric code, component code and explorer.
-3. Detects optional data preprocessing requests before analysis. This step can filter rows, create calculated columns, normalize values, aggregate records, or otherwise prepare tabular data once for all downstream metrics and components.
+3. Detects optional data preprocessing requests before analysis. This step can filter rows, create calculated columns, normalize values, aggregate records, or otherwise prepare tabular data once for all downstream metrics and components. If the generated function fails in the sandbox, the LLM receives the traceback and the exact dataframe keys and returns a repaired function, up to two times. If the goal did not ask for the transformation (`requested_by_user: false`) and the last repair still fails, the pipeline continues with the original tables.
 4. Sends metadata and the user objective to an LLM to plan report artifacts:
    - `metric`: calculated values used by narrative text.
    - `graphic`, `bar`, `line`, `pie`, `scatter`, `table`, `chart`: visual PDF components.
    - `text`: narrative report sections.
-5. Calculates metric artifacts by asking the LLM for short Python snippets, executing them, and storing the returned values.
-6. Plans content across the requested number of pages (or lets the AI decide), then builds A4 layouts with millimeter coordinates. Reuses or adapts the selected blueprint on each page, with no empty planned pages or discarded components.
+5. Calculates metric artifacts by asking the LLM for short Python snippets, executing them, and storing the returned values. A script that prints `N/A` is asked for again with feedback; N/A is accepted only on the last of three attempts.
+6. Gives the AI the accessible template pages, including text/visual capacities and slot sizes, to plan content and suggest a template base for each page. Automatic length packs consecutive content into the fewest fitting template pages and balances their density; a supplied page count stays fixed. Each page can use a different base, and unused template rows and columns are reclaimed without discarding components.
 7. Uses the component library for standard visuals, generates Python functions for custom visuals, and generates a shared text response for narrative components. Narratives receive the accepted report objective and analysis plan alongside calculated evidence.
 8. Assembles a standalone Python report script, executes it in a bubblewrap sandbox, and reviews a candidate PDF before publishing it. The Revisão tab lists per-component findings and metric references. Errors preserve the last published PDF; uncertain evidence is published with warnings. Reviews use deterministic checks without extra LLM calls.
-9. Repairs recoverable script errors with the LLM and retries up to five times. Quality failures require reviewing the affected component instead of spending additional model calls.
+9. Repairs recoverable script errors with the LLM and retries up to five times. When the failure is limited to specific visuals (a render error after one repair, a visual with no data, or a visual the review finds blank), those visuals are left out, the rest of the report is rendered, and the Revisão tab warns about each omitted component (`omitted_components` in the session). Text components are never omitted, nor is the last component of a report. Other quality failures require reviewing the affected component instead of spending additional model calls.
 
 Narratives can cite calculated values with JSON-pointer references such as `{{metric:/revenue/value|number:2}}`. References resolve to the actual value, with rounding only; they do not change scales. The review detects changed values/units/periods, unavailable references, currency/percentage mismatches, missing components and text, unsupported glyphs, and blank PDF regions. Chart and table helpers compare the final bitmap with a draw without text to catch invisible labels. Unreferenced numbers, shortened content, and custom renderers without those checks are flagged for human review. These checks do not verify causal interpretations or the meaning of arbitrary custom graphics. Standard PDF font choices use embedded DejaVu equivalents, preserving `€`, `£`, accents, and punctuation; fitting uses the same font metrics.
 
@@ -38,7 +38,8 @@ Owners can list and revoke individual links. Copy a new address when it is creat
 - PDF rendering: fpdf2
 - LLM providers:
   - Google Gemini via `google-genai`
-  - DeepSeek via OpenAI-compatible client
+  - Anthropic via `anthropic`
+  - DeepSeek, OpenAI, OpenRouter and configured local/custom endpoints via the OpenAI-compatible client
 - Generated-code isolation: bubblewrap (`bwrap`)
 - Frontend: static HTML/CSS/JavaScript
 - Database: PostgreSQL 17 via SQLAlchemy 2 (sync) and psycopg 3; schema migrations with Alembic
@@ -151,7 +152,56 @@ python -m app.cli import-legacy --owner you@example.com --workspace templates
 
 The account must already exist. This uses the existing template importer: built-ins remain shared, saved layouts belong to the selected account, and existing custom template IDs are skipped. Saving edits in the browser changes Postgres; update the versioned JSON separately when you want those edits included in Git. Saving an edited built-in creates a personal copy.
 
-## Setup
+## Quick local setup (Docker)
+
+With Docker Compose and OpenSSL installed:
+
+```bash
+sh scripts/local.sh init
+# Edit .env.local: set the endpoint URL and exact model IDs installed in your LLM server.
+sh scripts/local.sh up
+```
+
+Open **http://localhost:8000** and sign in as **local@example.com** with the password printed on the first startup. The account is already verified; SMTP and Cloudflare are not needed. Under **Conta → Modelos de IA**, choose the local model as your default. You can also add hosted-provider keys there.
+
+The launcher generates database and encryption secrets in the ignored `.env.local`, builds the app with bubblewrap, starts Postgres, waits for the app, and creates the local account. It uses a separate `repgen-local` Compose project with its own persistent database and workspace volumes. Your production `.env`, database and `workspace/` are separate. Keep `.env.local` to retain access to encrypted keys across restarts. Set `LOCAL_PORT` there if port 8000 is occupied.
+
+```bash
+sh scripts/local.sh logs -f app
+sh scripts/local.sh down       # Keeps reports, accounts and keys in the local volumes.
+sh scripts/local.sh up         # Rebuilds/recreates the app after code or config changes.
+sh scripts/local.sh exec app python -m app.cli set-password --email local@example.com
+```
+
+The example endpoint is **Ollama** at `http://host.docker.internal:11434/v1`, with `llama3.1:8b` as an example model ID. Install/load a model separately in your LLM server and update `models` accordingly; the launcher does not install models. For **LM Studio**, use `http://host.docker.internal:1234/v1` and its loaded model ID. Both expose compatible chat-completions APIs ([Ollama](https://docs.ollama.com/api/openai-compatibility), [LM Studio](https://lmstudio.ai/docs/developer/openai-compat)).
+
+The endpoint is contacted by the app container: `localhost` would refer to that container. `host.docker.internal` is configured for Docker Desktop and Linux Docker Engine. On Linux, a host LLM server listening only on `127.0.0.1` must also listen on an interface reachable from Docker; keep access restricted to your machine/Docker network. For another machine, use its reachable hostname/IP instead. Local model calls default to a 180-second timeout and run in the existing background jobs.
+
+## Custom LLM endpoints (local or production)
+
+Set `PDF_REPORT_LLM_ENDPOINTS` to a JSON array in `.env` (or `.env.local` for the local launcher). Each entry becomes a named provider in the existing model selectors. The endpoint must support **`POST <base_url>/chat/completions`**. Authenticated endpoints also need **`GET <base_url>/models`** for key validation/discovery. Include `/v1` or any other API prefix in `base_url`, without the `/chat/completions` suffix.
+
+```dotenv
+PDF_REPORT_LLM_ENDPOINTS='[{"id":"office","label":"Office inference","base_url":"https://inference.example.com/v1","models":["org/report-model"],"default_model":"org/report-model","requires_api_key":true,"json_mode":false},{"id":"local","label":"Local Ollama","base_url":"http://host.docker.internal:11434/v1","models":["llama3.1:8b"],"requires_api_key":false}]'
+```
+
+- `id`: unique lowercase provider ID, up to 40 letters/digits/underscores/hyphens, starting with a letter. Keep it stable: saved reports, keys and preferences refer to it. Built-in provider IDs cannot be replaced.
+- `label`, `base_url`, `models`: display name, API base URL, and a nonempty array of exact model IDs. The first model is the default unless `default_model` names another listed model. Key validation can discover additional models from the endpoint.
+- `requires_api_key`: defaults to `true`. Each account saves its own key under **Conta → Modelos de IA**; the existing encryption, ownership, usage limits and retries apply. `false` explicitly makes an unauthenticated endpoint available to signed-in users without saving a dummy key. The SDK sends a non-secret placeholder bearer value.
+- `json_mode`: defaults to `false`, using the existing JSON prompt contracts. Enable it only if the server/model supports `response_format: {"type":"json_object"}`. Models still need enough context and instruction/code-generation capability to satisfy the report contracts.
+
+Restart/recreate the app after changing this configuration (`sh scripts/local.sh up` locally, `docker compose up -d --build` in production). Invalid configuration stops startup without echoing its contents. Endpoint URLs are operator configuration; account holders cannot choose arbitrary server URLs. URLs cannot contain embedded credentials, query strings or fragments. In production use a reachable deployment hostname, private service name or HTTPS endpoint; `localhost` refers to the production app/container, not your laptop. For host endpoints in production Docker, add an appropriate `extra_hosts` mapping or use a reachable service address.
+
+Production authenticated endpoints use account-owned keys. The development env-key fallback remains forbidden in production. For host-based development with that fallback enabled, a custom provider ID such as `office-llm` reads `OFFICE_LLM_API_KEY`. The server does not automatically use OpenAI's `OPENAI_BASE_URL` to redirect built-in providers.
+
+Custom chat endpoints currently handle text and tabular data; direct PDF document input still requires an account key for a PDF-capable Gemini or Anthropic model. Model listing can be checked without generating a report:
+
+```bash
+python list_models.py --provider office  # Prompts for a key; keyless endpoints skip the prompt.
+sh scripts/local.sh exec app python list_models.py --provider local  # Uses .env.local inside the local stack.
+```
+
+## Setup (host development)
 
 Create a Python 3.12 virtual environment and install the locked dependency set:
 
@@ -219,6 +269,7 @@ All settings are environment variables (`.env` is loaded automatically).
 | `CLOUDFLARE_ACCESS_ISSUER` / `CLOUDFLARE_ACCESS_AUD` | unset | Team origin (`https://TEAM.cloudflareaccess.com`) and Access application audience for admin pages/APIs. Required for production admin access; signature and matching account email are verified. |
 | `PDF_REPORT_REQUIRE_CLOUDFLARE_ACCESS` | `0` locally | Require Access verification in development too. Production always requires it for admin routes. |
 | `APP_ENV` | `development` | `development`, `dev`, `local`, or `test` relax the checks below; anything else is production. |
+| `PDF_REPORT_LLM_ENDPOINTS` | `[]` | Operator-defined OpenAI-compatible providers; JSON array of `id`, `label`, `base_url`, `models`, optional `default_model`, `requires_api_key` (true), `json_mode` (false). Loaded at process startup; see custom endpoint setup above. |
 | `PUBLIC_BASE_URL` | `http://localhost:8000` (compose: `https://repgen.gengardev.com.br`) | Base of the links in emails. |
 | `PDF_REPORT_SIGNUP_MODE` | `closed` | `open` lets anyone create an account; `closed` means accounts only come from `python -m app.cli create-user`. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` | unset, `587` | Outgoing email. Port 465 uses implicit TLS; other ports use STARTTLS (`SMTP_STARTTLS=0` turns it off). Without `SMTP_HOST`, emails go to the log. |
@@ -249,7 +300,7 @@ All settings are environment variables (`.env` is loaded automatically).
 | `PDF_REPORT_MAX_EXCEL_SHEETS` | `20` | Sheets allowed per Excel workbook. |
 | `PDF_REPORT_CLIENT_IP_HEADER` | unset (compose: `CF-Connecting-IP`) | Header holding the real client address behind a proxy. Used only for requests from a trusted proxy. |
 | `PDF_REPORT_TRUSTED_PROXIES` | unset (compose: Docker's gateway networks) | Comma-separated hostnames, IPs or CIDR ranges whose `PDF_REPORT_CLIENT_IP_HEADER` is believed. |
-| `PDF_REPORT_LLM_TIMEOUT_SECONDS` | `45` | Timeout per LLM call. Report settings can override it. |
+| `PDF_REPORT_LLM_TIMEOUT_SECONDS` | `45` | Timeout per LLM call. A report's `llm_timeout_seconds` setting overrides it when greater than 0 (the default is 0). |
 | `PDF_REPORT_LLM_CALL_BUDGET` | `0` (unlimited) | Maximum LLM calls per top-level operation. Report settings can override it. |
 
 Fallback provider/model settings are account preferences on `/keys`; the old `PDF_REPORT_LLM_FALLBACK_*` variables are ignored. Scanned PDFs use the owner's selected PDF-capable model or another valid PDF-capable key on that account. Direct PDF input is implemented for Gemini and Anthropic. If none exists, the app skips extraction for that file and records a visible note. PDFs with extracted text work with any provider.
@@ -403,15 +454,15 @@ The pipeline starts from `POST /api/sessions` and runs in a FastAPI background t
 
 1. `start_session` (`app/routers/api.py`) creates the report's folder under `workspace/tenants/`, saves the uploads into its `uploads/`, and stores its session document in Postgres with the folder recorded as `storage_dir`.
 2. `run_pipeline` (`pipeline_service.py`) enriches missing file artifacts through `extract_metadata`.
-3. If the goal asks to transform data first, `generate_data_filter` asks the LLM for a `preprocess_dataframes(dataframes)` function. The app executes it once and writes CSV outputs under `workspace/filtered`.
-4. `generate_artifacts` asks the LLM for report component definitions using the raw or preprocessed metadata.
+3. If the goal asks to transform data first, `generate_data_filter` asks the LLM for a `preprocess_dataframes(dataframes)` function. The app executes it once and writes CSV outputs under `workspace/filtered`. On a sandbox failure, `fix_data_filter` (prompt `FIX_DATA_FILTER.md`) repairs the function up to `PREPROCESSING_FIX_ATTEMPTS` (2) times; the latest code is saved in `data_preprocessing`. When the plan has `requested_by_user: false` (a missing flag counts as requested) and every repair fails, the step is dropped: `data_preprocessing` is marked as not needed, keeps the failure under `discarded`, and the report uses the original tables.
+4. `generate_artifacts` asks the LLM for report component definitions using the raw or preprocessed metadata. When tabular data is present and the plan has no metric, it asks once or twice more; a plan with visuals but no text gets `kpi_resumo` and `kpi_conclusao` added before pagination.
 5. `calculate_metric_value` executes generated metric scripts and stores `calculated_metrics`.
 6. The layout stage selects a saved template or normalizes the generated layout into A4 coordinates.
 7. `generate_component_code` creates Python render functions for charts/tables.
 8. `generate_all_texts` creates all narrative text in one LLM response for consistency.
 9. `assemble_script` combines imports, helper functions, component functions, data loading, layout calls, and PDF output.
 10. `execute_script` writes the generated script under `workspace/scripts` and runs it in the sandbox.
-11. `run_execution` stores the PDF version on success or calls `fix_script` and retries on failure.
+11. `run_execution` stores the PDF version on success or calls `fix_script` and retries on failure. After `COMPONENT_FIX_ATTEMPTS` (1) repair, visuals that still fail are omitted as described above.
 
 Preprocessed files are treated as the analytical input for all metrics and components, while the original upload remains available in the file workspace.
 
@@ -545,6 +596,7 @@ Reports:
 - `PUT /api/sessions/{job_id}/settings`: updates report settings plus provider/model. A language change queues workspace translation as a background job and returns `{"status": "queued", "translating": true}`; the session shows `current_step: "translating"` until it finishes.
 - `POST /api/sessions/{job_id}/regenerate`: regenerates `texts`, `graphics`, one `component`, or `all` using the current provider/model/settings.
 - `GET /api/sessions/{job_id}/pdf`: downloads or previews the generated PDF.
+- `GET /api/sessions/{job_id}/docx`: exports the published report as a Word document. Narrative blocks become editable paragraphs (from the render manifest); charts, tables and custom components are cropped from the published PDF with `pdftoppm`, so they look the same. Side-by-side components share a table row; PDF pages become one continuous document. Built on request, never stored.
 - `GET /api/sessions/{job_id}/components/{component_id}/preview`: renders a single component to a small PDF.
 - `POST /api/sessions/{job_id}/components/{component_id}/edit`: queues a targeted component edit (202). Accepts an optional artifact definition, plain text, custom code, AI instruction, regeneration flag and base PDF version. Poll the session's `component_edit` status; concurrent or stale edits receive 409. Failed edits preserve the previous report.
 - `GET/POST /api/sessions/{job_id}/share-links`: list the owner's links or create one (`label`, `expires_in_hours`; null means no expiration, default 168). A new address is returned only at creation.
@@ -609,8 +661,8 @@ Sessions are normalized by `app/models/session.py` and stored as JSONB in `repor
 - `current_goal`: initial prompt plus refinement history.
 - `is_exploratory`: true when the initial prompt was blank and the default exploratory objective was used.
 - `refinement_history`: list of chat refinement prompts.
-- `artifacts`: LLM-planned report components, with a 1-based `page` for each visible component in new plans.
-- `template`: positioned component blocks with a 1-based `page` and `x`, `y`, `w`, and `h` in millimeters.
+- `artifacts`: LLM-planned report components, with a 1-based `page` and a suggested `page_layout_id` for each visible component in new plans. Page assignments are synchronized after local compaction.
+- `template`: positioned component blocks with a 1-based `page` and `x`, `y`, `w`, and `h` in millimeters. Automatically laid-out blocks record their `page_layout_id` and `page_layout_name`.
 - `components`: generated Python render functions keyed by artifact ID.
 - `component_edit`: latest targeted edit status (`queued`, `running`, `rendering`, `completed`, or `failed`). The session API also derives `component_texts` for plain-text editing without executing generated functions.
 - `calculated_metrics`: metric ID to calculated value.
@@ -698,7 +750,7 @@ After starting a session, the UI polls every two seconds until the status indica
 
 File cards support drag-and-drop uploads, preview, download, and removal. When preprocessing produced a derived CSV, the file modal exposes tabs for `Original` and `Pré-processado`, and download uses the selected variant.
 
-The settings panel can switch provider/model for future generation. The regeneration actions update only texts, only graphics, or the full report. Changing **Número de páginas**, including clearing it to restore automatic length, replans the full report in a background job. Manual layout edits must keep content on every requested page; change the page-count setting to use a different length.
+The settings panel can switch provider/model for future generation. The regeneration actions update only texts, only graphics, or the full report. Changing **Número de páginas**, including clearing it to restore automatic length, replans the full report in a background job. Manual layout edits must keep content on every requested page; change the page-count setting to use a different length. Use **Atualizar tudo** to apply template-based page packing to an existing report. Saved manual layouts remain in place during text or graphic updates.
 
 The Content-Security-Policy allows scripts only from the app's own origin, so inline `<script>` blocks and `on*=` attributes don't run. Keep browser code in `static/js/`.
 
@@ -716,6 +768,8 @@ The Content-Security-Policy allows scripts only from the app's own origin, so in
 - Writes the PDF to the owner's report folder at `workspace/tenants/{owner_id}/reports/{job_id}/output/`.
 
 Visual components are expected to render themselves as temporary matplotlib images and insert them into the PDF.
+
+The workspace's **Download DOCX** button exports the same report to Word (`app/services/docx_export.py`). The export runs on the host and never executes generated code: it reads the published PDF and its manifest through the same descriptor-safe opening as downloads, rasterizes the pages that hold visuals, and crops each slot. Text components rendered by custom code, or reports without a manifest, are exported as images too.
 
 ## Security Notes
 
